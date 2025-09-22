@@ -189,8 +189,6 @@
       accelTime: 0.32,     // 0 → 正常移动速度所需时间（秒）
       decelTime: 0.32,      // 正常移动速度 → 0 所需时间（秒）
       maxSpeedScale: 1.1, // 允许的速度上限倍率，给予一点惯性裕度
-     // startBoost: 0.58,    // 刚起步时给一个轻微的速度助推，减少“起步肉感”
-     // startBoostThreshold: 0.42, // 低于该比例速度时触发起步助推
     }, // fireCd 毫秒
     enemy: {
       baseHP: 2,
@@ -893,9 +891,31 @@
   }
 
   const keys = new Set();
+  const keyOrder = new Map();
+  let keyOrderTick = 0;
+  function markKeyOrder(code){
+    keyOrderTick += 1;
+    keyOrder.set(code, keyOrderTick);
+  }
+  function resolveAxis(negative, positive){
+    const negDown = keys.has(negative);
+    const posDown = keys.has(positive);
+    if(negDown && posDown){
+      const negOrder = keyOrder.get(negative) ?? -Infinity;
+      const posOrder = keyOrder.get(positive) ?? -Infinity;
+      if(negOrder === posOrder) return 0;
+      return negOrder > posOrder ? -1 : 1;
+    }
+    if(negDown) return -1;
+    if(posDown) return 1;
+    return 0;
+  }
   function processKeyDown(code){
     const firstPress = !keys.has(code);
     keys.add(code);
+    if(firstPress){
+      markKeyOrder(code);
+    }
     if(!firstPress) return;
     if(state===STATE.MENU && code==='Enter') startGame();
     if(state===STATE.PLAY && code==='KeyP') togglePause();
@@ -907,6 +927,7 @@
   }
   function processKeyUp(code){
     keys.delete(code);
+    keyOrder.delete(code);
   }
   window.addEventListener('keydown', (e)=>{
     if(isTypingTarget(e)) return;
@@ -1701,57 +1722,39 @@
       this.accelTime = CONFIG.player.accelTime ?? 0.6;
       this.decelTime = CONFIG.player.decelTime ?? 0.6;
       this.maxSpeedScale = CONFIG.player.maxSpeedScale ?? 1.1;
-      this.startBoost = clamp(CONFIG.player.startBoost ?? 0, 0, 1);
-      this.startBoostThreshold = clamp(CONFIG.player.startBoostThreshold ?? this.startBoost ?? 0, 0, 1);
     }
     update(dt){
       this.bombCooldown = Math.max(0, this.bombCooldown - dt);
       const startX = this.x;
       const startY = this.y;
-      const mv = {x:0,y:0};
-      if(keys.has('KeyW')) mv.y -= 1;
-      if(keys.has('KeyS')) mv.y += 1;
-      if(keys.has('KeyA')) mv.x -= 1;
-      if(keys.has('KeyD')) mv.x += 1;
+      const rawMoveX = resolveAxis('KeyA','KeyD');
+      const rawMoveY = resolveAxis('KeyW','KeyS');
+      let mv = {x:0,y:0};
+      if(rawMoveX !== 0 || rawMoveY !== 0){
+        const len = Math.hypot(rawMoveX, rawMoveY) || 1;
+        mv.x = rawMoveX / len;
+        mv.y = rawMoveY / len;
+      }
       const accelTime = Math.max(0, this.accelTime ?? CONFIG.player.accelTime ?? 0.6);
       const decelTime = Math.max(0, this.decelTime ?? CONFIG.player.decelTime ?? 0.6);
       const maxSpeedScale = (this.maxSpeedScale ?? CONFIG.player.maxSpeedScale ?? 1.1);
-      const len = Math.hypot(mv.x,mv.y);
-      if(len>0){
-        const nx = mv.x/len;
-        const ny = mv.y/len;
-        this.moveDir.x = nx;
-        this.moveDir.y = ny;
+      const accelRate = accelTime > 0 ? (this.speed / accelTime) : Infinity;
+      const approachAxis = (current, target, rate)=>{
+        if(!Number.isFinite(rate) || rate <= 0) return target;
+        const maxStep = rate * dt;
+        if(!Number.isFinite(maxStep) || maxStep <= 0) return target;
+        const delta = target - current;
+        if(Math.abs(delta) <= maxStep) return target;
+        return current + Math.sign(delta) * maxStep;
+      };
+      if(mv.x !== 0 || mv.y !== 0){
+        this.moveDir.x = mv.x;
+        this.moveDir.y = mv.y;
         const targetSpeed = this.speed;
-        const targetX = nx * targetSpeed;
-        const targetY = ny * targetSpeed;
-        const currentSpeed = Math.hypot(this.vel.x, this.vel.y);
-        if(this.startBoost>0){
-          const threshold = targetSpeed * this.startBoostThreshold;
-          if(currentSpeed < threshold){
-            const boostSpeed = targetSpeed * this.startBoost;
-            this.vel.x = nx * boostSpeed;
-            this.vel.y = ny * boostSpeed;
-          }
-        }
-        const dx = targetX - this.vel.x;
-        const dy = targetY - this.vel.y;
-        const delta = Math.hypot(dx, dy);
-        const accelRate = accelTime > 0 ? (this.speed / accelTime) : Infinity;
-        if(delta <= 1e-6 || !Number.isFinite(accelRate) || accelRate <= 0){
-          this.vel.x = targetX;
-          this.vel.y = targetY;
-        }else{
-          const maxDelta = accelRate * dt;
-          if(delta <= maxDelta){
-            this.vel.x = targetX;
-            this.vel.y = targetY;
-          }else{
-            const scale = maxDelta / delta;
-            this.vel.x += dx * scale;
-            this.vel.y += dy * scale;
-          }
-        }
+        const targetX = mv.x * targetSpeed;
+        const targetY = mv.y * targetSpeed;
+        this.vel.x = approachAxis(this.vel.x, targetX, accelRate);
+        this.vel.y = approachAxis(this.vel.y, targetY, accelRate);
       } else {
         const vmag = Math.hypot(this.vel.x, this.vel.y);
         if(vmag>1e-3){
@@ -1765,20 +1768,8 @@
           const basePlayerSpeed = CONFIG && CONFIG.player ? CONFIG.player.speed : 0;
           const decelRef = Math.max(this.speed, basePlayerSpeed || 0, vmag);
           const decelRate = decelTime > 0 ? (decelRef / decelTime) : Infinity;
-          if(!Number.isFinite(decelRate) || decelRate <= 0){
-            this.vel.x = 0;
-            this.vel.y = 0;
-          }else{
-            const decelAmount = decelRate * dt;
-            if(vmag <= decelAmount){
-              this.vel.x = 0;
-              this.vel.y = 0;
-            }else{
-              const scale = (vmag - decelAmount) / vmag;
-              this.vel.x *= scale;
-              this.vel.y *= scale;
-            }
-          }
+          this.vel.x = approachAxis(this.vel.x, 0, decelRate);
+          this.vel.y = approachAxis(this.vel.y, 0, decelRate);
         }
       }
       const maxSpeed = this.speed * maxSpeedScale;
