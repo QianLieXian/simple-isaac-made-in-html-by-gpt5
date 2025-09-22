@@ -186,8 +186,8 @@
       fireCd: 360,
       tearSpeed: 230,
       tearLife: 0.65,
-      friction: 3.15,      // 基础滑行阻力（越小越滑）
-      accelFactor: 1.02,  // 加速效率（=1 时稳态速度约等于 speed）
+      accelTime: 0.6,      // 0 → 正常移动速度所需时间（秒）
+      decelTime: 0.6,      // 正常移动速度 → 0 所需时间（秒）
       maxSpeedScale: 1.1, // 允许的速度上限倍率，给予一点惯性裕度
     }, // fireCd 毫秒
     enemy: {
@@ -1696,8 +1696,8 @@
       this.lastDisplacement = {x:0,y:0};
       this.lastVelocity = {x:0,y:0};
       this.vel = {x:0,y:0};
-      this.moveFriction = CONFIG.player.friction ?? 3.15;
-      this.accelFactor = CONFIG.player.accelFactor ?? 1.0;
+      this.accelTime = CONFIG.player.accelTime ?? 0.6;
+      this.decelTime = CONFIG.player.decelTime ?? 0.6;
       this.maxSpeedScale = CONFIG.player.maxSpeedScale ?? 1.1;
     }
     update(dt){
@@ -1709,21 +1709,36 @@
       if(keys.has('KeyS')) mv.y += 1;
       if(keys.has('KeyA')) mv.x -= 1;
       if(keys.has('KeyD')) mv.x += 1;
-      const friction = (this.moveFriction ?? CONFIG.player.friction ?? 3.15);
-      const accelFactor = (this.accelFactor ?? CONFIG.player.accelFactor ?? 1.0);
+      const accelTime = Math.max(0, this.accelTime ?? CONFIG.player.accelTime ?? 0.6);
+      const decelTime = Math.max(0, this.decelTime ?? CONFIG.player.decelTime ?? 0.6);
       const maxSpeedScale = (this.maxSpeedScale ?? CONFIG.player.maxSpeedScale ?? 1.1);
-      const decay = Math.exp(-friction * dt);
-      this.vel.x *= decay;
-      this.vel.y *= decay;
       const len = Math.hypot(mv.x,mv.y);
       if(len>0){
         const nx = mv.x/len;
         const ny = mv.y/len;
         this.moveDir.x = nx;
         this.moveDir.y = ny;
-        const accel = this.speed * friction * accelFactor;
-        this.vel.x += nx * accel * dt;
-        this.vel.y += ny * accel * dt;
+        const targetSpeed = this.speed;
+        const targetX = nx * targetSpeed;
+        const targetY = ny * targetSpeed;
+        const dx = targetX - this.vel.x;
+        const dy = targetY - this.vel.y;
+        const delta = Math.hypot(dx, dy);
+        const accelRate = accelTime > 0 ? (this.speed / accelTime) : Infinity;
+        if(delta <= 1e-6 || !Number.isFinite(accelRate) || accelRate <= 0){
+          this.vel.x = targetX;
+          this.vel.y = targetY;
+        }else{
+          const maxDelta = accelRate * dt;
+          if(delta <= maxDelta){
+            this.vel.x = targetX;
+            this.vel.y = targetY;
+          }else{
+            const scale = maxDelta / delta;
+            this.vel.x += dx * scale;
+            this.vel.y += dy * scale;
+          }
+        }
       } else {
         const vmag = Math.hypot(this.vel.x, this.vel.y);
         if(vmag>1e-3){
@@ -1732,6 +1747,25 @@
         } else {
           this.moveDir.x = 0;
           this.moveDir.y = 0;
+        }
+        if(vmag>0){
+          const basePlayerSpeed = CONFIG && CONFIG.player ? CONFIG.player.speed : 0;
+          const decelRef = Math.max(this.speed, basePlayerSpeed || 0, vmag);
+          const decelRate = decelTime > 0 ? (decelRef / decelTime) : Infinity;
+          if(!Number.isFinite(decelRate) || decelRate <= 0){
+            this.vel.x = 0;
+            this.vel.y = 0;
+          }else{
+            const decelAmount = decelRate * dt;
+            if(vmag <= decelAmount){
+              this.vel.x = 0;
+              this.vel.y = 0;
+            }else{
+              const scale = (vmag - decelAmount) / vmag;
+              this.vel.x *= scale;
+              this.vel.y *= scale;
+            }
+          }
         }
       }
       const maxSpeed = this.speed * maxSpeedScale;
