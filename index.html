@@ -237,7 +237,9 @@
       enemyAggression: 1.1,
     },
     combat: {
-      shotInertia: 0.45,
+      shotInertia: 0.32,
+      shotForwardBoost: 0.7,
+      shotLateralInfluence: 0.35,
     },
     portal: {
       radius: 36,
@@ -1796,9 +1798,40 @@
       this.lastVelocity.x = lvx;
       this.lastVelocity.y = lvy;
       if(shotDir){
-        const inertia = CONFIG.combat?.shotInertia ?? 0;
-        const vx = shotDir.x*this.tearSpeed + lvx * inertia;
-        const vy = shotDir.y*this.tearSpeed + lvy * inertia;
+        const combatCfg = CONFIG.combat || {};
+        const carry = combatCfg.shotCarry ?? combatCfg.shotInertia ?? 0;
+        const forwardScale = combatCfg.shotForwardBoost ?? 0;
+        const lateralScale = combatCfg.shotLateralInfluence ?? 0;
+        const forwardSpeed = lvx * shotDir.x + lvy * shotDir.y;
+        let dirX = shotDir.x;
+        let dirY = shotDir.y;
+        if(lateralScale>0){
+          const px = lvx - forwardSpeed * shotDir.x;
+          const py = lvy - forwardSpeed * shotDir.y;
+          const lateralSpeed = Math.hypot(px, py);
+          if(lateralSpeed>1e-4){
+            const refSpeed = maxSpeed>0 ? maxSpeed : lateralSpeed;
+            let influence = lateralScale * (lateralSpeed / refSpeed);
+            influence = clamp(influence, 0, 0.85);
+            const inv = 1 / lateralSpeed;
+            dirX += px * inv * influence;
+            dirY += py * inv * influence;
+            const dlen = Math.hypot(dirX, dirY) || 1;
+            dirX /= dlen;
+            dirY /= dlen;
+          }
+        }
+        let baseSpeed = this.tearSpeed;
+        if(forwardScale!==0){
+          const boost = forwardSpeed * forwardScale;
+          baseSpeed = Math.max(40, baseSpeed + boost);
+        }
+        let vx = dirX * baseSpeed;
+        let vy = dirY * baseSpeed;
+        if(carry!==0){
+          vx += lvx * carry;
+          vy += lvy * carry;
+        }
         runtime.bullets.push(new Bullet(this.x, this.y, vx, vy, this.tearLife, this.damage, this.canPierceObstacles));
       }
       this.recalculateDamage();
