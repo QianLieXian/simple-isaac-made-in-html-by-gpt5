@@ -53,6 +53,19 @@
     .virtual-kb button:active,.virtual-kb button.active{transform:translateY(1px);border-color:#3c4c6a;background:linear-gradient(180deg,#34405a,#273044)}
     .virtual-kb button.small{font-size:12px;font-weight:500}
     .virtual-kb-spacer{visibility:hidden}
+    .item-codex{margin-top:14px;padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+    .codex-header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .codex-title{font-size:15px;font-weight:600;letter-spacing:.3px}
+    .codex-progress{font-size:12px;color:var(--muted);letter-spacing:.3px}
+    .codex-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+    .codex-entry{display:grid;grid-template-columns:48px 1fr;gap:12px;padding:12px 14px;border:1px solid #222a38;border-radius:12px;background:rgba(17,21,29,.7);box-shadow:inset 0 0 0 1px rgba(65,76,104,.18)}
+    .codex-icon{width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 35% 30%,rgba(110,231,255,.18),rgba(167,139,250,.12) 55%,transparent 100%);border-radius:12px}
+    .codex-icon canvas{width:42px;height:42px}
+    .codex-info{display:flex;flex-direction:column}
+    .codex-name{font-size:13px;font-weight:600;color:var(--ink);letter-spacing:.2px}
+    .codex-desc{margin-top:4px;font-size:12px;color:var(--muted);line-height:1.5}
+    .codex-empty{grid-column:1/-1;text-align:center;padding:28px 18px;border:1px dashed #293347;border-radius:12px;color:var(--muted);font-size:13px;background:rgba(12,15,22,.65)}
+    .cheat-feedback{margin-top:6px;font-size:12px;color:var(--muted);min-height:18px}
     @media (max-width:720px){
       .hud{flex-direction:column;align-items:stretch}
       .hud-tools{align-self:flex-end}
@@ -137,9 +150,22 @@
             <label>金币 <input id="cheat-coins" type="number" min="0" max="99" step="1"></label>
             <button id="cheat-apply-resources" type="button">应用资源</button>
           </div>
+          <div class="cheat-section">
+            <h4>道具</h4>
+            <label>道具 ID <input id="cheat-item-id" type="number" min="1" step="1" placeholder="例如 1"></label>
+            <button id="cheat-give-item" type="button">给予道具</button>
+            <div id="cheat-item-result" class="cheat-feedback" aria-live="polite"></div>
+          </div>
           </div>
         </div>
       </div>
+    </div>
+    <div id="item-codex" class="panel item-codex" aria-live="polite">
+      <div class="codex-header">
+        <span class="codex-title">道具图鉴</span>
+        <span class="codex-progress">已解锁 <span id="codex-count">0</span> / <span id="codex-total">0</span></span>
+      </div>
+      <div id="codex-grid" class="codex-grid"></div>
     </div>
     <footer>纯前端单文件 · 无素材 · 轻便又俏皮</footer>
   </div>
@@ -232,70 +258,70 @@
   }
   const ITEM_POOL = [
     {
-      id:'onion',
+      slug:'onion',
       name:'洋葱',
       weight:50,
       description:'泪腺更发达，射速 +0.75 次/秒',
       apply(player){ adjustFireRate(player, 0.75); }
     },
     {
-      id:'tar',
+      slug:'tar',
       name:'焦油抹布',
       weight:30,
       description:'伤害 +0.5，泪滴更厚重',
       apply(player){ player.addDamage(0.5); }
     },
     {
-      id:'sneaker',
+      slug:'sneaker',
       name:'小短跑鞋',
       weight:50,
       description:'移动速度 +35，轻盈不少',
       apply(player){ player.speed += 35; }
     },
     {
-      id:'pepper-steak',
+      slug:'pepper-steak',
       name:'胡椒牛排',
       weight:5,
       description:'全身沸腾，伤害 +1，攻速 +1，射程 x1.5，血上限 +1',
       apply(player){ player.addDamage(1); adjustFireRate(player,1); player.tearLife*=1.5; if(typeof player.adjustMaxHp==='function'){ player.adjustMaxHp(1); } else { player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); } }
     },
     {
-      id:'rope',
+      slug:'rope',
       name:'绳子',
       weight:20,
       description:'轻盈漂浮，飞行不再畏惧地形',
       apply(player){ player.flying = true; }
     },
     {
-      id:'spirit-date',
+      slug:'spirit-date',
       name:'酒枣',
       weight:20,
       description:'射程 x1.5，泪滴可穿透障碍',
       apply(player){ player.tearLife*=1.5; player.canPierceObstacles = true; }
     },
     {
-      id:'betrayal-hound',
+      slug:'betrayal-hound',
       name:'伙伴倒戈犬',
       weight:1,
       description:'狂暴背叛，伤害 x2 +1.5，射速 -0.25 次/秒',
       apply(player){ player.damageMultiplier *= 2; player.addDamage(1.5); adjustFireRate(player,-0.25); }
     },
     {
-      id:'despair-shout',
+      slug:'despair-shout',
       name:'绝望呐喊',
       weight:40,
       description:'撕裂呐喊，射程 x5',
       apply(player){ player.tearLife*=5; }
     },
     {
-      id:'bad-thing',
+      slug:'bad-thing',
       name:'坏东西',
       weight:50,
       description:'速度有点危险，子弹速度 x1.1',
       apply(player){ player.tearSpeed*=1.1; }
     },
     {
-      id:'good-thing',
+      slug:'good-thing',
       name:'好东西',
       weight:20,
       description:'越看越顺眼，子弹速度 x0.75，射速 +0.75，射程 x1.25',
@@ -304,21 +330,21 @@
   ];
   const SHOP_ITEM_POOL = [
     {
-      id:'blood-power',
+      slug:'blood-power',
       name:'血之力',
       weight:50,
       description:'血越厚，伤害越高',
       apply(player){ player.effects.bloodPower = true; player.recalculateDamage(); }
     },
     {
-      id:'money-power',
+      slug:'money-power',
       name:'钱之力',
       weight:50,
       description:'财源滚滚，伤害随金币提升',
       apply(player){ player.effects.moneyPower = true; player.recalculateDamage(); }
     },
     {
-      id:'despair-power',
+      slug:'despair-power',
       name:'绝望之力',
       weight:20,
       description:'血越少，越要反击',
@@ -327,27 +353,56 @@
   ];
   const BOSS_ITEM_POOL = [
     {
-      id:'dog-food',
+      slug:'dog-food',
       name:'狗粮',
       weight:50,
       description:'血量上限 +1',
       apply(player){ if(typeof player.adjustMaxHp==='function'){ player.adjustMaxHp(1); } else { player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); } }
     },
     {
-      id:'ending-note',
+      slug:'ending-note',
       name:'结束纸条',
       weight:50,
       description:'射速 +0.75 次/秒，射程 x1.1',
       apply(player){ adjustFireRate(player,0.75); player.tearLife*=1.1; }
     },
     {
-      id:'kettle',
+      slug:'kettle',
       name:'热水壶',
       weight:50,
       description:'伤害 +1',
       apply(player){ player.addDamage(1); }
     }
   ];
+  const ITEM_ID_REGISTRY = (()=>{
+    const pools = [ITEM_POOL, SHOP_ITEM_POOL, BOSS_ITEM_POOL];
+    const byKey = new Map();
+    const byId = new Map();
+    let nextId = 1;
+    for(const pool of pools){
+      for(const item of pool){
+        if(!item || !item.slug) continue;
+        if(byKey.has(item.slug)){
+          const stored = byKey.get(item.slug);
+          item.id = stored.id;
+          continue;
+        }
+        item.id = nextId++;
+        byKey.set(item.slug, item);
+        byId.set(item.id, item);
+      }
+    }
+    return {byKey, byId, total: nextId-1};
+  })();
+  const ITEM_TOTAL_COUNT = ITEM_ID_REGISTRY.total;
+  function getItemByNumericId(id){
+    const numeric = Number(id);
+    if(!Number.isFinite(numeric)) return null;
+    return ITEM_ID_REGISTRY.byId.get(numeric) || null;
+  }
+  function cloneItemData(item){
+    return item ? {...item} : null;
+  }
   const RESOURCE_LABELS = {bomb:'炸弹', key:'钥匙', coin:'金币'};
   const HUDL = document.getElementById('hud-left');
   const HUDR = document.getElementById('hud-right');
@@ -367,6 +422,103 @@
   };
   const cheatStatsBtn = document.getElementById('cheat-apply-stats');
   const cheatResBtn = document.getElementById('cheat-apply-resources');
+  const cheatGiveItemBtn = document.getElementById('cheat-give-item');
+  const cheatItemIdInput = document.getElementById('cheat-item-id');
+  const cheatItemResult = document.getElementById('cheat-item-result');
+  const CODEX_NODE = document.getElementById('item-codex');
+  const CODEX_GRID = document.getElementById('codex-grid');
+  const CODEX_COUNT = document.getElementById('codex-count');
+  const CODEX_TOTAL = document.getElementById('codex-total');
+
+  if(CODEX_TOTAL) CODEX_TOTAL.textContent = ITEM_TOTAL_COUNT;
+  if(cheatItemIdInput && ITEM_TOTAL_COUNT>0){
+    cheatItemIdInput.setAttribute('max', String(ITEM_TOTAL_COUNT));
+  }
+  const discoveredItems = new Set();
+
+  function formatItemNumber(id){
+    const str = String(id);
+    return str.length>=2 ? str : str.padStart(2,'0');
+  }
+
+  function drawCodexIcons(canvases){
+    if(!Array.isArray(canvases) || !canvases.length) return;
+    requestAnimationFrame(()=>{
+      for(const canvas of canvases){
+        if(!canvas) continue;
+        const ctx2 = canvas.getContext('2d');
+        if(!ctx2) continue;
+        ctx2.clearRect(0,0,canvas.width,canvas.height);
+        ctx2.save();
+        ctx2.translate(canvas.width/2, canvas.height/2 + 2);
+        drawItemIcon(canvas.dataset.itemSlug, 18, ctx2);
+        ctx2.restore();
+      }
+    });
+  }
+
+  function updateCodex(){
+    if(CODEX_TOTAL) CODEX_TOTAL.textContent = ITEM_TOTAL_COUNT;
+    if(CODEX_COUNT) CODEX_COUNT.textContent = discoveredItems.size;
+    if(!CODEX_GRID) return;
+    CODEX_GRID.innerHTML='';
+    const discoveredList = Array.from(discoveredItems)
+      .sort((a,b)=>a-b)
+      .map(id=>ITEM_ID_REGISTRY.byId.get(id))
+      .filter(Boolean);
+    if(!discoveredList.length){
+      const empty=document.createElement('div');
+      empty.className='codex-empty';
+      empty.textContent='尚未获得任何道具。探索地下室，解锁第一件宝物吧！';
+      CODEX_GRID.appendChild(empty);
+      return;
+    }
+    const canvases=[];
+    for(const item of discoveredList){
+      const card=document.createElement('div');
+      card.className='codex-entry';
+      const iconWrap=document.createElement('div');
+      iconWrap.className='codex-icon';
+      const canvas=document.createElement('canvas');
+      canvas.width=64;
+      canvas.height=64;
+      canvas.dataset.itemSlug=item.slug;
+      iconWrap.appendChild(canvas);
+      const info=document.createElement('div');
+      info.className='codex-info';
+      const title=document.createElement('div');
+      title.className='codex-name';
+      title.textContent=`#${formatItemNumber(item.id)} · ${item.name}`;
+      const desc=document.createElement('div');
+      desc.className='codex-desc';
+      desc.textContent=item.description || '暂无描述';
+      info.appendChild(title);
+      info.appendChild(desc);
+      card.appendChild(iconWrap);
+      card.appendChild(info);
+      CODEX_GRID.appendChild(card);
+      canvases.push(canvas);
+    }
+    drawCodexIcons(canvases);
+  }
+
+  function registerItemDiscovery(item){
+    if(!item) return;
+    const slug = item.slug;
+    let numeric = item.id;
+    if(numeric==null && slug && ITEM_ID_REGISTRY.byKey.has(slug)){
+      numeric = ITEM_ID_REGISTRY.byKey.get(slug).id;
+    }
+    if(numeric==null) return;
+    if(!discoveredItems.has(numeric)){
+      discoveredItems.add(numeric);
+      updateCodex();
+    } else {
+      if(CODEX_COUNT) CODEX_COUNT.textContent = discoveredItems.size;
+    }
+  }
+
+  updateCodex();
 
   const cheatDirtyFields = new Set();
 
@@ -441,6 +593,45 @@
     clearCheatDirty('bombs','keys','coins');
     syncCheatPanel();
   }
+  function giveItemByCheat(){
+    if(!cheatItemResult) return;
+    const resetColor = ()=>{ cheatItemResult.style.color = 'var(--muted)'; };
+    resetColor();
+    if(!player){
+      cheatItemResult.textContent = '请先进入游戏后再使用道具召唤。';
+      cheatItemResult.style.color = 'var(--danger)';
+      return;
+    }
+    const raw = cheatItemIdInput ? String(cheatItemIdInput.value).trim() : '';
+    if(!raw){
+      cheatItemResult.textContent = '请输入道具编号。';
+      cheatItemResult.style.color = 'var(--danger)';
+      return;
+    }
+    const numeric = Math.floor(Number(raw));
+    if(!Number.isFinite(numeric) || numeric<1){
+      cheatItemResult.textContent = '编号无效，请输入正整数。';
+      cheatItemResult.style.color = 'var(--danger)';
+      return;
+    }
+    const base = getItemByNumericId(numeric);
+    if(!base){
+      cheatItemResult.textContent = `未找到编号为 ${numeric} 的道具。`;
+      cheatItemResult.style.color = 'var(--danger)';
+      return;
+    }
+    const item = cloneItemData(base);
+    if(typeof item.apply === 'function'){ item.apply(player); }
+    if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
+    registerItemDiscovery(item);
+    player.recalculateDamage();
+    runtime.itemPickupName = item.name;
+    runtime.itemPickupDesc = item.description || '';
+    runtime.itemPickupTimer = 2.4;
+    cheatItemResult.textContent = `已获得「${item.name}」`;  
+    cheatItemResult.style.color = 'var(--accent)';
+    syncCheatPanel();
+  }
   if(cheatToggle && cheatPanelNode){
     cheatToggle.addEventListener('click', ()=>{
       cheatPanelNode.classList.toggle('show');
@@ -456,6 +647,16 @@
   }
   cheatStatsBtn?.addEventListener('click', applyCheatStats);
   cheatResBtn?.addEventListener('click', applyCheatResources);
+  cheatGiveItemBtn?.addEventListener('click', giveItemByCheat);
+  cheatItemIdInput?.addEventListener('keydown', (ev)=>{
+    if(ev.key==='Enter'){ ev.preventDefault(); giveItemByCheat(); }
+  });
+  cheatItemIdInput?.addEventListener('input', ()=>{
+    if(cheatItemResult){
+      cheatItemResult.textContent = '';
+      cheatItemResult.style.color = 'var(--muted)';
+    }
+  });
 
   function createOverlayManager(mapping){
     const entries = Object.entries(mapping).filter(([,node])=>node);
@@ -1144,8 +1345,8 @@
     const excludeSet = Array.isArray(exclude) && exclude.length ? new Set(exclude) : null;
     let candidates = !excludeSet ? pool.slice() : pool.filter(item=>{
       if(!item || typeof item !== 'object') return false;
-      if(item.id==null) return true;
-      return !excludeSet.has(item.id);
+      if(item.slug==null) return true;
+      return !excludeSet.has(item.slug);
     });
     if(!candidates.length){
       candidates = pool.slice();
@@ -1180,7 +1381,7 @@
   }
   function rollItem(){
     const item = weightedRoll(ITEM_POOL, {exclude: recentItemHistory});
-    rememberRecent(recentItemHistory, item.id, 3);
+    rememberRecent(recentItemHistory, item.slug, 3);
     return item;
   }
   function rollShopItems(){
@@ -1192,7 +1393,7 @@
     for(let i=0;i<5;i++){
       if(itemSlots.has(i)){
         const shopItem = weightedRoll(SHOP_ITEM_POOL, {exclude: recentShopItemHistory});
-        rememberRecent(recentShopItemHistory, shopItem.id, 2);
+        rememberRecent(recentShopItemHistory, shopItem.slug, 2);
         entries.push({type:'item', item: shopItem});
       } else {
         const resType = CONFIG.drops.resourceTypes[Math.floor(rand()*CONFIG.drops.resourceTypes.length)];
@@ -1273,6 +1474,7 @@
     const item = pickup.item;
     if(typeof item.apply === 'function'){ item.apply(player); }
     if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
+    registerItemDiscovery(item);
     if(pickup.room){ pickup.room.itemClaimed = true; pickup.room.itemSpawned = false; }
     runtime.itemPickupName = item.name;
     runtime.itemPickupDesc = item.description || '';
@@ -2972,7 +3174,7 @@
     ctx.fillStyle = '#39415c';
     ctx.fillRect(-14,6,28,8);
     ctx.translate(0, bob-6);
-    drawItemIcon(p.item.id, p.r);
+    drawItemIcon(p.item.slug, p.r);
     ctx.restore();
     ctx.save();
     ctx.fillStyle = '#dde3ff';
@@ -2993,7 +3195,7 @@
     ctx.fillRect(-16,7,32,9);
     ctx.translate(0,bob-6);
     if(p.entry.type==='item'){
-      drawItemIcon(p.entry.item.id, p.r*0.9);
+      drawItemIcon(p.entry.item.slug, p.r*0.9);
     } else {
       drawResourceIcon(p.entry.resource, p.r*0.9);
     }
@@ -3009,114 +3211,116 @@
     ctx.restore();
   }
 
-  function drawItemIcon(id, radius){
+  function drawItemIcon(id, radius, ctxRef = ctx){
+    const g = ctxRef;
+    if(!g) return;
     const r = radius;
     if(id==='onion'){
-      ctx.fillStyle = '#facc15';
-      ctx.strokeStyle = '#fff5';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(0,-r*0.7);
-      ctx.bezierCurveTo(r*0.75,-r*0.3, r*0.55, r*0.45, 0, r*0.85);
-      ctx.bezierCurveTo(-r*0.55, r*0.45, -r*0.75, -r*0.3, 0, -r*0.7);
-      ctx.fill();
-      ctx.stroke();
-      ctx.strokeStyle = '#7c5b0f';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(0,-r*0.9);
-      ctx.lineTo(0,-r*1.2);
-      ctx.stroke();
+      g.fillStyle = '#facc15';
+      g.strokeStyle = '#fff5';
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.moveTo(0,-r*0.7);
+      g.bezierCurveTo(r*0.75,-r*0.3, r*0.55, r*0.45, 0, r*0.85);
+      g.bezierCurveTo(-r*0.55, r*0.45, -r*0.75, -r*0.3, 0, -r*0.7);
+      g.fill();
+      g.stroke();
+      g.strokeStyle = '#7c5b0f';
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(0,-r*0.9);
+      g.lineTo(0,-r*1.2);
+      g.stroke();
     } else if(id==='tar'){
-      const grad = ctx.createRadialGradient(0,-2,2,0,0,r*0.75);
+      const grad = g.createRadialGradient(0,-2,2,0,0,r*0.75);
       grad.addColorStop(0,'#5f6cff');
       grad.addColorStop(1,'#2d2f59');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.ellipse(0,0,r*0.9,r*0.7,0,0,Math.PI*2);
-      ctx.fill();
+      g.fillStyle = grad;
+      g.beginPath();
+      g.ellipse(0,0,r*0.9,r*0.7,0,0,Math.PI*2);
+      g.fill();
     } else if(id==='sneaker'){
-      ctx.fillStyle = '#9ae6b4';
-      ctx.beginPath();
-      ctx.moveTo(-r*0.8, r*0.2);
-      ctx.quadraticCurveTo(-r*0.2, -r*0.7, r*0.8, -r*0.1);
-      ctx.lineTo(r*0.5, r*0.5);
-      ctx.quadraticCurveTo(-r*0.1, r*0.3, -r*0.8, r*0.2);
-      ctx.fill();
-      ctx.fillStyle='#2f855a';
-      ctx.fillRect(-r*0.2, -r*0.1, r*0.8, r*0.15);
+      g.fillStyle = '#9ae6b4';
+      g.beginPath();
+      g.moveTo(-r*0.8, r*0.2);
+      g.quadraticCurveTo(-r*0.2, -r*0.7, r*0.8, -r*0.1);
+      g.lineTo(r*0.5, r*0.5);
+      g.quadraticCurveTo(-r*0.1, r*0.3, -r*0.8, r*0.2);
+      g.fill();
+      g.fillStyle='#2f855a';
+      g.fillRect(-r*0.2, -r*0.1, r*0.8, r*0.15);
     } else if(id==='pepper-steak'){
-      ctx.fillStyle = '#b45309';
-      ctx.beginPath(); ctx.ellipse(0,0,r*0.95,r*0.65,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = '#f59e0b';
-      ctx.beginPath(); ctx.ellipse(0,0,r*0.6,r*0.35,0,0,Math.PI*2); ctx.fill();
+      g.fillStyle = '#b45309';
+      g.beginPath(); g.ellipse(0,0,r*0.95,r*0.65,0,0,Math.PI*2); g.fill();
+      g.fillStyle = '#f59e0b';
+      g.beginPath(); g.ellipse(0,0,r*0.6,r*0.35,0,0,Math.PI*2); g.fill();
     } else if(id==='rope'){
-      ctx.strokeStyle = '#fde68a';
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(-r*0.6, -r*0.8);
-      ctx.quadraticCurveTo(0, r*0.4, r*0.6, -r*0.8);
-      ctx.stroke();
+      g.strokeStyle = '#fde68a';
+      g.lineWidth = 4;
+      g.beginPath();
+      g.moveTo(-r*0.6, -r*0.8);
+      g.quadraticCurveTo(0, r*0.4, r*0.6, -r*0.8);
+      g.stroke();
     } else if(id==='spirit-date'){
-      ctx.fillStyle = '#92400e';
-      ctx.beginPath(); ctx.ellipse(0,0,r*0.6,r*0.85,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#f97316';
-      ctx.beginPath(); ctx.arc(0,-r*0.25,r*0.25,0,Math.PI*2); ctx.fill();
+      g.fillStyle = '#92400e';
+      g.beginPath(); g.ellipse(0,0,r*0.6,r*0.85,0,0,Math.PI*2); g.fill();
+      g.fillStyle='#f97316';
+      g.beginPath(); g.arc(0,-r*0.25,r*0.25,0,Math.PI*2); g.fill();
     } else if(id==='betrayal-hound'){
-      ctx.fillStyle='#4c1d95';
-      ctx.beginPath(); ctx.arc(-r*0.3,-r*0.2,r*0.3,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(r*0.3,-r*0.2,r*0.3,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#a855f7';
-      ctx.beginPath(); ctx.arc(0,r*0.2,r*0.5,0,Math.PI*2); ctx.fill();
+      g.fillStyle='#4c1d95';
+      g.beginPath(); g.arc(-r*0.3,-r*0.2,r*0.3,0,Math.PI*2); g.fill();
+      g.beginPath(); g.arc(r*0.3,-r*0.2,r*0.3,0,Math.PI*2); g.fill();
+      g.fillStyle='#a855f7';
+      g.beginPath(); g.arc(0,r*0.2,r*0.5,0,Math.PI*2); g.fill();
     } else if(id==='despair-shout'){
-      ctx.fillStyle='#cbd5f5';
-      ctx.beginPath(); ctx.arc(0,0,r*0.85,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#7c3aed';
-      ctx.beginPath(); ctx.arc(0,0,r*0.55,0,Math.PI*2); ctx.fill();
+      g.fillStyle='#cbd5f5';
+      g.beginPath(); g.arc(0,0,r*0.85,0,Math.PI*2); g.fill();
+      g.fillStyle='#7c3aed';
+      g.beginPath(); g.arc(0,0,r*0.55,0,Math.PI*2); g.fill();
     } else if(id==='bad-thing'){
-      ctx.fillStyle='#1f2937';
-      ctx.beginPath(); ctx.arc(0,0,r*0.9,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#f97316'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.arc(0,0,r*0.6,0,Math.PI*2); ctx.stroke();
+      g.fillStyle='#1f2937';
+      g.beginPath(); g.arc(0,0,r*0.9,0,Math.PI*2); g.fill();
+      g.strokeStyle='#f97316'; g.lineWidth=2;
+      g.beginPath(); g.arc(0,0,r*0.6,0,Math.PI*2); g.stroke();
     } else if(id==='good-thing'){
-      ctx.fillStyle='#fbcfe8';
-      ctx.beginPath(); ctx.arc(0,0,r*0.9,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#f472b6'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.arc(0,0,r*0.55,0,Math.PI*2); ctx.stroke();
+      g.fillStyle='#fbcfe8';
+      g.beginPath(); g.arc(0,0,r*0.9,0,Math.PI*2); g.fill();
+      g.strokeStyle='#f472b6'; g.lineWidth=2;
+      g.beginPath(); g.arc(0,0,r*0.55,0,Math.PI*2); g.stroke();
     } else if(id==='blood-power'){
-      ctx.fillStyle='#ef4444';
-      ctx.beginPath(); ctx.arc(0,0,r*0.85,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#fee2e2';
-      ctx.beginPath(); ctx.arc(0,0,r*0.4,0,Math.PI*2); ctx.fill();
+      g.fillStyle='#ef4444';
+      g.beginPath(); g.arc(0,0,r*0.85,0,Math.PI*2); g.fill();
+      g.fillStyle='#fee2e2';
+      g.beginPath(); g.arc(0,0,r*0.4,0,Math.PI*2); g.fill();
     } else if(id==='money-power'){
-      ctx.fillStyle='#fbbf24';
-      ctx.beginPath(); ctx.arc(0,0,r*0.85,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#fde68a';
-      ctx.beginPath(); ctx.arc(0,0,r*0.4,0,Math.PI*2); ctx.fill();
+      g.fillStyle='#fbbf24';
+      g.beginPath(); g.arc(0,0,r*0.85,0,Math.PI*2); g.fill();
+      g.fillStyle='#fde68a';
+      g.beginPath(); g.arc(0,0,r*0.4,0,Math.PI*2); g.fill();
     } else if(id==='despair-power'){
-      ctx.fillStyle='#1f2937';
-      ctx.beginPath(); ctx.arc(0,0,r*0.9,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#f9a8d4';
-      ctx.beginPath(); ctx.arc(0,0,r*0.35,0,Math.PI*2); ctx.fill();
+      g.fillStyle='#1f2937';
+      g.beginPath(); g.arc(0,0,r*0.9,0,Math.PI*2); g.fill();
+      g.fillStyle='#f9a8d4';
+      g.beginPath(); g.arc(0,0,r*0.35,0,Math.PI*2); g.fill();
     } else if(id==='dog-food'){
-      ctx.fillStyle='#92400e';
-      ctx.fillRect(-r*0.7,-r*0.5,r*1.4,r*0.9);
-      ctx.fillStyle='#fde68a';
-      ctx.fillRect(-r*0.7,-r*0.9,r*1.4,r*0.4);
+      g.fillStyle='#92400e';
+      g.fillRect(-r*0.7,-r*0.5,r*1.4,r*0.9);
+      g.fillStyle='#fde68a';
+      g.fillRect(-r*0.7,-r*0.9,r*1.4,r*0.4);
     } else if(id==='ending-note'){
-      ctx.fillStyle='#f8fafc';
-      ctx.fillRect(-r*0.5,-r*0.8,r,r*1.4);
-      ctx.fillStyle='#6366f1';
-      ctx.fillRect(-r*0.5,-r*0.2,r,r*0.12);
+      g.fillStyle='#f8fafc';
+      g.fillRect(-r*0.5,-r*0.8,r,r*1.4);
+      g.fillStyle='#6366f1';
+      g.fillRect(-r*0.5,-r*0.2,r,r*0.12);
     } else if(id==='kettle'){
-      ctx.fillStyle='#94a3b8';
-      ctx.beginPath(); ctx.arc(0,0,r*0.75,0,Math.PI*2); ctx.fill();
-      ctx.fillRect(-r*0.2,-r*0.95,r*0.4,r*0.4);
+      g.fillStyle='#94a3b8';
+      g.beginPath(); g.arc(0,0,r*0.75,0,Math.PI*2); g.fill();
+      g.fillRect(-r*0.2,-r*0.95,r*0.4,r*0.4);
     } else {
-      ctx.fillStyle = '#b0c9ff';
-      ctx.beginPath();
-      ctx.arc(0,0,r*0.8,0,Math.PI*2);
-      ctx.fill();
+      g.fillStyle = '#b0c9ff';
+      g.beginPath();
+      g.arc(0,0,r*0.8,0,Math.PI*2);
+      g.fill();
     }
   }
 
@@ -3377,6 +3581,7 @@
       const item = pickup.entry.item;
       if(typeof item.apply === 'function'){ item.apply(player); }
       if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
+      registerItemDiscovery(item);
       runtime.itemPickupName = item.name;
       runtime.itemPickupDesc = item.description || '';
       runtime.itemPickupTimer = 2.4;
