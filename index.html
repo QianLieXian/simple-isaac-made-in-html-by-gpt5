@@ -111,8 +111,17 @@
       keyStart: 5,
       coinStart: 5,
     },
-    bomb: {damage:50, radius:110, fuse:3, playerDamage:1, knock:240},
-    obstacles: {min:1, max:3, width:[70,140], height:[60,120]},
+    bomb: {damage:50, radius:60, fuse:3, playerDamage:1, knock:240},
+    obstacles: {
+      min:1,
+      max:3,
+      tileSizePlayerRatio:1.5,
+      maxTiles:5,
+      maxClusterArea:25,
+      hiddenChance:0.005,
+      hiddenItemChance:0.001,
+      hollowChance:0.5,
+    },
     shop: {
       itemChance: 0.95,
       doubleItemChance: 0.05,
@@ -402,19 +411,77 @@
       if(this.obstaclesGenerated) return;
       this.obstaclesGenerated = true;
       if(this.isBoss || this.isItemRoom || this.isShop) return;
-      const count = Math.floor(randRange(CONFIG.obstacles.min, CONFIG.obstacles.max+1));
+      const targetClusters = Math.floor(randRange(CONFIG.obstacles.min, CONFIG.obstacles.max+1));
+      const tileSize = CONFIG.player.radius * 2 * CONFIG.obstacles.tileSizePlayerRatio;
       const created=[];
+      let clustersPlaced = 0;
       let tries=0;
-      while(created.length<count && tries<120){
+      while(clustersPlaced < targetClusters && tries < 220){
         tries++;
-        const w = randRange(CONFIG.obstacles.width[0], CONFIG.obstacles.width[1]);
-        const h = randRange(CONFIG.obstacles.height[0], CONFIG.obstacles.height[1]);
-        const x = randRange(60, CONFIG.roomW-60-w);
-        const y = randRange(70, CONFIG.roomH-70-h);
-        const rect = {x,y,w,h,hp:60, destroyed:false};
-        if(this.collidesDoorCorridor(rect)) continue;
-        if(created.some(o=>rectOverlap(o,rect))) continue;
-        created.push(rect);
+        const maxTiles = Math.max(1, CONFIG.obstacles.maxTiles|0);
+        const shapeRoll = rand();
+        let tilesX = 1;
+        let tilesY = 1;
+        if(shapeRoll < 0.33){
+          tilesX = 1;
+          tilesY = Math.max(1, Math.floor(randRange(1, maxTiles+1)));
+        } else if(shapeRoll < 0.66){
+          tilesY = 1;
+          tilesX = Math.max(1, Math.floor(randRange(1, maxTiles+1)));
+        } else {
+          tilesX = Math.max(1, Math.floor(randRange(1, maxTiles+1)));
+          tilesY = Math.max(1, Math.floor(randRange(1, maxTiles+1)));
+        }
+        if(tilesX * tilesY > CONFIG.obstacles.maxClusterArea){ continue; }
+        const isHidden = rand() < CONFIG.obstacles.hiddenChance;
+        if(isHidden){ tilesX = 1; tilesY = 1; }
+        const clusterW = tilesX * tileSize;
+        const clusterH = tilesY * tileSize;
+        if(clusterW >= CONFIG.roomW-120 || clusterH >= CONFIG.roomH-140) continue;
+        const minX = 60;
+        const maxX = CONFIG.roomW - 60 - clusterW;
+        const minY = 70;
+        const maxY = CONFIG.roomH - 70 - clusterH;
+        if(maxX < minX || maxY < minY) continue;
+        const x = maxX===minX ? minX : randRange(minX, maxX);
+        const y = maxY===minY ? minY : randRange(minY, maxY);
+        const clusterRect = {x, y, w:clusterW, h:clusterH};
+        if(this.collidesDoorCorridor(clusterRect)) continue;
+        const isThreeByThree = tilesX===3 && tilesY===3;
+        const hollow = !isHidden && isThreeByThree && rand() < CONFIG.obstacles.hollowChance;
+        const candidateTiles = [];
+        let blocked=false;
+        for(let ix=0; ix<tilesX && !blocked; ix++){
+          for(let iy=0; iy<tilesY; iy++){
+            if(hollow && ix===1 && iy===1) continue;
+            const tile = {x: x + ix*tileSize, y: y + iy*tileSize, w: tileSize, h: tileSize};
+            for(const existing of created){
+              if(rectOverlap(existing, tile)){ blocked=true; break; }
+            }
+            if(blocked) break;
+            candidateTiles.push(tile);
+          }
+        }
+        if(blocked || !candidateTiles.length) continue;
+        const parent = {
+          hidden: isHidden,
+          lootDropped: false,
+          dropPos: {x: x + clusterW/2, y: y + clusterH/2},
+          remaining: candidateTiles.length,
+        };
+        for(const tile of candidateTiles){
+          tile.hp = 60;
+          tile.destroyed = false;
+          tile.parent = parent;
+          tile.hidden = isHidden;
+        }
+        created.push(...candidateTiles);
+        clustersPlaced++;
+        if(hollow){
+          const centerX = x + tileSize * 1.5;
+          const centerY = y + tileSize * 1.5;
+          spawnRandomDrop(this, centerX, centerY);
+        }
       }
       this.obstacles = created;
     }
@@ -718,6 +785,26 @@
       purchased:false
     };
   }
+  function spawnRandomDrop(room,x,y){
+    if(!room) return null;
+    const roll = rand();
+    let pickup = null;
+    if(roll < 0.5){
+      const heal = rand() < 0.25 ? 2 : 1;
+      pickup = makeHeartPickup(x, y, heal);
+    } else {
+      const resType = CONFIG.drops.resourceTypes[Math.floor(rand()*CONFIG.drops.resourceTypes.length)];
+      let amount = 1;
+      if(resType==='coin'){
+        amount = rand() < 0.35 ? 5 : 3;
+      } else if(rand() < 0.25){
+        amount = 2;
+      }
+      pickup = makeResourcePickup(resType, x, y, amount);
+    }
+    room.pickups.push(pickup);
+    return pickup;
+  }
 
   function pickupItem(pickup){
     if(!pickup || !pickup.item) return;
@@ -925,6 +1012,25 @@
     }
   }
 
+  function onObstacleDestroyed(room, obs){
+    if(!room || !obs) return;
+    const parent = obs.parent;
+    if(parent && typeof parent.remaining === 'number'){
+      parent.remaining = Math.max(0, parent.remaining - 1);
+      if(parent.hidden && !parent.lootDropped && parent.remaining<=0){
+        parent.lootDropped = true;
+        const dropPos = parent.dropPos || {x: obs.x + obs.w/2, y: obs.y + obs.h/2};
+        const dropX = clamp(dropPos.x, 70, CONFIG.roomW-70);
+        const dropY = clamp(dropPos.y, 80, CONFIG.roomH-80);
+        spawnRandomDrop(room, dropX, dropY);
+        if(rand() < CONFIG.obstacles.hiddenItemChance){
+          const item = rollItem();
+          room.pickups.push({type:'item', x:clamp(dropX,80,CONFIG.roomW-80), y:clamp(dropY,90,CONFIG.roomH-90), r:18, item});
+        }
+      }
+    }
+  }
+
   function handleBombExplosion(room, bomb){
     if(!room) return;
     const radius = CONFIG.bomb.radius;
@@ -960,7 +1066,10 @@
     }
     for(const obs of room.obstacles){
       if(obs.destroyed) continue;
-      if(circleRectOverlap(circle, obs)){ obs.destroyed = true; }
+      if(circleRectOverlap(circle, obs)){
+        obs.destroyed = true;
+        onObstacleDestroyed(room, obs);
+      }
     }
     for(const proj of runtime.enemyProjectiles){
       if(!proj.alive) continue;
@@ -2070,6 +2179,7 @@
     ctx.save();
     for(const obs of room.obstacles){
       if(obs.destroyed) continue;
+      if(obs.hidden) continue;
       const g = ctx.createLinearGradient(obs.x, obs.y, obs.x, obs.y+obs.h);
       g.addColorStop(0,'#2b2f3f');
       g.addColorStop(1,'#1b1f2b');
