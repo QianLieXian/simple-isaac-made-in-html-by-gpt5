@@ -86,7 +86,7 @@
     roomW: 800, roomH: 600,
     grid: 5, // 地图 5x5
     roomsToMake: 9, // 随机游走生成房间数量
-    player: {speed: 210, radius: 12, hp: 6, fireCd: 180, tearSpeed: 460, tearLife: 0.9}, // fireCd 毫秒
+    player: {speed: 210, radius: 12, hp: 6, fireCd: 360, tearSpeed: 230, tearLife: 0.45}, // fireCd 毫秒
     enemy: {
       baseHP: 2,
       speed: 90,
@@ -297,10 +297,38 @@
     }
   }
 
+  const TEAR_RADIUS_BASE = 5;
+  const TEAR_RADIUS_GROWTH = 3.2;
+  function calcTearRadius(damage){
+    // 参考以撒的结合的弹丸成长：使用平方根降低增长曲线的坡度，避免数值过激
+    const dmg = Math.max(0.25, damage);
+    return TEAR_RADIUS_BASE + TEAR_RADIUS_GROWTH * (Math.sqrt(dmg) - 1);
+  }
+
   class Bullet{
-    constructor(x,y,vx,vy,life,damage=1){ this.x=x; this.y=y; this.vx=vx; this.vy=vy; this.life=life; this.damage=damage; this.alive=true; this.r=5; }
-    update(dt){ this.x += this.vx*dt; this.y += this.vy*dt; this.life -= dt; if(this.life<=0) this.alive=false; if(this.x<0||this.x>CONFIG.roomW||this.y<0||this.y>CONFIG.roomH) this.alive=false; }
-    draw(){ ctx.beginPath(); ctx.fillStyle = '#a6e3ff'; ctx.arc(this.x,this.y,this.r,0,Math.PI*2); ctx.fill(); }
+    constructor(x,y,vx,vy,life,damage=1){
+      this.x=x;
+      this.y=y;
+      this.vx=vx;
+      this.vy=vy;
+      this.life=life;
+      this.damage=damage;
+      this.alive=true;
+      this.r=calcTearRadius(damage);
+    }
+    update(dt){
+      this.x += this.vx*dt;
+      this.y += this.vy*dt;
+      this.life -= dt;
+      if(this.life<=0) this.alive=false;
+      if(this.x<0||this.x>CONFIG.roomW||this.y<0||this.y>CONFIG.roomH) this.alive=false;
+    }
+    draw(){
+      ctx.beginPath();
+      ctx.fillStyle = '#a6e3ff';
+      ctx.arc(this.x,this.y,this.r,0,Math.PI*2);
+      ctx.fill();
+    }
   }
 
   function makeEnemy(type, pos, depth){
