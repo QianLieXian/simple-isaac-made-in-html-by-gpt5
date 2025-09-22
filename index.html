@@ -1370,8 +1370,7 @@
   });
   window.addEventListener('keyup', (e)=> processKeyUp(e.code));
 
-  const virtualKbToggle = document.getElementById('vk-toggle');
-  const virtualKbPanel = document.getElementById('virtual-kb');
+
   const virtualKeyboard = createVirtualKeyboard({
     panel: virtualKbPanel,
     toggle: virtualKbToggle,
@@ -3926,14 +3925,18 @@
       drawResourceIcon(p.entry.resource, p.r*0.9);
     }
     ctx.restore();
-    const title = p.entry.type==='item' ? p.entry.item.name : `${RESOURCE_LABELS[p.entry.resource]} x${p.entry.amount}`;
+   const resourceLabel = p.entry.type!=='item' ? getResourceLabel(p.entry.resource) : '';
+    const title = p.entry.type==='item'
+      ? getItemName(p.entry.item)
+      : `${resourceLabel} x${p.entry.amount}`;
+    const priceText = `${p.price}🪙`;
     ctx.save();
     ctx.fillStyle = '#d6dcff';
     ctx.font = '12px "HYWenHei", "PingFang SC", sans-serif';
     ctx.textAlign='center';
     ctx.fillText(title, p.x, p.y - 32);
     ctx.fillStyle = near ? '#facc15' : '#cbd5f5';
-    ctx.fillText(`${p.price}🪙`, p.x, p.y - 16);
+    ctx.fillText(priceText, p.x, p.y - 16);
     ctx.restore();
   }
 
