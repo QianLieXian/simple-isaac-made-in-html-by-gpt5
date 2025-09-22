@@ -589,6 +589,17 @@
     return BOSS_TYPES.includes(id) ? {id} : {id: BOSS_TYPES[0]};
   }
   let currentFloor = 1;
+  const runtime = {
+    bullets: [],
+    enemyProjectiles: [],
+    pendingEnemySpawns: [],
+    bossIntroTimer: 0,
+    bossIntroText: '',
+    itemPickupTimer: 0,
+    itemPickupName: '',
+    itemPickupDesc: '',
+    floor: currentFloor,
+  };
   function safeProgressionValue(base){
     return (typeof base === 'number' && isFinite(base) && base>0) ? base : 1;
   }
@@ -3380,17 +3391,7 @@
   }
 
   // ======= 运行时上下文 =======
-  const runtime = {
-    bullets: [],
-    enemyProjectiles: [],
-    pendingEnemySpawns: [],
-    bossIntroTimer: 0,
-    bossIntroText: '',
-    itemPickupTimer: 0,
-    itemPickupName: '',
-    itemPickupDesc: '',
-    floor: currentFloor,
-  };
+  // runtime 对象在前面初始化，以便语言切换等早期流程可以安全访问
   function startGame(){
     overlayManager.clear();
     recentItemHistory.length = 0;
