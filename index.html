@@ -23,6 +23,18 @@
     .hud-stats{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--muted);letter-spacing:.2px}
     .hud-stats span{display:flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid #222a38;border-radius:8px;background:rgba(17,21,29,.65);color:var(--muted)}
     .hud-stats span strong{color:var(--ink);font-weight:600;min-width:36px;text-align:right;font-variant-numeric:tabular-nums}
+    .hud-cheat{position:relative;display:flex;align-items:flex-start;margin-left:auto}
+    .cheat-toggle{background:rgba(31,36,52,.9);color:var(--ink);border:1px solid #2c3448;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px;letter-spacing:.4px;transition:all .2s ease}
+    .cheat-toggle:hover{border-color:#3a4c6f;background:rgba(45,52,72,.95)}
+    .cheat-panel{display:none;position:absolute;top:110%;right:0;z-index:20;min-width:240px;max-width:280px;padding:12px 14px;border-radius:12px;background:rgba(15,19,28,.95);border:1px solid #273146;box-shadow:0 16px 32px rgba(0,0,0,.45);gap:14px;flex-direction:column}
+    .cheat-panel.show{display:flex}
+    .cheat-panel h4{margin:0 0 6px 0;font-size:13px;color:var(--accent2);letter-spacing:.3px}
+    .cheat-section{display:flex;flex-direction:column;gap:6px}
+    .cheat-section label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+    .cheat-section input{background:#111521;border:1px solid #2c3448;border-radius:6px;color:var(--ink);padding:5px 6px;font-size:12px}
+    .cheat-section input:focus{outline:none;border-color:var(--accent)}
+    .cheat-section button{align-self:flex-end;background:linear-gradient(180deg,#2c3348,#222735);border:1px solid #2f3a52;border-radius:8px;color:var(--ink);padding:6px 10px;font-size:12px;cursor:pointer;transition:all .2s ease}
+    .cheat-section button:hover{border-color:#3c4c6a;background:linear-gradient(180deg,#34405a,#273044)}
     .hud-stats span small{font-size:12px;color:var(--muted);opacity:.8}
     .kbd{padding:2px 6px;border:1px solid #2a3142;border-radius:6px;color:var(--muted)}
     footer{margin-top:16px;color:var(--muted);text-align:center}
@@ -74,6 +86,28 @@
       <div id="hud-left" class="hud-section"></div>
       <div id="hud-stats" class="hud-stats"></div>
       <div id="hud-right" class="hud-section"></div>
+      <div class="hud-cheat">
+        <button id="cheat-toggle" class="cheat-toggle" type="button">作弊台</button>
+        <div id="cheat-panel" class="cheat-panel">
+          <div class="cheat-section">
+            <h4>状态</h4>
+            <label>当前血量 <input id="cheat-hp" type="number" min="0" max="20" step="1"></label>
+            <label>生命上限 <input id="cheat-maxhp" type="number" min="1" max="20" step="1"></label>
+            <label>基础伤害 <input id="cheat-damage" type="number" min="0" step="0.1"></label>
+            <label>移动速度 <input id="cheat-speed" type="number" min="0" step="1"></label>
+            <label>射速(次/秒) <input id="cheat-firerate" type="number" min="0.1" step="0.1"></label>
+            <label>子弹速度 <input id="cheat-tearspeed" type="number" min="1" step="1"></label>
+            <button id="cheat-apply-stats" type="button">应用状态</button>
+          </div>
+          <div class="cheat-section">
+            <h4>资源</h4>
+            <label>炸弹 <input id="cheat-bombs" type="number" min="0" max="99" step="1"></label>
+            <label>钥匙 <input id="cheat-keys" type="number" min="0" max="99" step="1"></label>
+            <label>金币 <input id="cheat-coins" type="number" min="0" max="99" step="1"></label>
+            <button id="cheat-apply-resources" type="button">应用资源</button>
+          </div>
+        </div>
+      </div>
     </div>
     <footer>纯前端单文件 · 无素材 · 轻便又俏皮</footer>
   </div>
@@ -190,7 +224,7 @@
       name:'胡椒牛排',
       weight:5,
       description:'全身沸腾，伤害 +1，攻速 +1，射程 x1.5，血上限 +1',
-      apply(player){ player.addDamage(1); adjustFireRate(player,1); player.tearLife*=1.5; player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); }
+      apply(player){ player.addDamage(1); adjustFireRate(player,1); player.tearLife*=1.5; if(typeof player.adjustMaxHp==='function'){ player.adjustMaxHp(1); } else { player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); } }
     },
     {
       id:'rope',
@@ -264,7 +298,7 @@
       name:'狗粮',
       weight:50,
       description:'血量上限 +1',
-      apply(player){ player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); }
+      apply(player){ if(typeof player.adjustMaxHp==='function'){ player.adjustMaxHp(1); } else { player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); } }
     },
     {
       id:'ending-note',
@@ -285,6 +319,76 @@
   const HUDL = document.getElementById('hud-left');
   const HUDR = document.getElementById('hud-right');
   const HUDS = document.getElementById('hud-stats');
+  const cheatToggle = document.getElementById('cheat-toggle');
+  const cheatPanelNode = document.getElementById('cheat-panel');
+  const cheatInputs = {
+    hp: document.getElementById('cheat-hp'),
+    maxHp: document.getElementById('cheat-maxhp'),
+    damage: document.getElementById('cheat-damage'),
+    speed: document.getElementById('cheat-speed'),
+    firerate: document.getElementById('cheat-firerate'),
+    tearSpeed: document.getElementById('cheat-tearspeed'),
+    bombs: document.getElementById('cheat-bombs'),
+    keys: document.getElementById('cheat-keys'),
+    coins: document.getElementById('cheat-coins')
+  };
+  const cheatStatsBtn = document.getElementById('cheat-apply-stats');
+  const cheatResBtn = document.getElementById('cheat-apply-resources');
+
+  function syncCheatPanel(){
+    if(!cheatPanelNode || !cheatPanelNode.classList.contains('show') || !player) return;
+    cheatInputs.hp.value = player ? Math.floor(player.hp) : 0;
+    cheatInputs.maxHp.value = player ? Math.floor(player.maxHp) : 0;
+    cheatInputs.damage.value = player ? player.baseDamage.toFixed(2) : '0';
+    cheatInputs.speed.value = player ? Math.round(player.speed) : 0;
+    const rate = player && player.fireInterval>0 ? (1000/player.fireInterval) : 0;
+    cheatInputs.firerate.value = rate ? rate.toFixed(2) : '0';
+    cheatInputs.tearSpeed.value = player ? Math.round(player.tearSpeed) : 0;
+    cheatInputs.bombs.value = player ? Math.floor(player.bombs) : 0;
+    cheatInputs.keys.value = player ? Math.floor(player.keys) : 0;
+    cheatInputs.coins.value = player ? Math.floor(player.coins) : 0;
+  }
+  function applyCheatStats(){
+    if(!player) return;
+    const maxHpCap = player.maxHpCap || 20;
+    const newMax = clamp(Math.floor(Number(cheatInputs.maxHp.value)||player.maxHp), 1, maxHpCap);
+    const newHp = clamp(Math.floor(Number(cheatInputs.hp.value)||player.hp), 0, newMax);
+    const baseDamage = Number(cheatInputs.damage.value);
+    const moveSpeed = Number(cheatInputs.speed.value);
+    const fireRate = Number(cheatInputs.firerate.value);
+    const tearSpeed = Number(cheatInputs.tearSpeed.value);
+    player.maxHp = newMax;
+    player.hp = newHp;
+    if(Number.isFinite(baseDamage) && baseDamage>=0){ player.baseDamage = baseDamage; }
+    if(Number.isFinite(moveSpeed) && moveSpeed>=0){ player.speed = moveSpeed; }
+    if(Number.isFinite(fireRate) && fireRate>0){
+      player.fireInterval = 1000 / fireRate;
+      player.fireCd = Math.min(player.fireCd, player.fireInterval);
+    }
+    if(Number.isFinite(tearSpeed) && tearSpeed>0){ player.tearSpeed = tearSpeed; }
+    if(player.hp>player.maxHp) player.hp = player.maxHp;
+    player.recalculateDamage();
+    syncCheatPanel();
+  }
+  function applyCheatResources(){
+    if(!player) return;
+    const bombs = clamp(Math.floor(Number(cheatInputs.bombs.value)||player.bombs), 0, 99);
+    const keys = clamp(Math.floor(Number(cheatInputs.keys.value)||player.keys), 0, 99);
+    const coins = clamp(Math.floor(Number(cheatInputs.coins.value)||player.coins), 0, 99);
+    player.bombs = bombs;
+    player.keys = keys;
+    player.coins = coins;
+    player.recalculateDamage();
+    syncCheatPanel();
+  }
+  if(cheatToggle && cheatPanelNode){
+    cheatToggle.addEventListener('click', ()=>{
+      cheatPanelNode.classList.toggle('show');
+      syncCheatPanel();
+    });
+  }
+  cheatStatsBtn?.addEventListener('click', applyCheatStats);
+  cheatResBtn?.addEventListener('click', applyCheatResources);
 
   function createOverlayManager(mapping){
     const entries = Object.entries(mapping).filter(([,node])=>node);
@@ -761,7 +865,10 @@
       y:clamp(y,90,CONFIG.roomH-90),
       r:18,
       item:room.itemData,
-      room
+      room,
+      vx:0,
+      vy:0,
+      solid:false
     };
   }
   function makeResourcePickup(type,x,y,amount){
@@ -771,7 +878,10 @@
       amount:amount||1,
       x:clamp(x,70,CONFIG.roomW-70),
       y:clamp(y,80,CONFIG.roomH-80),
-      r:12
+      r:12,
+      vx:0,
+      vy:0,
+      solid:true
     };
   }
   function makeShopPickup(x,y,entry,price){
@@ -782,7 +892,10 @@
       r:22,
       entry,
       price,
-      purchased:false
+      purchased:false,
+      vx:0,
+      vy:0,
+      solid:false
     };
   }
   function spawnRandomDrop(room,x,y){
@@ -817,19 +930,135 @@
     runtime.itemPickupTimer = 3.2;
   }
   function grantResource(type, amount){
-    if(!player) return;
-    const amt = amount||1;
-    if(type==='bomb'){ player.bombs += amt; }
-    else if(type==='key'){ player.keys += amt; }
-    else if(type==='coin'){ player.coins += amt; }
-    player.recalculateDamage();
+    if(!player) return 0;
+    const cap = 99;
+    const amt = Math.max(0, Math.floor(amount||1));
+    let prop = null;
+    if(type==='bomb'){ prop='bombs'; }
+    else if(type==='key'){ prop='keys'; }
+    else if(type==='coin'){ prop='coins'; }
+    if(!prop) return 0;
+    const before = Math.max(0, player[prop]||0);
+    const space = Math.max(0, cap - before);
+    const gained = Math.min(space, amt);
+    if(gained>0){
+      player[prop] = clamp(before + gained, 0, cap);
+      player.recalculateDamage();
+    } else if(type==='coin'){ // 确保金币相关增益及时刷新
+      player.recalculateDamage();
+    }
+    return gained;
+  }
+
+  function isPhysicalPickup(p){
+    return !!(p && p.solid);
+  }
+  function ensurePickupMotion(p){
+    if(typeof p.vx !== 'number') p.vx = 0;
+    if(typeof p.vy !== 'number') p.vy = 0;
+  }
+  function pushPickup(p, origin, strength){
+    if(!isPhysicalPickup(p) || !origin) return;
+    ensurePickupMotion(p);
+    const dx = p.x - origin.x;
+    const dy = p.y - origin.y;
+    const d = Math.hypot(dx,dy) || 0.0001;
+    const impulse = strength ?? 180;
+    const nx = dx / d;
+    const ny = dy / d;
+    p.vx += nx * impulse;
+    p.vy += ny * impulse;
+    const speed = Math.hypot(p.vx, p.vy);
+    const maxSpeed = 360;
+    if(speed > maxSpeed){
+      const scale = maxSpeed / speed;
+      p.vx *= scale;
+      p.vy *= scale;
+    }
+    const overlap = (p.r + (origin.r||0)) - d;
+    if(overlap>0){
+      p.x += nx * overlap;
+      p.y += ny * overlap;
+    }
+  }
+  function keepPickupInBounds(p){
+    const marginX = p.r + 24;
+    const marginY = p.r + 28;
+    if(p.x < marginX){ p.x = marginX; if(p.vx<0) p.vx*=-0.35; }
+    if(p.x > CONFIG.roomW - marginX){ p.x = CONFIG.roomW - marginX; if(p.vx>0) p.vx*=-0.35; }
+    if(p.y < marginY){ p.y = marginY; if(p.vy<0) p.vy*=-0.35; }
+    if(p.y > CONFIG.roomH - marginY){ p.y = CONFIG.roomH - marginY; if(p.vy>0) p.vy*=-0.35; }
+  }
+  function resolvePickupObstacles(p){
+    if(!dungeon?.current) return;
+    for(const obs of dungeon.current.obstacles){
+      if(obs.destroyed) continue;
+      const push = circleRectResolve(p, obs);
+      if(push){
+        p.x += push.x;
+        p.y += push.y;
+        const len = Math.hypot(push.x, push.y) || 1;
+        const nx = push.x/len;
+        const ny = push.y/len;
+        const dot = p.vx*nx + p.vy*ny;
+        if(dot<0){
+          p.vx -= dot*nx;
+          p.vy -= dot*ny;
+        }
+      }
+    }
+  }
+  function updatePickups(dt){
+    const picks = dungeon?.current?.pickups;
+    if(!picks) return;
+    const decay = Math.exp(-dt*4.5);
+    for(const p of picks){
+      if(!isPhysicalPickup(p)) continue;
+      ensurePickupMotion(p);
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vx *= decay;
+      p.vy *= decay;
+      if(Math.abs(p.vx) < 1e-2) p.vx = 0;
+      if(Math.abs(p.vy) < 1e-2) p.vy = 0;
+      keepPickupInBounds(p);
+      resolvePickupObstacles(p);
+    }
+  }
+  function keepBombInBounds(bomb){
+    const margin = bomb.r + 24;
+    const marginY = bomb.r + 24;
+    if(bomb.x < margin){ bomb.x = margin; if(bomb.vx<0) bomb.vx*=-0.4; }
+    if(bomb.x > CONFIG.roomW - margin){ bomb.x = CONFIG.roomW - margin; if(bomb.vx>0) bomb.vx*=-0.4; }
+    if(bomb.y < marginY){ bomb.y = marginY; if(bomb.vy<0) bomb.vy*=-0.4; }
+    if(bomb.y > CONFIG.roomH - marginY){ bomb.y = CONFIG.roomH - marginY; if(bomb.vy>0) bomb.vy*=-0.4; }
+  }
+  function resolveBombObstacles(bomb){
+    if(!dungeon?.current || bomb.exploded) return;
+    for(const obs of dungeon.current.obstacles){
+      if(obs.destroyed) continue;
+      const push = circleRectResolve(bomb, obs);
+      if(push){
+        bomb.x += push.x;
+        bomb.y += push.y;
+        const len = Math.hypot(push.x, push.y) || 1;
+        const nx = push.x/len;
+        const ny = push.y/len;
+        const dot = bomb.vx*nx + bomb.vy*ny;
+        if(dot<0){
+          bomb.vx -= dot*nx;
+          bomb.vy -= dot*ny;
+        }
+      }
+    }
   }
 
   // ======= 实体 =======
   class Player{
     constructor(x,y){
       this.x=x; this.y=y; this.r=CONFIG.player.radius; this.speed=CONFIG.player.speed;
-      this.maxHp = CONFIG.player.hp;
+      this.maxHpCap = 20;
+      this.maxHp = Math.min(CONFIG.player.hp, this.maxHpCap);
       this.hp = this.maxHp; this.ifr=0; // 无敌帧
       this.fireCd = 0; this.fireInterval = CONFIG.player.fireCd;
       this.tearSpeed=CONFIG.player.tearSpeed; this.tearLife=CONFIG.player.tearLife;
@@ -846,17 +1075,30 @@
       this.flying = false;
       this.canPierceObstacles = false;
       this.effects = {bloodPower:false, moneyPower:false, despairPower:false};
+      this.moveDir = {x:0,y:0};
+      this.lastDisplacement = {x:0,y:0};
     }
     update(dt){
       this.bombCooldown = Math.max(0, this.bombCooldown - dt);
+      const startX = this.x;
+      const startY = this.y;
       const mv = {x:0,y:0};
       if(keys.has('KeyW')) mv.y -= 1;
       if(keys.has('KeyS')) mv.y += 1;
       if(keys.has('KeyA')) mv.x -= 1;
       if(keys.has('KeyD')) mv.x += 1;
-      const len = Math.hypot(mv.x,mv.y) || 1;
-      this.x += (mv.x/len) * this.speed * dt;
-      this.y += (mv.y/len) * this.speed * dt;
+      const len = Math.hypot(mv.x,mv.y);
+      if(len>0){
+        const nx = mv.x/len;
+        const ny = mv.y/len;
+        this.moveDir.x = nx;
+        this.moveDir.y = ny;
+        this.x += nx * this.speed * dt;
+        this.y += ny * this.speed * dt;
+      } else {
+        this.moveDir.x = 0;
+        this.moveDir.y = 0;
+      }
       if(this.knockTimer>0){
         this.x += this.knockVel.x * dt;
         this.y += this.knockVel.y * dt;
@@ -882,6 +1124,8 @@
         this.fireCd = this.fireInterval;
       }
       resolveEntityObstacles(this);
+      this.lastDisplacement.x = this.x - startX;
+      this.lastDisplacement.y = this.y - startY;
       this.recalculateDamage();
     }
     hurt(dmg){
@@ -893,6 +1137,18 @@
     }
     addDamage(amount){
       this.baseDamage = +(this.baseDamage + amount).toFixed(2);
+      this.recalculateDamage();
+    }
+    adjustMaxHp(delta){
+      if(!Number.isFinite(delta)) return;
+      const prev = this.maxHp;
+      this.maxHp = clamp(prev + delta, 1, this.maxHpCap);
+      if(this.hp > this.maxHp){
+        this.hp = this.maxHp;
+      } else if(delta>0){
+        const diff = this.maxHp - prev;
+        if(diff>0) this.hp = Math.min(this.maxHp, this.hp + diff);
+      }
       this.recalculateDamage();
     }
     applyImpulse(dx,dy,strength){
@@ -961,6 +1217,8 @@
       this.exploded=false;
       this.explosionTimer=0;
       this.done=false;
+      this.vx=0;
+      this.vy=0;
     }
     update(dt){
       if(this.done) return;
@@ -969,13 +1227,41 @@
         if(this.explosionTimer<=0){ this.done=true; }
         return;
       }
+      this.integrateMotion(dt);
       this.timer -= dt;
       if(this.timer<=0){ this.explode(); }
+    }
+    integrateMotion(dt){
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+      const drag = Math.exp(-dt*4.2);
+      this.vx *= drag;
+      this.vy *= drag;
+      if(Math.abs(this.vx) < 1e-2) this.vx = 0;
+      if(Math.abs(this.vy) < 1e-2) this.vy = 0;
+      keepBombInBounds(this);
+      resolveBombObstacles(this);
+    }
+    applyImpulse(dx,dy,strength){
+      if(this.done || this.exploded) return;
+      const len = Math.hypot(dx,dy) || 0.0001;
+      const power = strength ?? CONFIG.bomb.knock;
+      this.vx += (dx/len) * power;
+      this.vy += (dy/len) * power;
+      const speed = Math.hypot(this.vx, this.vy);
+      const maxSpeed = 480;
+      if(speed > maxSpeed){
+        const scale = maxSpeed / speed;
+        this.vx *= scale;
+        this.vy *= scale;
+      }
     }
     explode(){
       if(this.exploded) return;
       this.exploded=true;
       this.explosionTimer = 0.4;
+      this.vx = 0;
+      this.vy = 0;
       handleBombExplosion(dungeon.current, this);
     }
     draw(){
@@ -1025,7 +1311,7 @@
         spawnRandomDrop(room, dropX, dropY);
         if(rand() < CONFIG.obstacles.hiddenItemChance){
           const item = rollItem();
-          room.pickups.push({type:'item', x:clamp(dropX,80,CONFIG.roomW-80), y:clamp(dropY,90,CONFIG.roomH-90), r:18, item});
+          room.pickups.push({type:'item', x:clamp(dropX,80,CONFIG.roomW-80), y:clamp(dropY,90,CONFIG.roomH-90), r:18, item, vx:0, vy:0, solid:false});
         }
       }
     }
@@ -1069,6 +1355,21 @@
       if(circleRectOverlap(circle, obs)){
         obs.destroyed = true;
         onObstacleDestroyed(room, obs);
+      }
+    }
+    if(room.pickups){
+      for(const drop of room.pickups){
+        if(!isPhysicalPickup(drop)) continue;
+        if(dist(drop, bomb) <= radius + drop.r){
+          pushPickup(drop, bomb, CONFIG.bomb.knock * 1.15);
+        }
+      }
+    }
+    for(const other of room.bombs){
+      if(other===bomb || other.done || other.exploded) continue;
+      const db = dist(other, bomb);
+      if(db <= radius + other.r){
+        other.applyImpulse(other.x - bomb.x, other.y - bomb.y, CONFIG.bomb.knock * 1.1);
       }
     }
     for(const proj of runtime.enemyProjectiles){
@@ -1866,6 +2167,7 @@
     runtime.itemPickupTimer = 0;
     runtime.itemPickupName = '';
     runtime.itemPickupDesc = '';
+    syncCheatPanel();
   }
 
   // ======= 门与换房 =======
@@ -1985,6 +2287,24 @@
       b.update(dt);
       if(b.done){ bombs.splice(i,1); }
     }
+    updatePickups(dt);
+    for(const b of bombs){
+      if(b.done || b.exploded) continue;
+      const d = dist(player, b);
+      if(d < player.r + b.r){
+        const dx = b.x - player.x;
+        const dy = b.y - player.y;
+        const len = Math.hypot(dx,dy) || 1;
+        const overlap = player.r + b.r - d;
+        if(overlap>0){
+          b.x += (dx/len) * overlap;
+          b.y += (dy/len) * overlap;
+        }
+        const moveImpulse = Math.hypot(player.lastDisplacement.x, player.lastDisplacement.y);
+        const pushPower = 140 + moveImpulse * 420;
+        b.applyImpulse(dx, dy, pushPower);
+      }
+    }
 
     // 子弹
     for(const b of runtime.bullets) b.update(dt);
@@ -2034,16 +2354,38 @@
     const picks = dungeon.current.pickups;
     for(let i=picks.length-1;i>=0;i--){
       const p = picks[i];
-      if(dist(p,player) < p.r + player.r){
-        if(p.type==='heart' && player.hp < player.maxHp){
-          player.hp = Math.min(player.maxHp, player.hp + (p.heal || 1));
-          picks.splice(i,1);
+      const distance = dist(p,player);
+      if(distance < p.r + player.r){
+        const movement = Math.hypot(player.lastDisplacement.x, player.lastDisplacement.y);
+        const shove = 170 + movement * 420;
+        if(p.type==='heart'){
+          const missing = Math.max(0, player.maxHp - player.hp);
+          const healValue = Math.min(missing, p.heal || 1);
+          if(healValue>0){
+            player.hp = Math.min(player.maxHp, player.hp + healValue);
+            if(typeof p.heal === 'number'){
+              p.heal = Math.max(0, (p.heal || 0) - healValue);
+              p.r = p.heal>1 ? 14 : 10;
+            }
+            if(!p.heal || p.heal<=0){ picks.splice(i,1); }
+            player.recalculateDamage();
+          } else {
+            pushPickup(p, player, shove);
+          }
         } else if(p.type==='item'){
           pickupItem(p);
           picks.splice(i,1);
         } else if(p.type==='bomb' || p.type==='key' || p.type==='coin'){
-          grantResource(p.type, p.amount || 1);
-          picks.splice(i,1);
+          const amount = p.amount || 1;
+          const gained = grantResource(p.type, amount);
+          if(gained>0){
+            if(typeof p.amount === 'number'){
+              p.amount = Math.max(0, amount - gained);
+            }
+            if(!p.amount){ picks.splice(i,1); }
+          } else {
+            pushPickup(p, player, shove);
+          }
         }
       }
     }
@@ -2080,6 +2422,7 @@
     } else {
       HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>层数：${dungeon.depth} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span></span>`;
     }
+    if(cheatPanelNode?.classList.contains('show')){ syncCheatPanel(); }
   }
   function exploredRooms(){
     let n=0; for(let i=0;i<dungeon.gridN;i++){for(let j=0;j<dungeon.gridN;j++){if(dungeon.rooms[i][j]?.visited) n++;}} return n;
@@ -2604,11 +2947,11 @@
   function spawnBossRewards(room,x,y){
     spawnHeartBundle(room,x,y);
     const item = rollBossItem();
-    room.pickups.push({type:'item', x:clamp(x,90,CONFIG.roomW-90), y:clamp(y-40,120,CONFIG.roomH-120), r:18, item});
+    room.pickups.push({type:'item', x:clamp(x,90,CONFIG.roomW-90), y:clamp(y-40,120,CONFIG.roomH-120), r:18, item, vx:0, vy:0, solid:false});
   }
 
   function makeHeartPickup(x,y,heal){
-    return {type:'heart', x:clamp(x,60,CONFIG.roomW-60), y:clamp(y,60,CONFIG.roomH-60), r: heal>1?14:10, heal};
+    return {type:'heart', x:clamp(x,60,CONFIG.roomW-60), y:clamp(y,60,CONFIG.roomH-60), r: heal>1?14:10, heal, vx:0, vy:0, solid:true};
   }
 
   function queueEnemySpawn(enemy){ runtime.pendingEnemySpawns.push(enemy); }
@@ -2655,11 +2998,17 @@
       runtime.itemPickupDesc = item.description || '';
       runtime.itemPickupTimer = 2.4;
     } else if(pickup.entry.type==='resource'){
-      grantResource(pickup.entry.resource, pickup.entry.amount);
+      const gained = grantResource(pickup.entry.resource, pickup.entry.amount);
       const label = RESOURCE_LABELS[pickup.entry.resource] || '资源';
-      runtime.itemPickupName = `${label} +${pickup.entry.amount}`;
-      runtime.itemPickupDesc = '来自商店柜台的友情价';
-      runtime.itemPickupTimer = 1.5;
+      if(gained>0){
+        runtime.itemPickupName = `${label} +${gained}`;
+        runtime.itemPickupDesc = '来自商店柜台的友情价';
+        runtime.itemPickupTimer = 1.5;
+      } else {
+        runtime.itemPickupName = `${label} 背包已满`;
+        runtime.itemPickupDesc = '再整理一下口袋吧';
+        runtime.itemPickupTimer = 1.2;
+      }
     }
   }
 
