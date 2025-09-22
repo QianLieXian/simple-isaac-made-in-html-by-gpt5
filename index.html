@@ -221,6 +221,19 @@
       dropPrice: 5,
       itemPrice: 15,
     },
+    progression: {
+      enemyHp: 1.2,
+      enemySpeed: 1.1,
+      enemyAggression: 1.1,
+    },
+    combat: {
+      shotInertia: 0.45,
+    },
+    portal: {
+      radius: 36,
+      interactRadius: 52,
+      spawnDelay: 0.45,
+    },
     rngSeed: Date.now() % 1000000,
   };
 
@@ -255,6 +268,36 @@
   }
   function getBossMeta(id){
     return BOSS_TYPES.find(b=>b.id===id) || BOSS_TYPES[0];
+  }
+  let currentFloor = 1;
+  function safeProgressionValue(base){
+    return (typeof base === 'number' && isFinite(base) && base>0) ? base : 1;
+  }
+  function sanitizeScalingValue(value, fallback=1){
+    return (typeof value === 'number' && isFinite(value) && value>0) ? value : fallback;
+  }
+  function getFloorScalingFactors(floor = currentFloor){
+    const progression = CONFIG.progression || {};
+    if(typeof progression.getEnemyScaling === 'function'){
+      const custom = progression.getEnemyScaling(floor) || {};
+      const hp = custom.hp ?? custom.enemyHp;
+      const speed = custom.speed ?? custom.enemySpeed;
+      const aggression = custom.aggression ?? custom.enemyAggression;
+      return {
+        floor: Math.max(1, floor|0),
+        hp: sanitizeScalingValue(hp),
+        speed: sanitizeScalingValue(speed),
+        aggression: sanitizeScalingValue(aggression),
+      };
+    }
+    const level = Math.max(1, floor|0);
+    const exponent = level - 1;
+    return {
+      floor: level,
+      hp: Math.pow(safeProgressionValue(progression.enemyHp), exponent),
+      speed: Math.pow(safeProgressionValue(progression.enemySpeed), exponent),
+      aggression: Math.pow(safeProgressionValue(progression.enemyAggression), exponent),
+    };
   }
   const ITEM_POOL = [
     {
@@ -899,6 +942,7 @@
       this.isItemRoom=false; this.itemData=null; this.itemClaimed=false; this.itemSpawned=false;
       this.isShop=false; this.shopInventory=[]; this.shopPrepared=false; this.locked=false;
       this.isSafeRoom=false;
+      this.portal=null;
     }
     center(){ return {x: CONFIG.roomW/2, y: CONFIG.roomH/2}; }
     spawnEnemies(depth){
@@ -922,6 +966,7 @@
       }
       if(this.isBoss){
         if(this.bossDefeated){ this.enemies = []; return this.enemies; }
+        this.portal = null;
         if(!this.bossEntity || this.bossEntity.dead){
           const c = this.center();
           this.bossEntity = makeBoss(c, this);
@@ -1635,6 +1680,7 @@
       this.effects = {bloodPower:false, moneyPower:false, despairPower:false};
       this.moveDir = {x:0,y:0};
       this.lastDisplacement = {x:0,y:0};
+      this.lastVelocity = {x:0,y:0};
     }
     update(dt){
       this.bombCooldown = Math.max(0, this.bombCooldown - dt);
@@ -1676,14 +1722,27 @@
       if(keys.has('ArrowDown')) sy += 1;
       if(keys.has('ArrowLeft')) sx -= 1;
       if(keys.has('ArrowRight')) sx += 1;
+      let shotDir = null;
       if((sx||sy) && this.fireCd<=0){
-        const l = Math.hypot(sx,sy)||1; sx/=l; sy/=l;
-        runtime.bullets.push(new Bullet(this.x, this.y, sx*this.tearSpeed, sy*this.tearSpeed, this.tearLife, this.damage, this.canPierceObstacles));
+        const l = Math.hypot(sx,sy)||1;
+        shotDir = {x: sx/l, y: sy/l};
         this.fireCd = this.fireInterval;
       }
       resolveEntityObstacles(this);
-      this.lastDisplacement.x = this.x - startX;
-      this.lastDisplacement.y = this.y - startY;
+      const dx = this.x - startX;
+      const dy = this.y - startY;
+      const lvx = dt>0 ? dx/dt : 0;
+      const lvy = dt>0 ? dy/dt : 0;
+      this.lastDisplacement.x = dx;
+      this.lastDisplacement.y = dy;
+      this.lastVelocity.x = lvx;
+      this.lastVelocity.y = lvy;
+      if(shotDir){
+        const inertia = CONFIG.combat?.shotInertia ?? 0;
+        const vx = shotDir.x*this.tearSpeed + lvx * inertia;
+        const vy = shotDir.y*this.tearSpeed + lvy * inertia;
+        runtime.bullets.push(new Bullet(this.x, this.y, vx, vy, this.tearLife, this.damage, this.canPierceObstacles));
+      }
       this.recalculateDamage();
     }
     hurt(dmg){
@@ -1994,7 +2053,15 @@
   }
 
   class EnemyChaser{
-    constructor(x,y,hp){ this.x=x; this.y=y; this.r=12; this.hp=hp; this.speed = CONFIG.enemy.speed * randRange(0.9,1.2); this.knock=0; }
+    constructor(x,y,hp){
+      this.x=x; this.y=y; this.r=12; this.hp=hp;
+      this.speed = CONFIG.enemy.speed * randRange(0.9,1.2);
+      this.knock=0;
+      this.scaling = getFloorScalingFactors();
+      this.hp = Math.max(1, Math.round(this.hp * this.scaling.hp));
+      this.speed *= this.scaling.speed;
+      this.aggression = this.scaling.aggression;
+    }
     update(dt){
       const to = {x:player.x - this.x, y:player.y - this.y};
       const l = Math.hypot(to.x,to.y)||1; to.x/=l; to.y/=l;
@@ -2010,7 +2077,16 @@
   }
 
   class EnemyOrbiter{
-    constructor(x,y,hp){ this.x=x; this.y=y; this.r=10; this.hp=hp; this.t=rand()*Math.PI*2; this.base={x,y}; this.range=40+rand()*25; this.omega = 2+rand()*1.5; this.speed=40; this.flying=true; }
+    constructor(x,y,hp){
+      this.x=x; this.y=y; this.r=10; this.hp=hp;
+      this.t=rand()*Math.PI*2; this.base={x,y}; this.range=40+rand()*25;
+      this.omega = 2+rand()*1.5; this.speed=40; this.flying=true;
+      this.scaling = getFloorScalingFactors();
+      this.hp = Math.max(1, Math.round(this.hp * this.scaling.hp));
+      this.speed *= this.scaling.speed;
+      this.omega *= this.scaling.aggression;
+      this.aggression = this.scaling.aggression;
+    }
     update(dt){
       this.t += this.omega*dt;
       this.x = this.base.x + Math.cos(this.t)*this.range;
@@ -2040,10 +2116,17 @@
       this.knockVx = 0;
       this.knockVy = 0;
       this.flying = false;
+      this.scaling = getFloorScalingFactors();
+      this.hp = Math.max(1, Math.round(this.hp * this.scaling.hp));
+      this.speed *= this.scaling.speed;
+      this.aggression = this.scaling.aggression;
+      this.triggerCooldownBase = Math.max(0.25, cfg.triggerCooldown / this.aggression);
+      this.triggerChance = Math.min(0.98, cfg.triggerChance * this.aggression);
+      this.fuseDuration = Math.max(0.45, cfg.fuse / this.aggression);
     }
     startFuse(){
       if(this.fuse>0) return;
-      this.fuse = CONFIG.enemy.gasbag.fuse;
+      this.fuse = this.fuseDuration;
       this.flashTimer = this.fuse;
     }
     detonate(){
@@ -2088,13 +2171,13 @@
         const dy = this.y - player.y;
         const d = Math.hypot(dx,dy)||1;
         if(this.fuse<=0 && d < cfg.triggerRange){
-          this.cooldown -= dt;
+          this.cooldown -= dt * this.aggression;
           if(this.cooldown<=0){
-            if(rand() < cfg.triggerChance){ this.startFuse(); }
-            this.cooldown = cfg.triggerCooldown;
+            if(rand() < Math.min(0.98, this.triggerChance)){ this.startFuse(); }
+            this.cooldown = this.triggerCooldownBase;
           }
         } else {
-          this.cooldown = Math.max(0, this.cooldown - dt*0.5);
+          this.cooldown = Math.max(0, this.cooldown - dt*0.5*this.aggression);
         }
         if(d < this.safeRadius){
           this.x += (dx/d) * this.speed * dt;
@@ -2164,6 +2247,10 @@
       this.knockVx = 0;
       this.knockVy = 0;
       this.flying = true;
+      this.scaling = getFloorScalingFactors();
+      this.hp = Math.max(1, Math.round(this.hp * this.scaling.hp));
+      this.speed *= this.scaling.speed;
+      this.aggression = this.scaling.aggression;
     }
     update(dt){
       if(this.knock>0){
@@ -2214,7 +2301,14 @@
       this.x=x; this.y=y; this.r=13; this.hp=hp;
       const cfg = CONFIG.enemy.elderFly;
       this.speed = cfg.speed;
-      this.fireTimer = randRange(cfg.telegraph, cfg.fireInterval);
+      this.scaling = getFloorScalingFactors();
+      this.hp = Math.max(1, Math.round(this.hp * this.scaling.hp));
+      this.speed *= this.scaling.speed;
+      this.aggression = this.scaling.aggression;
+      this.fireInterval = Math.max(0.7, cfg.fireInterval / this.aggression);
+      this.telegraphWindow = Math.max(0.25, cfg.telegraph / this.aggression);
+      this.fireTimer = randRange(this.telegraphWindow, this.fireInterval);
+      this.projectileSpeed = cfg.projectileSpeed * this.scaling.speed;
       this.knock = 0;
       this.knockVx = 0;
       this.knockVy = 0;
@@ -2243,15 +2337,15 @@
       this.x = clamp(this.x, 50, CONFIG.roomW-50);
       this.y = clamp(this.y, 54, CONFIG.roomH-54);
       resolveEntityObstacles(this);
-      this.fireTimer -= dt;
+      this.fireTimer -= dt * this.aggression;
       if(this.fireTimer <= 0){
         const angle = Math.atan2(player.y - this.y, player.x - this.x);
-        const speed = cfg.projectileSpeed + rand()*50;
+        const speed = this.projectileSpeed + rand()*50;
         runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.8, 'tear'));
-        this.fireTimer = cfg.fireInterval;
+        this.fireTimer = this.fireInterval;
         this.charging = false;
       } else {
-        this.charging = this.fireTimer <= cfg.telegraph;
+        this.charging = this.fireTimer <= this.telegraphWindow;
       }
       if(dist(this, player) < this.r + player.r){ player.hurt(1); }
     }
@@ -2283,9 +2377,10 @@
 
   class EnemySpiderLeaper{
     constructor(x,y,hp){
+      const cfg = CONFIG.enemy.spider;
       this.x=x; this.y=y; this.r=13; this.hp=hp;
       this.state='idle';
-      this.cooldown = randRange(1.2, CONFIG.enemy.spider.cooldown);
+      this.cooldown = randRange(1.2, cfg.cooldown);
       this.telegraphTimer = 0;
       this.leapDuration = 0;
       this.leapElapsed = 0;
@@ -2294,6 +2389,13 @@
       this.knock = 0;
       this.knockVx = 0;
       this.knockVy = 0;
+      this.scaling = getFloorScalingFactors();
+      this.hp = Math.max(1, Math.round(this.hp * this.scaling.hp));
+      this.aggression = this.scaling.aggression;
+      this.cooldownBase = Math.max(0.6, cfg.cooldown / this.aggression);
+      this.cooldown = Math.max(0.4, this.cooldown / this.aggression);
+      this.telegraphDuration = Math.max(0.2, cfg.telegraph / this.aggression);
+      this.leapSpeed = cfg.leapSpeed * this.scaling.speed;
     }
     beginLeap(){
       const cfg = CONFIG.enemy.spider;
@@ -2310,7 +2412,7 @@
         x: clamp(this.x + nx*travel, 40, CONFIG.roomW-40),
         y: clamp(this.y + ny*travel, 46, CONFIG.roomH-46)
       };
-      this.leapDuration = Math.max(0.2, travel / cfg.leapSpeed);
+      this.leapDuration = Math.max(0.2, travel / this.leapSpeed);
       this.leapElapsed = 0;
       this.state='leap';
     }
@@ -2326,13 +2428,13 @@
         return;
       }
       if(this.state==='idle'){
-        this.cooldown -= dt;
+        this.cooldown -= dt * this.aggression;
         if(this.cooldown<=0){
           this.state='telegraph';
-          this.telegraphTimer = cfg.telegraph;
+          this.telegraphTimer = this.telegraphDuration;
         }
       } else if(this.state==='telegraph'){
-        this.telegraphTimer -= dt;
+        this.telegraphTimer -= dt * this.aggression;
         if(this.telegraphTimer<=0){
           this.beginLeap();
         }
@@ -2345,7 +2447,7 @@
         if(dist(this, player) < this.r + player.r){ player.hurt(1); }
         if(this.leapElapsed>=this.leapDuration){
           this.state='idle';
-          this.cooldown = cfg.cooldown;
+          this.cooldown = this.cooldownBase;
           this.x = this.leapEnd.x;
           this.y = this.leapEnd.y;
         }
@@ -2402,13 +2504,19 @@
       this.attackTimer=1.5; this.chargeTimer=0; this.recoverTimer=0;
       this.hitFlash=0; this.enraged=false;
       this.isBossEntity = true;
+      this.scaling = getFloorScalingFactors();
+      this.hp = Math.round(this.hp * this.scaling.hp);
+      this.maxHp = this.hp;
+      this.speedScale = this.scaling.speed;
+      this.aggression = this.scaling.aggression;
+      this.attackTimer /= this.aggression;
     }
     update(dt){
-      const drift = 40 + (this.enraged?25:0);
+      const drift = (40 + (this.enraged?25:0)) * this.speedScale;
       if(this.state==='charge'){
-        this.chargeTimer -= dt;
+        this.chargeTimer -= dt * this.aggression;
         this.x += this.vx*dt; this.y += this.vy*dt;
-        if(this.chargeTimer<=0){ this.state='recover'; this.recoverTimer=0.6; }
+        if(this.chargeTimer<=0){ this.state='recover'; this.recoverTimer=0.6 / this.aggression; }
       } else {
         const to = {x: player.x - this.x, y: player.y - this.y};
         const l = Math.hypot(to.x,to.y)||1;
@@ -2417,7 +2525,7 @@
         this.x += Math.cos(performance.now()/480) * 18 * dt;
         this.y += Math.sin(performance.now()/360) * 18 * dt;
         if(this.state==='recover'){
-          this.recoverTimer -= dt;
+          this.recoverTimer -= dt * this.aggression;
           if(this.recoverTimer<=0) this.state='idle';
         }
       }
@@ -2427,16 +2535,19 @@
       resolveEntityObstacles(this);
 
       if(this.hitFlash>0) this.hitFlash -= dt;
-      if(!this.enraged && this.hp <= this.maxHp*0.55){ this.enraged=true; this.attackTimer = Math.min(this.attackTimer, 1.1); }
+      if(!this.enraged && this.hp <= this.maxHp*0.55){
+        this.enraged=true;
+        this.attackTimer = Math.min(this.attackTimer, 1.1 / this.aggression);
+      }
 
-      this.attackTimer -= dt;
+      this.attackTimer -= dt * this.aggression;
       if(this.attackTimer<=0){ this.chooseAttack(); }
     }
     chooseAttack(){
       const roll = rand();
-      if(roll < 0.45){ this.sprayAttack(); this.attackTimer = this.enraged ? 1.6 : 2.2; }
-      else if(roll < 0.75){ this.spawnMinions(); this.attackTimer = this.enraged ? 2.0 : 2.6; }
-      else { this.chargeAttack(); this.attackTimer = this.enraged ? 2.4 : 3.2; }
+      if(roll < 0.45){ this.sprayAttack(); this.attackTimer = (this.enraged ? 1.6 : 2.2) / this.aggression; }
+      else if(roll < 0.75){ this.spawnMinions(); this.attackTimer = (this.enraged ? 2.0 : 2.6) / this.aggression; }
+      else { this.chargeAttack(); this.attackTimer = (this.enraged ? 2.4 : 3.2) / this.aggression; }
     }
     sprayAttack(){
       const waves = this.enraged ? 3 : 2;
@@ -2471,11 +2582,11 @@
     chargeAttack(){
       const to = {x: player.x - this.x, y: player.y - this.y};
       const l = Math.hypot(to.x,to.y)||1;
-      const speed = this.enraged ? 300 : 240;
+      const speed = (this.enraged ? 300 : 240) * this.speedScale;
       this.vx = (to.x/l) * speed;
       this.vy = (to.y/l) * speed;
       this.state='charge';
-      this.chargeTimer = 0.75;
+      this.chargeTimer = 0.75 / this.aggression;
     }
     damage(d){
       this.hp -= d;
@@ -2527,13 +2638,19 @@
       this.jumpElapsed = 0;
       this.altitude = 0;
       this.isBossEntity = true;
+      this.scaling = getFloorScalingFactors();
+      this.hp = Math.round(this.hp * this.scaling.hp);
+      this.maxHp = this.hp;
+      this.speedScale = this.scaling.speed;
+      this.aggression = this.scaling.aggression;
+      this.attackCooldown /= this.aggression;
     }
     update(dt){
       this.hitFlash = Math.max(0, this.hitFlash - dt*3.5);
       if(!this.enraged && this.hp <= this.maxHp*0.45){ this.enraged = true; }
       if(this.state==='idle'){
-        this.attackCooldown -= dt;
-        const drift = this.enraged ? 95 : 70;
+        this.attackCooldown -= dt * this.aggression;
+        const drift = (this.enraged ? 95 : 70) * this.speedScale;
         const dx = player.x - this.x;
         const dy = player.y - this.y;
         const distLen = Math.hypot(dx,dy)||1;
@@ -2543,11 +2660,11 @@
         this.y += Math.sin(performance.now()/430) * 18 * dt;
         resolveEntityObstacles(this);
         if(this.attackCooldown<=0){ this.chooseAttack(); }
-        this.altitude = Math.max(0, this.altitude - dt*2.8);
+        this.altitude = Math.max(0, this.altitude - dt*2.8*this.aggression);
       } else if(this.state==='telegraph-jump' || this.state==='telegraph-wave'){
-        this.telegraphTimer -= dt;
+        this.telegraphTimer -= dt * this.aggression;
         if(this.state==='telegraph-jump'){ this.altitude = 0.12 + 0.04*Math.sin(performance.now()/90); }
-        else { this.altitude = Math.max(0, this.altitude - dt*3); }
+        else { this.altitude = Math.max(0, this.altitude - dt*3*this.aggression); }
         if(this.telegraphTimer<=0){
           if(this.state==='telegraph-jump'){ this.beginJump(); }
           else { this.performWave(); }
@@ -2563,27 +2680,27 @@
           this.state='slam';
           this.altitude = 0;
           this.performSlam();
-          this.recoverTimer = this.enraged ? 0.6 : 0.75;
+          this.recoverTimer = (this.enraged ? 0.6 : 0.75) / this.aggression;
         }
       } else if(this.state==='slam'){
-        this.recoverTimer -= dt;
-        this.altitude = Math.max(0, this.altitude - dt*4);
+        this.recoverTimer -= dt * this.aggression;
+        this.altitude = Math.max(0, this.altitude - dt*4*this.aggression);
         if(this.recoverTimer<=0){
           this.state='recover';
-          this.attackCooldown = this.enraged ? 1.2 : 1.6;
-          this.recoverTimer = this.enraged ? 0.5 : 0.7;
+          this.attackCooldown = (this.enraged ? 1.2 : 1.6) / this.aggression;
+          this.recoverTimer = (this.enraged ? 0.5 : 0.7) / this.aggression;
         }
       } else if(this.state==='wave'){
-        this.recoverTimer -= dt;
-        this.altitude = Math.max(0, this.altitude - dt*3.5);
+        this.recoverTimer -= dt * this.aggression;
+        this.altitude = Math.max(0, this.altitude - dt*3.5*this.aggression);
         if(this.recoverTimer<=0){
           this.state='recover';
-          this.attackCooldown = this.enraged ? 1.35 : 1.8;
-          this.recoverTimer = this.enraged ? 0.45 : 0.6;
+          this.attackCooldown = (this.enraged ? 1.35 : 1.8) / this.aggression;
+          this.recoverTimer = (this.enraged ? 0.45 : 0.6) / this.aggression;
         }
       } else if(this.state==='recover'){
-        this.recoverTimer -= dt;
-        this.altitude = Math.max(0, this.altitude - dt*3);
+        this.recoverTimer -= dt * this.aggression;
+        this.altitude = Math.max(0, this.altitude - dt*3*this.aggression);
         if(this.recoverTimer<=0){ this.state='idle'; }
       }
       this.x = clamp(this.x, 70, CONFIG.roomW-70);
@@ -2592,10 +2709,10 @@
     chooseAttack(){
       if(rand() < 0.55){
         this.state='telegraph-jump';
-        this.telegraphTimer = this.enraged ? 0.9 : 1.1;
+        this.telegraphTimer = (this.enraged ? 0.9 : 1.1) / this.aggression;
       } else {
         this.state='telegraph-wave';
-        this.telegraphTimer = 1.0;
+        this.telegraphTimer = 1.0 / this.aggression;
       }
     }
     beginJump(){
@@ -2613,7 +2730,7 @@
         x: clamp(this.x + nx*travel, 70, CONFIG.roomW-70),
         y: clamp(this.y + ny*travel, 86, CONFIG.roomH-86)
       };
-      const speed = this.enraged ? 420 : 360;
+      const speed = (this.enraged ? 420 : 360) * this.speedScale;
       this.jumpDuration = Math.max(0.55, travel / speed);
       this.jumpElapsed = 0;
       this.state='jumping';
@@ -2658,7 +2775,7 @@
         queueEnemySpawn(makeEnemy('spider', pos, dungeon.depth+1));
       }
       this.state='wave';
-      this.recoverTimer = this.enraged ? 0.8 : 1.0;
+      this.recoverTimer = (this.enraged ? 0.8 : 1.0) / this.aggression;
     }
     damage(d){
       if(this.state==='jumping'){ d *= 0.6; }
@@ -2714,6 +2831,94 @@
     ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
   }
 
+  function updateRoomPortal(room, dt){
+    if(!room?.portal) return;
+    const portal = room.portal;
+    if(portal.used) return;
+    portal.phase = (portal.phase || 0) + dt;
+    if(!portal.active){
+      const delay = portal.spawnDelay ?? 0;
+      if(delay>0){
+        portal.spawnDelay = Math.max(0, delay - dt);
+        if(portal.spawnDelay<=0){ portal.active = true; }
+      } else {
+        portal.active = true;
+      }
+    }
+    if(!portal.active){
+      portal.interactable = false;
+      portal.highlight = Math.max(0, (portal.highlight || 0) - dt*2.6);
+      return;
+    }
+    const interactRadius = portal.interactRadius ?? (portal.r + 18);
+    const distance = player ? dist(player, portal) : Infinity;
+    portal.interactable = distance <= interactRadius;
+    const target = portal.interactable ? 1 : 0;
+    const rate = portal.interactable ? 4 : 2.4;
+    portal.highlight = portal.highlight || 0;
+    if(portal.highlight < target){
+      portal.highlight = Math.min(target, portal.highlight + dt * rate);
+    } else if(portal.highlight > target){
+      portal.highlight = Math.max(target, portal.highlight - dt * rate);
+    }
+  }
+
+  function drawPortal(portal){
+    if(!portal || portal.used) return;
+    const cfg = CONFIG.portal || {};
+    const radius = portal.r ?? (cfg.radius ?? 34);
+    const wobble = 1 + 0.08*Math.sin((portal.phase || 0) * 4.2);
+    const highlight = portal.highlight || 0;
+    const hint = cfg.hint || '按 F 进入下一层';
+
+    ctx.save();
+    ctx.globalAlpha = 0.35 + highlight*0.15;
+    ctx.fillStyle = '#0f172acc';
+    ctx.beginPath();
+    ctx.ellipse(portal.x, portal.y + radius*0.45, radius*0.9, radius*0.32, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(portal.x, portal.y);
+    const outerR = radius * wobble;
+    const gradient = ctx.createRadialGradient(0,0, outerR*0.18, 0,0, outerR);
+    gradient.addColorStop(0, `rgba(110,231,255,${0.8 + 0.2*highlight})`);
+    gradient.addColorStop(0.55, 'rgba(167,139,250,0.55)');
+    gradient.addColorStop(1, 'rgba(56,189,248,0.2)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.ellipse(0,0, outerR, outerR*0.65, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.lineWidth = 2.5 + highlight*2.2;
+    ctx.strokeStyle = `rgba(125,211,252,${0.65 + 0.25*highlight})`;
+    ctx.beginPath();
+    ctx.ellipse(0,0, outerR*0.78, outerR*0.5, 0, 0, Math.PI*2);
+    ctx.stroke();
+
+    ctx.rotate((portal.phase || 0) * 1.8);
+    const arcCount = 4;
+    for(let i=0;i<arcCount;i++){
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(186,230,253,${0.4 + 0.3*highlight})`;
+      ctx.lineWidth = 1.6 + highlight*1.2;
+      const start = (Math.PI*2/arcCount)*i;
+      ctx.arc(0,0, outerR*0.55, start, start + Math.PI*0.6);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    if(portal.interactable){
+      ctx.save();
+      ctx.font = '16px "Microsoft YaHei", system-ui';
+      ctx.fillStyle = '#e0f2fe';
+      ctx.textAlign = 'center';
+      ctx.fillText(hint, portal.x, portal.y - radius*1.2 - 12);
+      ctx.restore();
+    }
+  }
+
   // ======= 运行时上下文 =======
   const runtime = {
     bullets: [],
@@ -2723,7 +2928,8 @@
     bossIntroText: '',
     itemPickupTimer: 0,
     itemPickupName: '',
-    itemPickupDesc: ''
+    itemPickupDesc: '',
+    floor: currentFloor,
   };
   let dungeon, player;
 
@@ -2731,6 +2937,8 @@
     overlayManager.clear();
     recentItemHistory.length = 0;
     recentShopItemHistory.length = 0;
+    currentFloor = 1;
+    runtime.floor = currentFloor;
     dungeon = new Dungeon();
     player = new Player(CONFIG.roomW/2, CONFIG.roomH/2);
     keys.clear();
@@ -2747,6 +2955,43 @@
     runtime.itemPickupTimer = 0;
     runtime.itemPickupName = '';
     runtime.itemPickupDesc = '';
+    syncCheatPanel();
+  }
+
+  function advanceToNextFloor(){
+    if(!player || !dungeon) return;
+    const prevDepth = dungeon.depth || 1;
+    const portalRoom = dungeon.current;
+    if(portalRoom?.portal){ portalRoom.portal.used = true; portalRoom.portal = null; }
+    currentFloor = Math.max(1, currentFloor + 1);
+    runtime.floor = currentFloor;
+    const preservedKeys = new Set(keys);
+    dungeon = new Dungeon();
+    dungeon.depth = Math.max(prevDepth + 1, 1);
+    dungeon.current.visited = true;
+    dungeon.revealRoom(dungeon.current);
+    dungeon.current.spawnEnemies(dungeon.depth);
+    player.x = CONFIG.roomW/2;
+    player.y = CONFIG.roomH/2;
+    player.knockVel.x = 0;
+    player.knockVel.y = 0;
+    player.knockTimer = 0;
+    player.moveDir.x = 0;
+    player.moveDir.y = 0;
+    player.lastDisplacement.x = 0;
+    player.lastDisplacement.y = 0;
+    if(player.lastVelocity){ player.lastVelocity.x = 0; player.lastVelocity.y = 0; }
+    player.ifr = 0;
+    runtime.bullets.length = 0;
+    runtime.enemyProjectiles.length = 0;
+    runtime.pendingEnemySpawns.length = 0;
+    runtime.bossIntroTimer = 0;
+    runtime.bossIntroText = '';
+    runtime.itemPickupName = `已抵达第 ${currentFloor} 层`;
+    runtime.itemPickupDesc = '敌人变得更加愤怒。';
+    runtime.itemPickupTimer = 2.6;
+    keys.clear();
+    for(const code of preservedKeys){ keys.add(code); }
     syncCheatPanel();
   }
 
@@ -2872,6 +3117,7 @@
       if(b.done){ bombs.splice(i,1); }
     }
     updatePickups(dt);
+    updateRoomPortal(dungeon.current, dt);
     for(const b of bombs){
       if(b.done || b.exploded || b.spawnGrace>0) continue;
       const d = dist(player, b);
@@ -3002,10 +3248,11 @@
     ];
     HUDS.innerHTML = statItems.map(({label,value,unit})=>`<span>${label}：<strong>${value}</strong>${unit?`<small>${unit}</small>`:''}</span>`).join('');
     const itemsText = player.items.length ? player.items.join('、') : '空手上阵';
+    const floorLevel = runtime.floor || currentFloor || 1;
     if(dungeon.current.isBoss && dungeon.current.bossEntity && !dungeon.current.bossEntity.dead){
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>层数：${dungeon.depth} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span></span>`;
+      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span></span>`;
     } else {
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>层数：${dungeon.depth} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span></span>`;
+      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span></span>`;
     }
     if(cheatPanelNode?.classList.contains('show')){ syncCheatPanel(); }
   }
@@ -3023,6 +3270,8 @@
 
     // 拾取
     for(const p of dungeon.current.pickups){ drawPickup(p); }
+
+    if(dungeon.current.portal){ drawPortal(dungeon.current.portal); }
 
     for(const bomb of dungeon.current.bombs){ bomb.draw(); }
 
@@ -3512,6 +3761,7 @@
       room.bossDefeated = true;
       room.cleared = true;
       spawnBossRewards(room, enemy.x, enemy.y);
+      spawnBossPortal(room);
     } else {
       if(rand() < CONFIG.drops.heartPerEnemy){
         const heal = rand() < CONFIG.drops.doubleHeartChance ? 2 : 1;
@@ -3537,6 +3787,33 @@
     room.pickups.push({type:'item', x:clamp(x,90,CONFIG.roomW-90), y:clamp(y-40,120,CONFIG.roomH-120), r:18, item, vx:0, vy:0, solid:false});
   }
 
+  function spawnBossPortal(room){
+    if(!room) return null;
+    const cfg = CONFIG.portal || {};
+    const center = typeof room.center === 'function' ? room.center() : {x: CONFIG.roomW/2, y: CONFIG.roomH/2};
+    const offsetY = cfg.offsetY ?? 60;
+    const portal = {
+      x: clamp(center.x, 90, CONFIG.roomW-90),
+      y: clamp(center.y + offsetY, 120, CONFIG.roomH-100),
+      r: cfg.radius ?? 34,
+      interactRadius: cfg.interactRadius ?? ((cfg.radius ?? 34) + 18),
+      spawnDelay: Math.max(0, cfg.spawnDelay ?? 0),
+      phase: rand()*Math.PI*2,
+      active: false,
+      used: false,
+      highlight: 0,
+    };
+    room.portal = portal;
+    if(Array.isArray(room.pickups)){
+      for(const drop of room.pickups){
+        if(!isPhysicalPickup(drop)) continue;
+        pushPickup(drop, portal, 140, {force:true});
+        ensurePickupMotion(drop);
+      }
+    }
+    return portal;
+  }
+
   function makeHeartPickup(x,y,heal){
     return {type:'heart', x:clamp(x,60,CONFIG.roomW-60), y:clamp(y,60,CONFIG.roomH-60), r: heal>1?14:10, heal, vx:0, vy:0, solid:true, spawnGrace:CONFIG.pickupSpawnGrace};
   }
@@ -3552,9 +3829,20 @@
     player.bombCooldown = 0.3;
   }
 
+  function tryPortalInteract(room){
+    const portal = room?.portal;
+    if(!player || !portal || portal.used || !portal.active) return false;
+    const interactRadius = portal.interactRadius ?? (portal.r + 18);
+    if(dist(player, portal) > interactRadius) return false;
+    portal.used = true;
+    advanceToNextFloor();
+    return true;
+  }
+
   function attemptPurchase(){
     const room = dungeon?.current;
     if(!player || !room) return;
+    if(tryPortalInteract(room)) return;
     let targetIndex=-1;
     let nearest=Infinity;
     for(let i=0;i<room.pickups.length;i++){
