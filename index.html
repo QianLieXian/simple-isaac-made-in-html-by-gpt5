@@ -239,7 +239,9 @@
     combat: {
       shotInertia: 0.32,
       shotForwardBoost: 0.7,
-      shotLateralInfluence: 0.35,
+      shotLateralInfluence: 0.65,
+      shotLateralAngle: 32,
+      shotLateralCurve: 1.2,
     },
     portal: {
       radius: 36,
@@ -1806,19 +1808,31 @@
         let dirX = shotDir.x;
         let dirY = shotDir.y;
         if(lateralScale>0){
-          const px = lvx - forwardSpeed * shotDir.x;
-          const py = lvy - forwardSpeed * shotDir.y;
-          const lateralSpeed = Math.hypot(px, py);
-          if(lateralSpeed>1e-4){
-            const refSpeed = maxSpeed>0 ? maxSpeed : lateralSpeed;
-            let influence = lateralScale * (lateralSpeed / refSpeed);
-            influence = clamp(influence, 0, 0.85);
-            const inv = 1 / lateralSpeed;
-            dirX += px * inv * influence;
-            dirY += py * inv * influence;
-            const dlen = Math.hypot(dirX, dirY) || 1;
-            dirX /= dlen;
-            dirY /= dlen;
+          const totalSpeed = Math.hypot(lvx, lvy);
+          const speedRef = maxSpeed>0 ? maxSpeed : Math.max(totalSpeed, 1);
+          if(speedRef>1e-5 && totalSpeed>1e-4){
+            const lateral = lvx * (-shotDir.y) + lvy * shotDir.x;
+            if(Math.abs(lateral)>1e-4){
+              const lateralNormRaw = clamp(Math.abs(lateral) / speedRef, 0, 1);
+              const curvePower = clamp(combatCfg.shotLateralCurve ?? 1, 0.1, 6);
+              const curved = Math.pow(lateralNormRaw, curvePower);
+              const smooth = curved * curved * (3 - 2 * curved);
+              const speedNorm = clamp(totalSpeed / speedRef, 0, 1);
+              const blend = smooth * (0.6 + 0.4 * Math.pow(speedNorm, 1.35));
+              const angleBaseDeg = combatCfg.shotLateralAngle ?? 28;
+              const angle = Math.sign(lateral) * (angleBaseDeg * Math.PI / 180) * lateralScale * blend;
+              if(Math.abs(angle)>1e-4){
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+                const ndx = dirX * cos - dirY * sin;
+                const ndy = dirX * sin + dirY * cos;
+                dirX = ndx;
+                dirY = ndy;
+                const dlen = Math.hypot(dirX, dirY) || 1;
+                dirX /= dlen;
+                dirY /= dlen;
+              }
+            }
           }
         }
         let baseSpeed = this.tearSpeed;
