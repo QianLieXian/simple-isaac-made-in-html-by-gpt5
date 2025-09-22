@@ -41,32 +41,32 @@
 <body>
   <div class="wrap">
     <header>
-      <div class="title">简易以撒-like · HTML5 Canvas</div>
-      <div class="badge">WASD 移动 · 方向键射击 · E 放置炸弹 · F 购买 · 回车开始 · P 暂停 · R 重开</div>
+      <div class="title">地窖速通实验室 · HTML5 Canvas</div>
+      <div class="badge">WASD 移动 · 方向键射击 · E 放置炸弹 · F 购买 · 回车开始 · P 暂停 · R 重开 · 记得深呼吸</div>
     </header>
     <div class="panel canvas-wrap">
       <canvas id="game" width="800" height="600"></canvas>
       <div class="overlay" id="menu">
         <div class="card">
-          <h2>地窖在等待…</h2>
-          <p>这是一版极简的地牢房间制顶视角射击。清空当前房间敌人，门会开启，穿过门进入下一间。</p>
+          <h2>地窖暖场中…</h2>
+          <p>这是款极简的房间制顶视角射击。先伸个懒腰再闯关——清空房间敌人，门才会知趣地打开。</p>
           <ul>
             <li><b>W/A/S/D</b> 移动，<b>↑/↓/←/→</b> 射击</li>
             <li><b>Enter</b> 开始 · <b>P</b> 暂停/继续 · <b>R</b> 重开</li>
           </ul>
-          <a class="btn" href="#" id="startBtn">开始游戏</a>
+          <a class="btn" href="#" id="startBtn">我要出发！</a>
         </div>
       </div>
       <div class="overlay" id="paused">
         <div class="card">
-          <h2>已暂停</h2>
-          <p>按 <b>P</b> 继续。清掉一屋子的小怪，门就开。</p>
+          <h2>暂时打个盹</h2>
+          <p>按 <b>P</b> 继续。关卡在原地等你，敌人也在发呆。</p>
         </div>
       </div>
       <div class="overlay" id="gameover">
         <div class="card">
-          <h2>你倒下了</h2>
-          <p>按 <b>R</b> 重开，或者 <b>Enter</b> 回到主菜单。</p>
+          <h2>勇者累趴了</h2>
+          <p>按 <b>R</b> 重开，或者 <b>Enter</b> 回到主菜单准备再战。</p>
         </div>
       </div>
     </div>
@@ -75,7 +75,7 @@
       <div id="hud-stats" class="hud-stats"></div>
       <div id="hud-right" class="hud-section"></div>
     </div>
-    <footer>纯前端单文件 · 无素材 · 为演示而生</footer>
+    <footer>纯前端单文件 · 无素材 · 轻便又俏皮</footer>
   </div>
 
 <script>
@@ -262,6 +262,16 @@
   const HUDR = document.getElementById('hud-right');
   const HUDS = document.getElementById('hud-stats');
 
+  function createOverlayManager(mapping){
+    const entries = Object.entries(mapping).filter(([,node])=>node);
+    return {
+      setActive(target){
+        for(const [key,node] of entries){ node.classList.toggle('show', key===target); }
+      },
+      clear(){ for(const [,node] of entries){ node.classList.remove('show'); } }
+    };
+  }
+
   // DPR 缩放（保持内部 800x600 逻辑坐标）
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
@@ -294,14 +304,18 @@
   const overlayMenu = document.getElementById('menu');
   const overlayPaused = document.getElementById('paused');
   const overlayOver = document.getElementById('gameover');
+  const overlayManager = createOverlayManager({ menu: overlayMenu, paused: overlayPaused, over: overlayOver });
   document.getElementById('startBtn').addEventListener('click', (e)=>{e.preventDefault(); startGame();});
 
   const STATE = { MENU:0, PLAY:1, PAUSE:2, OVER:3 };
   let state = STATE.MENU;
 
-  function showMenu(){ state=STATE.MENU; overlayMenu.classList.add('show'); overlayPaused.classList.remove('show'); overlayOver.classList.remove('show'); }
-  function togglePause(){ if(state===STATE.PLAY){ state=STATE.PAUSE; overlayPaused.classList.add('show'); } else if(state===STATE.PAUSE){ state=STATE.PLAY; overlayPaused.classList.remove('show'); lastTime = performance.now(); } }
-  function gameOver(){ state=STATE.OVER; overlayOver.classList.add('show'); }
+  function showMenu(){ state=STATE.MENU; overlayManager.setActive('menu'); }
+  function togglePause(){
+    if(state===STATE.PLAY){ state=STATE.PAUSE; overlayManager.setActive('paused'); }
+    else if(state===STATE.PAUSE){ state=STATE.PLAY; overlayManager.clear(); lastTime = performance.now(); }
+  }
+  function gameOver(){ state=STATE.OVER; overlayManager.setActive('over'); }
 
   // ======= 地图/房间生成 =======
   class Room{
@@ -315,10 +329,16 @@
       this.isBoss=false; this.bossEntity=null; this.bossDefeated=false; this.bossName=''; this.introPlayed=false;
       this.isItemRoom=false; this.itemData=null; this.itemClaimed=false; this.itemSpawned=false;
       this.isShop=false; this.shopInventory=[]; this.shopPrepared=false; this.locked=false;
+      this.isSafeRoom=false;
     }
     center(){ return {x: CONFIG.roomW/2, y: CONFIG.roomH/2}; }
     spawnEnemies(depth){
       this.ensureObstacles();
+      if(this.isSafeRoom){
+        this.enemies = [];
+        this.cleared = true;
+        return this.enemies;
+      }
       if(this.isItemRoom){
         this.enemies = [];
         this.cleared = true;
@@ -423,6 +443,8 @@
       this.rooms = Array.from({length:this.gridN}, ()=> Array.from({length:this.gridN},()=>null));
       const mid = Math.floor(this.gridN/2);
       const start = new Room(mid,mid);
+      start.isSafeRoom = true;
+      start.cleared = true;
       this.rooms[mid][mid] = start;
       this.start = start;
       const created = [start];
@@ -488,7 +510,7 @@
         if(this.rooms[ni][nj]) continue;
         const bossRoom = new Room(ni,nj);
         bossRoom.isBoss=true;
-        bossRoom.bossName = '哭泣塑像 · 胎衣蛹';
+        bossRoom.bossName = '哭泣塑像 · 社畜蛹';
         this.rooms[ni][nj]=bossRoom;
         farthest.doors[dir.key]=true;
         bossRoom.doors[dir.opp]=true;
@@ -497,7 +519,7 @@
       }
       // 如果周围无空位，则直接把最远房间作为 Boss 房
       farthest.isBoss=true;
-      farthest.bossName = '哭泣塑像 · 胎衣蛹';
+      farthest.bossName = '哭泣塑像 · 社畜蛹';
       return farthest;
     }
 
@@ -682,9 +704,9 @@
     if(typeof item.apply === 'function'){ item.apply(player); }
     if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
     if(pickup.room){ pickup.room.itemClaimed = true; pickup.room.itemSpawned = false; }
-    itemPickupName = item.name;
-    itemPickupDesc = item.description || '';
-    itemPickupTimer = 3.2;
+    runtime.itemPickupName = item.name;
+    runtime.itemPickupDesc = item.description || '';
+    runtime.itemPickupTimer = 3.2;
   }
   function grantResource(type, amount){
     if(!player) return;
@@ -748,7 +770,7 @@
       if(keys.has('ArrowRight')) sx += 1;
       if((sx||sy) && this.fireCd<=0){
         const l = Math.hypot(sx,sy)||1; sx/=l; sy/=l;
-        bullets.push(new Bullet(this.x, this.y, sx*this.tearSpeed, sy*this.tearSpeed, this.tearLife, this.damage, this.canPierceObstacles));
+        runtime.bullets.push(new Bullet(this.x, this.y, sx*this.tearSpeed, sy*this.tearSpeed, this.tearLife, this.damage, this.canPierceObstacles));
         this.fireCd = this.fireInterval;
       }
       resolveEntityObstacles(this);
@@ -919,7 +941,7 @@
       if(obs.destroyed) continue;
       if(circleRectOverlap(circle, obs)){ obs.destroyed = true; }
     }
-    for(const proj of enemyProjectiles){
+    for(const proj of runtime.enemyProjectiles){
       if(!proj.alive) continue;
       if(dist(proj, bomb) <= radius){ proj.alive=false; }
     }
@@ -1021,7 +1043,7 @@
         for(let i=0;i<total;i++){
           const angle = base + (Math.PI*2/total)*i + w*0.12;
           const speed = 120 + rand()*40 + (this.enraged?30:0);
-          enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.2, 'tear'));
+          runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.2, 'tear'));
         }
       }
       // 指向性射流
@@ -1029,7 +1051,7 @@
       for(let k=0;k<4;k++){
         const angle = toPlayer + randRange(-0.4,0.4) + k*0.1*(this.enraged?1.2:0.6);
         const speed = 160 + rand()*90;
-        enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 5, 'needle'));
+        runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 5, 'needle'));
       }
     }
     spawnMinions(){
@@ -1093,13 +1115,20 @@
   }
 
   // ======= 运行时上下文 =======
-  let dungeon, bullets=[], enemyProjectiles=[], player;
-  let bossIntroTimer = 0, bossIntroText='';
-  let itemPickupTimer = 0, itemPickupName='', itemPickupDesc='';
-  const pendingEnemySpawns = [];
+  const runtime = {
+    bullets: [],
+    enemyProjectiles: [],
+    pendingEnemySpawns: [],
+    bossIntroTimer: 0,
+    bossIntroText: '',
+    itemPickupTimer: 0,
+    itemPickupName: '',
+    itemPickupDesc: ''
+  };
+  let dungeon, player;
 
   function startGame(){
-    overlayMenu.classList.remove('show'); overlayPaused.classList.remove('show'); overlayOver.classList.remove('show');
+    overlayManager.clear();
     dungeon = new Dungeon();
     player = new Player(CONFIG.roomW/2, CONFIG.roomH/2);
     dungeon.current.visited=true;
@@ -1107,7 +1136,14 @@
     dungeon.current.spawnEnemies(dungeon.depth);
     state = STATE.PLAY;
     lastTime = performance.now();
-    bullets.length=0; enemyProjectiles.length=0; bossIntroTimer=0; itemPickupTimer=0; itemPickupName=''; itemPickupDesc='';
+    runtime.bullets.length = 0;
+    runtime.enemyProjectiles.length = 0;
+    runtime.pendingEnemySpawns.length = 0;
+    runtime.bossIntroTimer = 0;
+    runtime.bossIntroText = '';
+    runtime.itemPickupTimer = 0;
+    runtime.itemPickupName = '';
+    runtime.itemPickupDesc = '';
   }
 
   // ======= 门与换房 =======
@@ -1137,15 +1173,15 @@
           player.keys -= 1;
           player.recalculateDamage();
           nr.locked = false;
-          if(itemPickupTimer<=0){
-            itemPickupName = '钥匙已消耗';
-            itemPickupDesc = nr.isShop ? '商店开启' : '门锁打开';
-            itemPickupTimer = 1.4;
+          if(runtime.itemPickupTimer<=0){
+            runtime.itemPickupName = '钥匙冒着烟消失';
+            runtime.itemPickupDesc = nr.isShop ? '商店老板：欢迎惠顾！' : '门锁：「勉强通过。」';
+            runtime.itemPickupTimer = 1.4;
           }
-        } else if(itemPickupTimer<=0){
-          itemPickupName = '需要钥匙';
-          itemPickupDesc = '无法开启这扇门';
-          itemPickupTimer = 1.2;
+        } else if(runtime.itemPickupTimer<=0){
+          runtime.itemPickupName = '缺钥匙提示';
+          runtime.itemPickupDesc = '门锁不吃嘴炮，只认金属';
+          runtime.itemPickupTimer = 1.2;
         }
         continue;
       }
@@ -1158,10 +1194,10 @@
       if(d.dir==='down'){ player.x=CONFIG.roomW/2; player.y=60; }
       if(d.dir==='left'){ player.x=CONFIG.roomW-60; player.y=CONFIG.roomH/2; }
       if(d.dir==='right'){ player.x=60; player.y=CONFIG.roomH/2; }
-      bullets.length=0; enemyProjectiles.length=0;
+      runtime.bullets.length = 0; runtime.enemyProjectiles.length = 0;
       if(nr.isBoss && !nr.introPlayed){
-        bossIntroText = nr.bossName;
-        bossIntroTimer = 3.2;
+        runtime.bossIntroText = nr.bossName;
+        runtime.bossIntroTimer = 3.2;
         nr.introPlayed = true;
       }
       if(nr.isItemRoom){ nr.ensureItem(); }
@@ -1229,20 +1265,20 @@
     }
 
     // 子弹
-    for(const b of bullets) b.update(dt);
-    bullets = bullets.filter(b=>b.alive);
+    for(const b of runtime.bullets) b.update(dt);
+    runtime.bullets = runtime.bullets.filter(b=>b.alive);
 
     // 敌人
     const enemies = dungeon.current.enemies;
     for(const e of enemies) e.update(dt);
-    if(pendingEnemySpawns.length){ enemies.push(...pendingEnemySpawns.splice(0)); }
+    if(runtime.pendingEnemySpawns.length){ enemies.push(...runtime.pendingEnemySpawns.splice(0)); }
 
     // 敌方弹幕
-    for(const eb of enemyProjectiles){ eb.update(dt); }
-    enemyProjectiles = enemyProjectiles.filter(p=>p.alive);
+    for(const eb of runtime.enemyProjectiles){ eb.update(dt); }
+    runtime.enemyProjectiles = runtime.enemyProjectiles.filter(p=>p.alive);
 
     // 碰撞：子弹-敌人
-    for(const b of bullets){
+    for(const b of runtime.bullets){
       for(const e of enemies){
         if(e.dead) continue;
         const dd = dist(b, e);
@@ -1256,7 +1292,7 @@
     dungeon.current.enemies = enemies.filter(e=>!e.dead);
 
     // 玩家被弹幕命中
-    for(const eb of enemyProjectiles){ if(eb.checkHit(player)){ eb.alive=false; } }
+    for(const eb of runtime.enemyProjectiles){ if(eb.checkHit(player)){ eb.alive=false; } }
 
     // 房间是否清空
     if(!dungeon.current.cleared && dungeon.current.enemies.length===0){
@@ -1295,9 +1331,9 @@
 
     // 更新 HUD
     renderHUD();
-    bossIntroTimer = Math.max(0, bossIntroTimer - dt);
-    itemPickupTimer = Math.max(0, itemPickupTimer - dt);
-    if(itemPickupTimer<=0){ itemPickupName=''; itemPickupDesc=''; }
+    runtime.bossIntroTimer = Math.max(0, runtime.bossIntroTimer - dt);
+    runtime.itemPickupTimer = Math.max(0, runtime.itemPickupTimer - dt);
+    if(runtime.itemPickupTimer<=0){ runtime.itemPickupName=''; runtime.itemPickupDesc=''; }
   }
 
   function renderHUD(){
@@ -1316,7 +1352,7 @@
       {label:'射程', value: range}
     ];
     HUDS.innerHTML = statItems.map(({label,value,unit})=>`<span>${label}：<strong>${value}</strong>${unit?`<small>${unit}</small>`:''}</span>`).join('');
-    const itemsText = player.items.length ? player.items.join('、') : '无';
+    const itemsText = player.items.length ? player.items.join('、') : '空手上阵';
     if(dungeon.current.isBoss && dungeon.current.bossEntity && !dungeon.current.bossEntity.dead){
       HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>层数：${dungeon.depth} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span></span>`;
     } else {
@@ -1344,10 +1380,10 @@
     for(const e of dungeon.current.enemies){ e.draw(); }
 
     // 敌弹
-    for(const eb of enemyProjectiles){ eb.draw(); }
+    for(const eb of runtime.enemyProjectiles){ eb.draw(); }
 
     // 子弹
-    for(const b of bullets){ b.draw(); }
+    for(const b of runtime.bullets){ b.draw(); }
 
     // 玩家
     drawPlayer();
@@ -1359,10 +1395,6 @@
 
     drawItemPickupBanner();
 
-    // 覆盖层显隐
-    overlayMenu.classList.toggle('show', state===STATE.MENU);
-    overlayPaused.classList.toggle('show', state===STATE.PAUSE);
-    overlayOver.classList.toggle('show', state===STATE.OVER);
   }
 
   function drawRoomBackdrop(){
@@ -1698,7 +1730,7 @@
       ctx.fillRect(x,y,cell-1,cell-1);
     }
     ctx.restore();
-    if(bossIntroTimer>0){ drawBossIntro(); }
+    if(runtime.bossIntroTimer>0){ drawBossIntro(); }
   }
 
   function drawBossHealth(){
@@ -1728,7 +1760,7 @@
   }
 
   function drawBossIntro(){
-    const alpha = Math.min(1, bossIntroTimer / 1.2);
+    const alpha = Math.min(1, runtime.bossIntroTimer / 1.2);
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.fillStyle='#0b0912aa';
@@ -1736,19 +1768,19 @@
     ctx.fillStyle='#ffb4c8';
     ctx.font='38px "HYWenHei", "PingFang SC", sans-serif';
     ctx.textAlign='center';
-    ctx.fillText(bossIntroText, CONFIG.roomW/2, CONFIG.roomH/2 - 6);
+    ctx.fillText(runtime.bossIntroText, CONFIG.roomW/2, CONFIG.roomH/2 - 6);
     ctx.fillStyle='#ffd6e6';
     ctx.font='18px "HYWenHei", "PingFang SC", sans-serif';
-    ctx.fillText('渗出的胎衣在地窖尽头凝聚成型……', CONFIG.roomW/2, CONFIG.roomH/2 + 28);
+    ctx.fillText('地窖打工仔：又是背锅的加班日。', CONFIG.roomW/2, CONFIG.roomH/2 + 28);
     ctx.restore();
   }
 
   function drawItemPickupBanner(){
-    if(itemPickupTimer<=0 || !itemPickupName) return;
-    const baseText = `${itemPickupName} 入手！`;
-    const desc = itemPickupDesc;
+    if(runtime.itemPickupTimer<=0 || !runtime.itemPickupName) return;
+    const baseText = `${runtime.itemPickupName} 入手！`;
+    const desc = runtime.itemPickupDesc;
     ctx.save();
-    const lifeRatio = Math.min(1, itemPickupTimer / 1.2);
+    const lifeRatio = Math.min(1, runtime.itemPickupTimer / 1.2);
     ctx.globalAlpha = 0.85 + 0.15*lifeRatio;
     ctx.textAlign='center';
     const mainFont='20px "HYWenHei", "PingFang SC", sans-serif';
@@ -1856,7 +1888,7 @@
     return {type:'heart', x:clamp(x,60,CONFIG.roomW-60), y:clamp(y,60,CONFIG.roomH-60), r: heal>1?14:10, heal};
   }
 
-  function queueEnemySpawn(enemy){ pendingEnemySpawns.push(enemy); }
+  function queueEnemySpawn(enemy){ runtime.pendingEnemySpawns.push(enemy); }
 
   function placeBomb(){
     if(!player || !dungeon?.current) return;
@@ -1881,10 +1913,10 @@
     if(targetIndex===-1) return;
     const pickup = room.pickups[targetIndex];
     if(player.coins < pickup.price){
-      if(itemPickupTimer<=0){
-        itemPickupName = '金币不足';
-        itemPickupDesc = `需要 ${pickup.price} 枚金币`;
-        itemPickupTimer = 1.2;
+      if(runtime.itemPickupTimer<=0){
+        runtime.itemPickupName = '钱包在抗议';
+        runtime.itemPickupDesc = `还差 ${pickup.price - player.coins} 枚金币才买得起`;
+        runtime.itemPickupTimer = 1.2;
       }
       return;
     }
@@ -1896,15 +1928,15 @@
       const item = pickup.entry.item;
       if(typeof item.apply === 'function'){ item.apply(player); }
       if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
-      itemPickupName = item.name;
-      itemPickupDesc = item.description || '';
-      itemPickupTimer = 2.4;
+      runtime.itemPickupName = item.name;
+      runtime.itemPickupDesc = item.description || '';
+      runtime.itemPickupTimer = 2.4;
     } else if(pickup.entry.type==='resource'){
       grantResource(pickup.entry.resource, pickup.entry.amount);
       const label = RESOURCE_LABELS[pickup.entry.resource] || '资源';
-      itemPickupName = `${label} +${pickup.entry.amount}`;
-      itemPickupDesc = '来自商店';
-      itemPickupTimer = 1.5;
+      runtime.itemPickupName = `${label} +${pickup.entry.amount}`;
+      runtime.itemPickupDesc = '来自商店柜台的友情价';
+      runtime.itemPickupTimer = 1.5;
     }
   }
 
