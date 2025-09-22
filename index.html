@@ -783,6 +783,8 @@
   const footerTextNode = document.getElementById('footer-text');
   const cheatToggle = document.getElementById('cheat-toggle');
   const cheatPanelNode = document.getElementById('cheat-panel');
+  const virtualKbToggle = document.getElementById('vk-toggle');
+  const virtualKbPanel = document.getElementById('virtual-kb');
   const cheatInputs = {
     hp: document.getElementById('cheat-hp'),
     maxHp: document.getElementById('cheat-maxhp'),
@@ -865,7 +867,7 @@
     if(pauseDescNode) pauseDescNode.innerHTML = t('ui.pauseDesc');
     if(gameoverTitleNode) gameoverTitleNode.textContent = t('ui.gameoverTitle');
     if(gameoverDescNode) gameoverDescNode.innerHTML = t('ui.gameoverDesc');
-    if(vkToggle) vkToggle.textContent = t('ui.virtualKeyboard');
+    if(virtualKbToggle) virtualKbToggle.textContent = t('ui.virtualKeyboard');
     if(cheatToggle) cheatToggle.textContent = t('ui.cheatToggle');
     if(cheatStatusTitle) cheatStatusTitle.textContent = t('ui.cheat.status');
     if(cheatResourcesTitle) cheatResourcesTitle.textContent = t('ui.cheat.resources');
@@ -3730,6 +3732,12 @@
 
   // ======= 渲染 =======
   function draw(){
+      ctx.clearRect(0,0,CONFIG.roomW, CONFIG.roomH);
+    if(!dungeon || !dungeon.current || !player){
+      ctx.fillStyle = '#10141d';
+      ctx.fillRect(0,0,CONFIG.roomW, CONFIG.roomH);
+      return;
+    }
     // 背景
     ctx.clearRect(0,0,CONFIG.roomW, CONFIG.roomH);
     drawRoomBackdrop();
