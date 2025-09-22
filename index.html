@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Mini Isaac-like</title>
+  <title>简易以撒-like</title>
   <style>
     :root{
       --bg:#0f1115; --panel:#151923; --ink:#e6e6e6; --muted:#9aa4b2; --accent:#6ee7ff; --accent2:#a78bfa; --danger:#ff6b6b; --ok:#86efac;
@@ -87,48 +87,37 @@
     .card li{margin:4px 0}
     a.btn{display:inline-block;margin-top:10px;padding:8px 12px;border-radius:10px;border:1px solid #273044;color:var(--ink);text-decoration:none}
     a.btn:hover{border-color:#3a4764}
-    .lang-select{margin-top:12px;display:flex;align-items:center;gap:8px}
-    .lang-select label{font-size:13px;color:var(--muted)}
-    .lang-select select{background:#111521;border:1px solid #2c3448;border-radius:8px;color:var(--ink);padding:6px 8px;font-size:13px}
-    .lang-select select:focus{outline:none;border-color:var(--accent)}
   </style>
 </head>
 <body>
   <div class="wrap">
     <header>
-      <div class="title" id="header-title">Basement Sprint Lab · HTML5 Canvas</div>
-      <div class="badge" id="header-badge">WASD move · Arrow keys shoot · E place bomb · F interact · Enter start · P pause · R restart · Remember to breathe</div>
+      <div class="title">地窖速通实验室 · HTML5 Canvas</div>
+      <div class="badge">WASD 移动 · 方向键射击 · E 放置炸弹 · F 购买 · 回车开始 · P 暂停 · R 重开 · 记得深呼吸</div>
     </header>
     <div class="panel canvas-wrap">
       <canvas id="game" width="800" height="600"></canvas>
       <div class="overlay" id="menu">
         <div class="card">
-          <h2 id="menu-title">Basement warm-up…</h2>
-          <p id="menu-desc">A minimalist, room-based top-down shooter. Stretch first, then clear every enemy to convince the doors to open.</p>
-          <ul id="menu-controls">
-            <li id="menu-control-move"><b>W/A/S/D</b> to move, <b>↑/↓/←/→</b> to shoot</li>
-            <li id="menu-control-system"><b>Enter</b> start · <b>P</b> pause/resume · <b>R</b> restart</li>
+          <h2>地窖暖场中…</h2>
+          <p>这是款极简的房间制顶视角射击。先伸个懒腰再闯关——清空房间敌人，门才会知趣地打开。</p>
+          <ul>
+            <li><b>W/A/S/D</b> 移动，<b>↑/↓/←/→</b> 射击</li>
+            <li><b>Enter</b> 开始 · <b>P</b> 暂停/继续 · <b>R</b> 重开</li>
           </ul>
-          <div class="lang-select">
-            <label for="language-select" id="language-select-label">Language</label>
-            <select id="language-select">
-              <option value="en">English</option>
-              <option value="zh">中文</option>
-            </select>
-          </div>
-          <a class="btn" href="#" id="startBtn">Let's go!</a>
+          <a class="btn" href="#" id="startBtn">我要出发！</a>
         </div>
       </div>
       <div class="overlay" id="paused">
         <div class="card">
-          <h2 id="pause-title">Catnap time</h2>
-          <p id="pause-desc">Press <b>P</b> to continue. The floor waits; the enemies are zoning out.</p>
+          <h2>暂时打个盹</h2>
+          <p>按 <b>P</b> 继续。关卡在原地等你，敌人也在发呆。</p>
         </div>
       </div>
       <div class="overlay" id="gameover">
         <div class="card">
-          <h2 id="gameover-title">The hero is exhausted</h2>
-          <p id="gameover-desc">Press <b>R</b> to retry, or <b>Enter</b> to return to the menu and regroup.</p>
+          <h2>勇者累趴了</h2>
+          <p>按 <b>R</b> 重开，或者 <b>Enter</b> 回到主菜单准备再战。</p>
         </div>
       </div>
     </div>
@@ -138,33 +127,33 @@
       <div id="hud-right" class="hud-section"></div>
       <div class="hud-tools">
         <div class="hud-virtual">
-          <button id="vk-toggle" type="button" aria-controls="virtual-kb" aria-expanded="false">Virtual keyboard</button>
+          <button id="vk-toggle" type="button" aria-controls="virtual-kb" aria-expanded="false">屏幕键盘</button>
           <div id="virtual-kb" class="virtual-kb" aria-hidden="true"></div>
         </div>
         <div class="hud-cheat">
-          <button id="cheat-toggle" class="cheat-toggle" type="button" aria-controls="cheat-panel" aria-expanded="false">Cheat bench</button>
+          <button id="cheat-toggle" class="cheat-toggle" type="button" aria-controls="cheat-panel" aria-expanded="false">作弊台</button>
           <div id="cheat-panel" class="cheat-panel">
           <div class="cheat-section">
-            <h4 id="cheat-status-title">Stats</h4>
-            <label><span id="cheat-hp-label">Current HP</span> <input id="cheat-hp" type="number" min="0" max="20" step="1"></label>
-            <label><span id="cheat-maxhp-label">Max HP</span> <input id="cheat-maxhp" type="number" min="1" max="20" step="1"></label>
-            <label><span id="cheat-damage-label">Base damage</span> <input id="cheat-damage" type="number" min="0" step="0.1"></label>
-            <label><span id="cheat-speed-label">Move speed</span> <input id="cheat-speed" type="number" min="0" step="1"></label>
-            <label><span id="cheat-firerate-label">Fire rate (shots/s)</span> <input id="cheat-firerate" type="number" min="0.1" step="0.1"></label>
-            <label><span id="cheat-tearspeed-label">Projectile speed</span> <input id="cheat-tearspeed" type="number" min="1" step="1"></label>
-            <button id="cheat-apply-stats" type="button">Apply stats</button>
+            <h4>状态</h4>
+            <label>当前血量 <input id="cheat-hp" type="number" min="0" max="20" step="1"></label>
+            <label>生命上限 <input id="cheat-maxhp" type="number" min="1" max="20" step="1"></label>
+            <label>基础伤害 <input id="cheat-damage" type="number" min="0" step="0.1"></label>
+            <label>移动速度 <input id="cheat-speed" type="number" min="0" step="1"></label>
+            <label>射速(次/秒) <input id="cheat-firerate" type="number" min="0.1" step="0.1"></label>
+            <label>子弹速度 <input id="cheat-tearspeed" type="number" min="1" step="1"></label>
+            <button id="cheat-apply-stats" type="button">应用状态</button>
           </div>
           <div class="cheat-section">
-            <h4 id="cheat-resources-title">Resources</h4>
-            <label><span id="cheat-bombs-label">Bombs</span> <input id="cheat-bombs" type="number" min="0" max="99" step="1"></label>
-            <label><span id="cheat-keys-label">Keys</span> <input id="cheat-keys" type="number" min="0" max="99" step="1"></label>
-            <label><span id="cheat-coins-label">Coins</span> <input id="cheat-coins" type="number" min="0" max="99" step="1"></label>
-            <button id="cheat-apply-resources" type="button">Apply resources</button>
+            <h4>资源</h4>
+            <label>炸弹 <input id="cheat-bombs" type="number" min="0" max="99" step="1"></label>
+            <label>钥匙 <input id="cheat-keys" type="number" min="0" max="99" step="1"></label>
+            <label>金币 <input id="cheat-coins" type="number" min="0" max="99" step="1"></label>
+            <button id="cheat-apply-resources" type="button">应用资源</button>
           </div>
           <div class="cheat-section">
-            <h4 id="cheat-items-title">Items</h4>
-            <label><span id="cheat-item-id-label">Item ID</span> <input id="cheat-item-id" type="number" min="1" step="1" placeholder="e.g. 1"></label>
-            <button id="cheat-give-item" type="button">Grant item</button>
+            <h4>道具</h4>
+            <label>道具 ID <input id="cheat-item-id" type="number" min="1" step="1" placeholder="例如 1"></label>
+            <button id="cheat-give-item" type="button">给予道具</button>
             <div id="cheat-item-result" class="cheat-feedback" aria-live="polite"></div>
           </div>
           </div>
@@ -173,12 +162,12 @@
     </div>
     <div id="item-codex" class="panel item-codex" aria-live="polite">
       <div class="codex-header">
-        <span class="codex-title" id="codex-title">Item Codex</span>
-        <span class="codex-progress" id="codex-progress">Unlocked <span id="codex-count">0</span> / <span id="codex-total">0</span></span>
+        <span class="codex-title">道具图鉴</span>
+        <span class="codex-progress">已解锁 <span id="codex-count">0</span> / <span id="codex-total">0</span></span>
       </div>
       <div id="codex-grid" class="codex-grid"></div>
     </div>
-    <footer id="footer-text">Pure front-end single file · No assets · Light and snappy</footer>
+    <footer>纯前端单文件 · 无素材 · 轻便又俏皮</footer>
   </div>
 
 <script>
@@ -248,316 +237,6 @@
     rngSeed: Date.now() % 1000000,
   };
 
-  const LANGUAGE_PACKS = {
-    en: {
-      meta: {htmlLang: 'en', title: 'Mini Isaac-like'},
-      ui: {
-        headerTitle: 'Basement Sprint Lab · HTML5 Canvas',
-        badge: 'WASD move · Arrow keys shoot · E place bomb · F interact · Enter start · P pause · R restart · Remember to breathe',
-        menuTitle: 'Basement warm-up…',
-        menuDescription: 'A minimalist, room-based top-down shooter. Stretch first, then clear every enemy to convince the doors to open.',
-        menuControls: [
-          '<b>W/A/S/D</b> to move, <b>↑/↓/←/→</b> to shoot',
-          '<b>Enter</b> start · <b>P</b> pause/resume · <b>R</b> restart'
-        ],
-        startButton: "Let's go!",
-        languageLabel: 'Language',
-        languageOptions: {en: 'English', zh: '中文'},
-        pauseTitle: 'Catnap time',
-        pauseDesc: 'Press <b>P</b> to continue. The floor waits; the enemies are zoning out.',
-        gameoverTitle: 'The hero is exhausted',
-        gameoverDesc: 'Press <b>R</b> to retry, or <b>Enter</b> to return to the menu and regroup.',
-        virtualKeyboard: 'Virtual keyboard',
-        cheatToggle: 'Cheat bench',
-        cheat: {
-          status: 'Stats',
-          resources: 'Resources',
-          items: 'Items',
-          labels: {
-            hp: 'Current HP',
-            maxHp: 'Max HP',
-            baseDamage: 'Base damage',
-            speed: 'Move speed',
-            fireRate: 'Fire rate (shots/s)',
-            tearSpeed: 'Projectile speed',
-            bombs: 'Bombs',
-            keys: 'Keys',
-            coins: 'Coins',
-            itemId: 'Item ID'
-          },
-          applyStats: 'Apply stats',
-          applyResources: 'Apply resources',
-          giveItem: 'Grant item',
-          placeholder: 'e.g. 1'
-        },
-        codexTitle: 'Item Codex',
-        codexProgress: 'Unlocked {current} / {total}',
-        footer: 'Pure front-end single file · No assets · Light and snappy'
-      },
-      portal: {hint: 'Press F to descend'},
-      resources: {bomb: 'Bomb', key: 'Key', coin: 'Coin'},
-      hud: {
-        health: 'Health',
-        itemSeparator: ', ',
-        stats: [
-          {key: 'fireRate', label: 'Fire Rate', unit: 'shots/s'},
-          {key: 'damage', label: 'Damage'},
-          {key: 'moveSpeed', label: 'Move Speed'},
-          {key: 'tearSpeed', label: 'Projectile Speed'},
-          {key: 'range', label: 'Range'}
-        ],
-        emptyItems: 'Empty-handed',
-        itemsLabel: 'Items',
-        floor: 'Floor',
-        explored: 'Explored',
-        boss: 'Boss'
-      },
-      messages: {
-        codexEmpty: 'No items discovered yet. Explore the basement to find your first treasure!',
-        cheatNeedsGame: 'Enter the dungeon before summoning items.',
-        cheatNeedId: 'Please enter an item ID.',
-        cheatInvalidId: 'Invalid number, please input a positive integer.',
-        cheatNotFound: 'No item found with ID {id}.',
-        cheatGained: 'Obtained "{name}"',
-        shopNoMoneyTitle: 'Wallet protests',
-        shopNoMoneyDesc: 'Need {amount} more coins to buy it.',
-        shopPurchaseTitle: '{resource} purchased',
-        shopPurchaseDesc: 'Special offer from the shop counter.',
-        shopFullTitle: '{resource} bag full',
-        shopFullDesc: 'Make a little room in your pockets.',
-        floorReachedTitle: 'Reached Floor {floor}',
-        floorReachedDesc: 'Enemies grow fiercer.',
-        doorSpentTitle: 'Key fizzles away',
-        doorSpentDescShop: 'Shopkeeper: Welcome in!',
-        doorSpentDescDoor: 'Lock: "Barely acceptable."',
-        doorNeedKeyTitle: 'Need a key',
-        doorNeedKeyDesc: 'Locks only accept metal, not words.',
-        pickupSuffix: ' picked up!',
-        bossFlavor: 'Basement temp: yet another overtime shift.',
-        portalLabelFallback: 'Resource',
-        portalArrive: 'Picked up {name}!'
-      },
-      codex: {
-        progressLabel: 'Unlocked',
-        defaultDesc: 'No description yet.'
-      },
-      bosses: {
-        idol: 'Weeping Idol · Office Grub',
-        master: 'Ember Instructor · Master'
-      },
-      items: {
-        onion: {name: 'Onion', desc: 'Tear ducts open wider. +0.75 shots per second.'},
-        tar: {name: 'Tar Rag', desc: 'Thicker tears, damage +0.5.'},
-        'sneaker': {name: 'Sprint Shoes', desc: 'Move speed +35, light on your feet.'},
-        'pepper-steak': {name: 'Pepper Steak', desc: 'Boiling over: damage +1, fire rate +1, range ×1.5, +1 max HP.'},
-        rope: {name: 'Rope', desc: 'Float freely—flying ignores terrain.'},
-        'spirit-date': {name: 'Spirit Date', desc: 'Range ×1.5, tears pierce obstacles.'},
-        'betrayal-hound': {name: 'Turncoat Hound', desc: 'Berserk betrayal: damage ×2 +1.5, fire rate -0.25 shots/s.'},
-        'despair-shout': {name: 'Cry of Despair', desc: 'Rending scream, range ×5.'},
-        'bad-thing': {name: 'Bad Thing', desc: 'Speed feels risky: projectile speed ×1.1.'},
-        'good-thing': {name: 'Good Thing', desc: 'Growing fond: projectile speed ×0.75, fire rate +0.75, range ×1.25.'},
-        'blood-power': {name: 'Power of Blood', desc: 'Thicker blood raises damage.'},
-        'money-power': {name: 'Power of Money', desc: 'Heavy purse, heavier hits.'},
-        'despair-power': {name: 'Power of Despair', desc: 'The less HP, the harder the counterattack.'},
-        'dog-food': {name: 'Dog Food', desc: '+1 max HP.'},
-        'ending-note': {name: 'Ending Note', desc: '+0.75 shots per second, range ×1.1.'},
-        kettle: {name: 'Kettle', desc: '+1 damage.'}
-      }
-    },
-    zh: {
-      meta: {htmlLang: 'zh-CN', title: '简易以撒-like'},
-      ui: {
-        headerTitle: '地窖速通实验室 · HTML5 Canvas',
-        badge: 'WASD 移动 · 方向键射击 · E 放置炸弹 · F 购买 · 回车开始 · P 暂停 · R 重开 · 记得深呼吸',
-        menuTitle: '地窖暖场中…',
-        menuDescription: '这是款极简的房间制顶视角射击。先伸个懒腰再闯关——清空房间敌人，门才会知趣地打开。',
-        menuControls: [
-          '<b>W/A/S/D</b> 移动，<b>↑/↓/←/→</b> 射击',
-          '<b>Enter</b> 开始 · <b>P</b> 暂停/继续 · <b>R</b> 重开'
-        ],
-        startButton: '我要出发！',
-        languageLabel: '语言',
-        languageOptions: {en: '英语', zh: '中文'},
-        pauseTitle: '暂时打个盹',
-        pauseDesc: '按 <b>P</b> 继续。关卡在原地等你，敌人也在发呆。',
-        gameoverTitle: '勇者累趴了',
-        gameoverDesc: '按 <b>R</b> 重开，或者 <b>Enter</b> 回到主菜单准备再战。',
-        virtualKeyboard: '屏幕键盘',
-        cheatToggle: '作弊台',
-        cheat: {
-          status: '状态',
-          resources: '资源',
-          items: '道具',
-          labels: {
-            hp: '当前血量',
-            maxHp: '生命上限',
-            baseDamage: '基础伤害',
-            speed: '移动速度',
-            fireRate: '射速(次/秒)',
-            tearSpeed: '子弹速度',
-            bombs: '炸弹',
-            keys: '钥匙',
-            coins: '金币',
-            itemId: '道具 ID'
-          },
-          applyStats: '应用状态',
-          applyResources: '应用资源',
-          giveItem: '给予道具',
-          placeholder: '例如 1'
-        },
-        codexTitle: '道具图鉴',
-        codexProgress: '已解锁 {current} / {total}',
-        footer: '纯前端单文件 · 无素材 · 轻便又俏皮'
-      },
-      portal: {hint: '按 F 进入下一层'},
-      resources: {bomb: '炸弹', key: '钥匙', coin: '金币'},
-      hud: {
-        health: '生命',
-        itemSeparator: '、',
-        stats: [
-          {key: 'fireRate', label: '攻速', unit: '次/秒'},
-          {key: 'damage', label: '伤害'},
-          {key: 'moveSpeed', label: '移动速度'},
-          {key: 'tearSpeed', label: '子弹速度'},
-          {key: 'range', label: '射程'}
-        ],
-        emptyItems: '空手上阵',
-        itemsLabel: '道具',
-        floor: '楼层',
-        explored: '已探索',
-        boss: 'BOSS'
-      },
-      messages: {
-        codexEmpty: '尚未获得任何道具。探索地下室，解锁第一件宝物吧！',
-        cheatNeedsGame: '请先进入游戏后再使用道具召唤。',
-        cheatNeedId: '请输入道具编号。',
-        cheatInvalidId: '编号无效，请输入正整数。',
-        cheatNotFound: '未找到编号为 {id} 的道具。',
-        cheatGained: '已获得「{name}」',
-        shopNoMoneyTitle: '钱包在抗议',
-        shopNoMoneyDesc: '还差 {amount} 枚金币才买得起',
-        shopPurchaseTitle: '{resource} 入手',
-        shopPurchaseDesc: '来自商店柜台的友情价',
-        shopFullTitle: '{resource} 背包已满',
-        shopFullDesc: '再整理一下口袋吧',
-        floorReachedTitle: '已抵达第 {floor} 层',
-        floorReachedDesc: '敌人变得更加愤怒。',
-        doorSpentTitle: '钥匙冒着烟消失',
-        doorSpentDescShop: '商店老板：欢迎惠顾！',
-        doorSpentDescDoor: '门锁：「勉强通过。」',
-        doorNeedKeyTitle: '缺钥匙提示',
-        doorNeedKeyDesc: '门锁不吃嘴炮，只认金属',
-        pickupSuffix: ' 入手！',
-        bossFlavor: '地窖打工仔：又是背锅的加班日。',
-        portalLabelFallback: '资源',
-        portalArrive: '「{name}」入手！'
-      },
-      codex: {
-        progressLabel: '已解锁',
-        defaultDesc: '暂无描述'
-      },
-      bosses: {
-        idol: '哭泣塑像 · 社畜蛹',
-        master: '余烬教官 · Master'
-      },
-      items: {
-        onion: {name: '洋葱', desc: '泪腺更发达，射速 +0.75 次/秒'},
-        tar: {name: '焦油抹布', desc: '伤害 +0.5，泪滴更厚重'},
-        'sneaker': {name: '小短跑鞋', desc: '移动速度 +35，轻盈不少'},
-        'pepper-steak': {name: '胡椒牛排', desc: '全身沸腾，伤害 +1，攻速 +1，射程 ×1.5，血上限 +1'},
-        rope: {name: '绳子', desc: '轻盈漂浮，飞行不再畏惧地形'},
-        'spirit-date': {name: '酒枣', desc: '射程 ×1.5，泪滴可穿透障碍'},
-        'betrayal-hound': {name: '伙伴倒戈犬', desc: '狂暴背叛，伤害 ×2 +1.5，射速 -0.25 次/秒'},
-        'despair-shout': {name: '绝望呐喊', desc: '撕裂呐喊，射程 ×5'},
-        'bad-thing': {name: '坏东西', desc: '速度有点危险，子弹速度 ×1.1'},
-        'good-thing': {name: '好东西', desc: '越看越顺眼，子弹速度 ×0.75，射速 +0.75，射程 ×1.25'},
-        'blood-power': {name: '血之力', desc: '血越厚，伤害越高'},
-        'money-power': {name: '钱之力', desc: '财源滚滚，伤害随金币提升'},
-        'despair-power': {name: '绝望之力', desc: '血越少，越要反击'},
-        'dog-food': {name: '狗粮', desc: '血量上限 +1'},
-        'ending-note': {name: '结束纸条', desc: '射速 +0.75 次/秒，射程 ×1.1'},
-        kettle: {name: '热水壶', desc: '伤害 +1'}
-      }
-    }
-  };
-
-  const DEFAULT_LANGUAGE = 'en';
-  const LANGUAGE_STORAGE_KEY = 'simple-isaac-language';
-  let currentLanguage = DEFAULT_LANGUAGE;
-
-  function resolveTranslation(lang, path){
-    if(!path) return null;
-    const pack = LANGUAGE_PACKS[lang];
-    if(!pack) return null;
-    const parts = path.split('.');
-    let value = pack;
-    for(const part of parts){
-      if(value == null) return null;
-      value = value[part];
-    }
-    return value;
-  }
-
-  function formatText(template, params){
-    if(typeof template !== 'string' || !params) return template || '';
-    return template.replace(/\{(\w+)\}/g, (match, key)=>{
-      return Object.prototype.hasOwnProperty.call(params, key) ? params[key] : match;
-    });
-  }
-
-  function t(path, params, lang=currentLanguage){
-    const value = resolveTranslation(lang, path);
-    if(value == null){
-      if(lang !== DEFAULT_LANGUAGE){
-        return t(path, params, DEFAULT_LANGUAGE);
-      }
-      return '';
-    }
-    if(typeof value === 'string'){
-      return formatText(value, params);
-    }
-    return value;
-  }
-
-  function tList(path, lang=currentLanguage){
-    const value = resolveTranslation(lang, path);
-    if(Array.isArray(value)) return value;
-    if(lang !== DEFAULT_LANGUAGE) return tList(path, DEFAULT_LANGUAGE);
-    return [];
-  }
-
-  function getItemName(item, lang=currentLanguage){
-    if(!item) return '';
-    const slug = item.slug;
-    if(slug){
-      const data = resolveTranslation(lang, `items.${slug}`);
-      if(data && typeof data.name === 'string') return data.name;
-      if(lang !== DEFAULT_LANGUAGE) return getItemName(item, DEFAULT_LANGUAGE);
-    }
-    return item.name || slug || '';
-  }
-
-  function getItemDescription(item, lang=currentLanguage){
-    if(!item) return '';
-    const slug = item.slug;
-    if(slug){
-      const data = resolveTranslation(lang, `items.${slug}`);
-      if(data && typeof data.desc === 'string') return data.desc;
-      if(lang !== DEFAULT_LANGUAGE) return getItemDescription(item, DEFAULT_LANGUAGE);
-    }
-    return item.description || '';
-  }
-
-  function getResourceLabel(type, lang=currentLanguage){
-    return t(`resources.${type}`, null, lang) || type;
-  }
-
-  function getBossName(id, lang=currentLanguage){
-    return t(`bosses.${id}`, null, lang) || id;
-  }
-
-  let dungeon, player;
-
   // ======= 基础工具 =======
   const rand = mulberry32(CONFIG.rngSeed);
   function mulberry32(a){return function(){let t=a+=0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}};
@@ -580,26 +259,17 @@
     {di:0,dj:-1,key:'left',opp:'right'},
     {di:0,dj:1,key:'right',opp:'left'}
   ];
-  const BOSS_TYPES = ['idol','master'];
+  const BOSS_TYPES = [
+    {id:'idol', name:'哭泣塑像 · 社畜蛹'},
+    {id:'master', name:'余烬教官 · Master'},
+  ];
   function rollBossType(){
-    const id = BOSS_TYPES[Math.floor(rand()*BOSS_TYPES.length)];
-    return {id};
+    return BOSS_TYPES[Math.floor(rand()*BOSS_TYPES.length)];
   }
   function getBossMeta(id){
-    return BOSS_TYPES.includes(id) ? {id} : {id: BOSS_TYPES[0]};
+    return BOSS_TYPES.find(b=>b.id===id) || BOSS_TYPES[0];
   }
   let currentFloor = 1;
-  const runtime = {
-    bullets: [],
-    enemyProjectiles: [],
-    pendingEnemySpawns: [],
-    bossIntroTimer: 0,
-    bossIntroText: '',
-    itemPickupTimer: 0,
-    itemPickupName: '',
-    itemPickupDesc: '',
-    floor: currentFloor,
-  };
   function safeProgressionValue(base){
     return (typeof base === 'number' && isFinite(base) && base>0) ? base : 1;
   }
@@ -632,118 +302,118 @@
   const ITEM_POOL = [
     {
       slug:'onion',
-      name:'Onion',
+      name:'洋葱',
       weight:50,
-      description:'Tear ducts open wider, +0.75 shots per second',
+      description:'泪腺更发达，射速 +0.75 次/秒',
       apply(player){ adjustFireRate(player, 0.75); }
     },
     {
       slug:'tar',
-      name:'Tar Rag',
+      name:'焦油抹布',
       weight:30,
-      description:'Damage +0.5, heavier tears',
+      description:'伤害 +0.5，泪滴更厚重',
       apply(player){ player.addDamage(0.5); }
     },
     {
       slug:'sneaker',
-      name:'Sprint Shoes',
+      name:'小短跑鞋',
       weight:50,
-      description:'Move speed +35, light on your feet',
+      description:'移动速度 +35，轻盈不少',
       apply(player){ player.speed += 35; }
     },
     {
       slug:'pepper-steak',
-      name:'Pepper Steak',
+      name:'胡椒牛排',
       weight:5,
-      description:'Boiling over: damage +1, fire rate +1, range ×1.5, +1 max HP',
+      description:'全身沸腾，伤害 +1，攻速 +1，射程 x1.5，血上限 +1',
       apply(player){ player.addDamage(1); adjustFireRate(player,1); player.tearLife*=1.5; if(typeof player.adjustMaxHp==='function'){ player.adjustMaxHp(1); } else { player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); } }
     },
     {
       slug:'rope',
-      name:'Rope',
+      name:'绳子',
       weight:20,
-      description:'Float freely; flying ignores terrain',
+      description:'轻盈漂浮，飞行不再畏惧地形',
       apply(player){ player.flying = true; }
     },
     {
       slug:'spirit-date',
-      name:'Spirit Date',
+      name:'酒枣',
       weight:20,
-      description:'Range ×1.5, tears pierce obstacles',
+      description:'射程 x1.5，泪滴可穿透障碍',
       apply(player){ player.tearLife*=1.5; player.canPierceObstacles = true; }
     },
     {
       slug:'betrayal-hound',
-      name:'Turncoat Hound',
+      name:'伙伴倒戈犬',
       weight:1,
-      description:'Berserk betrayal: damage ×2 +1.5, fire rate -0.25 shots/s',
+      description:'狂暴背叛，伤害 x2 +1.5，射速 -0.25 次/秒',
       apply(player){ player.damageMultiplier *= 2; player.addDamage(1.5); adjustFireRate(player,-0.25); }
     },
     {
       slug:'despair-shout',
-      name:'Cry of Despair',
+      name:'绝望呐喊',
       weight:40,
-      description:'Rending scream, range ×5',
+      description:'撕裂呐喊，射程 x5',
       apply(player){ player.tearLife*=5; }
     },
     {
       slug:'bad-thing',
-      name:'Bad Thing',
+      name:'坏东西',
       weight:50,
-      description:'Speed feels risky: projectile speed ×1.1',
+      description:'速度有点危险，子弹速度 x1.1',
       apply(player){ player.tearSpeed*=1.1; }
     },
     {
       slug:'good-thing',
-      name:'Good Thing',
+      name:'好东西',
       weight:20,
-      description:'Growing fond: projectile speed ×0.75, fire rate +0.75, range ×1.25',
+      description:'越看越顺眼，子弹速度 x0.75，射速 +0.75，射程 x1.25',
       apply(player){ player.tearSpeed*=0.75; adjustFireRate(player,0.75); player.tearLife*=1.25; }
     }
   ];
   const SHOP_ITEM_POOL = [
     {
       slug:'blood-power',
-      name:'Power of Blood',
+      name:'血之力',
       weight:50,
-      description:'Thicker blood raises damage',
+      description:'血越厚，伤害越高',
       apply(player){ player.effects.bloodPower = true; player.recalculateDamage(); }
     },
     {
       slug:'money-power',
-      name:'Power of Money',
+      name:'钱之力',
       weight:50,
-      description:'Heavy purse, heavier hits',
+      description:'财源滚滚，伤害随金币提升',
       apply(player){ player.effects.moneyPower = true; player.recalculateDamage(); }
     },
     {
       slug:'despair-power',
-      name:'Power of Despair',
+      name:'绝望之力',
       weight:20,
-      description:'The less HP, the harder the counterattack',
+      description:'血越少，越要反击',
       apply(player){ player.effects.despairPower = true; player.recalculateDamage(); }
     }
   ];
   const BOSS_ITEM_POOL = [
     {
       slug:'dog-food',
-      name:'Dog Food',
+      name:'狗粮',
       weight:50,
-      description:'+1 max HP',
+      description:'血量上限 +1',
       apply(player){ if(typeof player.adjustMaxHp==='function'){ player.adjustMaxHp(1); } else { player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); } }
     },
     {
       slug:'ending-note',
-      name:'Ending Note',
+      name:'结束纸条',
       weight:50,
-      description:'+0.75 shots per second, range ×1.1',
+      description:'射速 +0.75 次/秒，射程 x1.1',
       apply(player){ adjustFireRate(player,0.75); player.tearLife*=1.1; }
     },
     {
       slug:'kettle',
-      name:'Kettle',
+      name:'热水壶',
       weight:50,
-      description:'+1 damage',
+      description:'伤害 +1',
       apply(player){ player.addDamage(1); }
     }
   ];
@@ -776,26 +446,12 @@
   function cloneItemData(item){
     return item ? {...item} : null;
   }
+  const RESOURCE_LABELS = {bomb:'炸弹', key:'钥匙', coin:'金币'};
   const HUDL = document.getElementById('hud-left');
   const HUDR = document.getElementById('hud-right');
   const HUDS = document.getElementById('hud-stats');
-  const headerTitleNode = document.getElementById('header-title');
-  const headerBadgeNode = document.getElementById('header-badge');
-  const menuTitleNode = document.getElementById('menu-title');
-  const menuDescNode = document.getElementById('menu-desc');
-  const menuControlsNode = document.getElementById('menu-controls');
-  const startButton = document.getElementById('startBtn');
-  const pauseTitleNode = document.getElementById('pause-title');
-  const pauseDescNode = document.getElementById('pause-desc');
-  const gameoverTitleNode = document.getElementById('gameover-title');
-  const gameoverDescNode = document.getElementById('gameover-desc');
-  const languageSelect = document.getElementById('language-select');
-  const languageSelectLabel = document.getElementById('language-select-label');
-  const footerTextNode = document.getElementById('footer-text');
   const cheatToggle = document.getElementById('cheat-toggle');
   const cheatPanelNode = document.getElementById('cheat-panel');
-  const virtualKbToggle = document.getElementById('vk-toggle');
-  const virtualKbPanel = document.getElementById('virtual-kb');
   const cheatInputs = {
     hp: document.getElementById('cheat-hp'),
     maxHp: document.getElementById('cheat-maxhp'),
@@ -812,129 +468,16 @@
   const cheatGiveItemBtn = document.getElementById('cheat-give-item');
   const cheatItemIdInput = document.getElementById('cheat-item-id');
   const cheatItemResult = document.getElementById('cheat-item-result');
-  const cheatStatusTitle = document.getElementById('cheat-status-title');
-  const cheatResourcesTitle = document.getElementById('cheat-resources-title');
-  const cheatItemsTitle = document.getElementById('cheat-items-title');
-  const cheatHpLabel = document.getElementById('cheat-hp-label');
-  const cheatMaxHpLabel = document.getElementById('cheat-maxhp-label');
-  const cheatDamageLabel = document.getElementById('cheat-damage-label');
-  const cheatSpeedLabel = document.getElementById('cheat-speed-label');
-  const cheatFireRateLabel = document.getElementById('cheat-firerate-label');
-  const cheatTearSpeedLabel = document.getElementById('cheat-tearspeed-label');
-  const cheatBombsLabel = document.getElementById('cheat-bombs-label');
-  const cheatKeysLabel = document.getElementById('cheat-keys-label');
-  const cheatCoinsLabel = document.getElementById('cheat-coins-label');
-  const cheatItemIdLabel = document.getElementById('cheat-item-id-label');
   const CODEX_NODE = document.getElementById('item-codex');
   const CODEX_GRID = document.getElementById('codex-grid');
-  const CODEX_TITLE_NODE = document.getElementById('codex-title');
-  const CODEX_PROGRESS_NODE = document.getElementById('codex-progress');
-  let CODEX_COUNT = document.getElementById('codex-count');
-  let CODEX_TOTAL = document.getElementById('codex-total');
+  const CODEX_COUNT = document.getElementById('codex-count');
+  const CODEX_TOTAL = document.getElementById('codex-total');
 
   if(CODEX_TOTAL) CODEX_TOTAL.textContent = ITEM_TOTAL_COUNT;
   if(cheatItemIdInput && ITEM_TOTAL_COUNT>0){
     cheatItemIdInput.setAttribute('max', String(ITEM_TOTAL_COUNT));
   }
   const discoveredItems = new Set();
-
-  try{
-    const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    if(stored && LANGUAGE_PACKS[stored]){
-      currentLanguage = stored;
-    }
-  }catch(err){/* ignore storage errors */}
-
-  function renderMenuControls(){
-    if(!menuControlsNode) return;
-    const entries = tList('ui.menuControls');
-    menuControlsNode.innerHTML = '';
-    for(const text of entries){
-      const li = document.createElement('li');
-      li.innerHTML = text;
-      menuControlsNode.appendChild(li);
-    }
-  }
-
-  function applyLanguageUI(){
-    const htmlLang = t('meta.htmlLang') || currentLanguage;
-    document.documentElement.lang = htmlLang;
-    document.title = t('meta.title');
-    if(headerTitleNode) headerTitleNode.textContent = t('ui.headerTitle');
-    if(headerBadgeNode) headerBadgeNode.textContent = t('ui.badge');
-    if(menuTitleNode) menuTitleNode.textContent = t('ui.menuTitle');
-    if(menuDescNode) menuDescNode.textContent = t('ui.menuDescription');
-    renderMenuControls();
-    if(startButton) startButton.textContent = t('ui.startButton');
-    if(languageSelectLabel) languageSelectLabel.textContent = t('ui.languageLabel');
-    if(languageSelect){
-      const optionsMap = resolveTranslation(currentLanguage, 'ui.languageOptions') || resolveTranslation(DEFAULT_LANGUAGE, 'ui.languageOptions') || {};
-      for(const option of languageSelect.options){
-        if(optionsMap[option.value]) option.textContent = optionsMap[option.value];
-      }
-      languageSelect.value = currentLanguage;
-    }
-    if(pauseTitleNode) pauseTitleNode.textContent = t('ui.pauseTitle');
-    if(pauseDescNode) pauseDescNode.innerHTML = t('ui.pauseDesc');
-    if(gameoverTitleNode) gameoverTitleNode.textContent = t('ui.gameoverTitle');
-    if(gameoverDescNode) gameoverDescNode.innerHTML = t('ui.gameoverDesc');
-    if(virtualKbToggle) virtualKbToggle.textContent = t('ui.virtualKeyboard');
-    if(cheatToggle) cheatToggle.textContent = t('ui.cheatToggle');
-    if(cheatStatusTitle) cheatStatusTitle.textContent = t('ui.cheat.status');
-    if(cheatResourcesTitle) cheatResourcesTitle.textContent = t('ui.cheat.resources');
-    if(cheatItemsTitle) cheatItemsTitle.textContent = t('ui.cheat.items');
-    if(cheatHpLabel) cheatHpLabel.textContent = t('ui.cheat.labels.hp');
-    if(cheatMaxHpLabel) cheatMaxHpLabel.textContent = t('ui.cheat.labels.maxHp');
-    if(cheatDamageLabel) cheatDamageLabel.textContent = t('ui.cheat.labels.baseDamage');
-    if(cheatSpeedLabel) cheatSpeedLabel.textContent = t('ui.cheat.labels.speed');
-    if(cheatFireRateLabel) cheatFireRateLabel.textContent = t('ui.cheat.labels.fireRate');
-    if(cheatTearSpeedLabel) cheatTearSpeedLabel.textContent = t('ui.cheat.labels.tearSpeed');
-    if(cheatBombsLabel) cheatBombsLabel.textContent = t('ui.cheat.labels.bombs');
-    if(cheatKeysLabel) cheatKeysLabel.textContent = t('ui.cheat.labels.keys');
-    if(cheatCoinsLabel) cheatCoinsLabel.textContent = t('ui.cheat.labels.coins');
-    if(cheatItemIdLabel) cheatItemIdLabel.textContent = t('ui.cheat.labels.itemId');
-    if(cheatStatsBtn) cheatStatsBtn.textContent = t('ui.cheat.applyStats');
-    if(cheatResBtn) cheatResBtn.textContent = t('ui.cheat.applyResources');
-    if(cheatGiveItemBtn) cheatGiveItemBtn.textContent = t('ui.cheat.giveItem');
-    if(cheatItemIdInput) cheatItemIdInput.placeholder = t('ui.cheat.placeholder');
-    if(footerTextNode) footerTextNode.textContent = t('ui.footer');
-    CONFIG.portal.hint = t('portal.hint');
-    updateCodex();
-    renderHUD();
-  }
-
-  function setLanguage(lang, {skipSave}={}){
-    if(!LANGUAGE_PACKS[lang]) lang = DEFAULT_LANGUAGE;
-    currentLanguage = lang;
-    if(!skipSave){
-      try{ localStorage.setItem(LANGUAGE_STORAGE_KEY, lang); }catch(err){ /* ignore */ }
-    }
-    applyLanguageUI();
-    if(dungeon?.allRooms){
-      for(const room of dungeon.allRooms){
-        if(room?.bossEntity){
-          room.bossEntity.name = getBossName(room.bossId);
-        }
-      }
-    }
-    if(dungeon?.current?.bossEntity){
-      dungeon.current.bossEntity.name = getBossName(dungeon.current.bossId);
-    }
-  }
-
-  languageSelect?.addEventListener('change', (ev)=>{
-    if(runtime){
-      runtime.itemPickupTimer = 0;
-      runtime.itemPickupName = '';
-      runtime.itemPickupDesc = '';
-      if(dungeon?.current?.bossId){
-        runtime.bossIntroText = getBossName(dungeon.current.bossId);
-      }
-    }
-    setLanguage(ev.target.value);
-  });
-
-  setLanguage(currentLanguage, {skipSave:true});
 
   function formatItemNumber(id){
     const str = String(id);
@@ -958,15 +501,6 @@
   }
 
   function updateCodex(){
-    if(CODEX_TITLE_NODE) CODEX_TITLE_NODE.textContent = t('ui.codexTitle');
-    if(CODEX_PROGRESS_NODE){
-      CODEX_PROGRESS_NODE.innerHTML = t('ui.codexProgress', {
-        current: `<span id="codex-count">${discoveredItems.size}</span>`,
-        total: `<span id="codex-total">${ITEM_TOTAL_COUNT}</span>`
-      });
-      CODEX_COUNT = document.getElementById('codex-count');
-      CODEX_TOTAL = document.getElementById('codex-total');
-    }
     if(CODEX_TOTAL) CODEX_TOTAL.textContent = ITEM_TOTAL_COUNT;
     if(CODEX_COUNT) CODEX_COUNT.textContent = discoveredItems.size;
     if(!CODEX_GRID) return;
@@ -978,7 +512,7 @@
     if(!discoveredList.length){
       const empty=document.createElement('div');
       empty.className='codex-empty';
-      empty.textContent=t('messages.codexEmpty');
+      empty.textContent='尚未获得任何道具。探索地下室，解锁第一件宝物吧！';
       CODEX_GRID.appendChild(empty);
       return;
     }
@@ -997,12 +531,10 @@
       info.className='codex-info';
       const title=document.createElement('div');
       title.className='codex-name';
-      const localizedName = getItemName(item);
-      title.textContent=`#${formatItemNumber(item.id)} · ${localizedName}`;
+      title.textContent=`#${formatItemNumber(item.id)} · ${item.name}`;
       const desc=document.createElement('div');
       desc.className='codex-desc';
-      const localizedDesc = getItemDescription(item) || t('codex.defaultDesc');
-      desc.textContent=localizedDesc;
+      desc.textContent=item.description || '暂无描述';
       info.appendChild(title);
       info.appendChild(desc);
       card.appendChild(iconWrap);
@@ -1109,39 +641,37 @@
     const resetColor = ()=>{ cheatItemResult.style.color = 'var(--muted)'; };
     resetColor();
     if(!player){
-      cheatItemResult.textContent = t('messages.cheatNeedsGame');
+      cheatItemResult.textContent = '请先进入游戏后再使用道具召唤。';
       cheatItemResult.style.color = 'var(--danger)';
       return;
     }
     const raw = cheatItemIdInput ? String(cheatItemIdInput.value).trim() : '';
     if(!raw){
-      cheatItemResult.textContent = t('messages.cheatNeedId');
+      cheatItemResult.textContent = '请输入道具编号。';
       cheatItemResult.style.color = 'var(--danger)';
       return;
     }
     const numeric = Math.floor(Number(raw));
     if(!Number.isFinite(numeric) || numeric<1){
-      cheatItemResult.textContent = t('messages.cheatInvalidId');
+      cheatItemResult.textContent = '编号无效，请输入正整数。';
       cheatItemResult.style.color = 'var(--danger)';
       return;
     }
     const base = getItemByNumericId(numeric);
     if(!base){
-      cheatItemResult.textContent = t('messages.cheatNotFound', {id: numeric});
+      cheatItemResult.textContent = `未找到编号为 ${numeric} 的道具。`;
       cheatItemResult.style.color = 'var(--danger)';
       return;
     }
     const item = cloneItemData(base);
     if(typeof item.apply === 'function'){ item.apply(player); }
-    const slug = item?.slug || item?.name;
-    if(player && slug && !player.items.includes(slug)){ player.items.push(slug); }
+    if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
     registerItemDiscovery(item);
     player.recalculateDamage();
-    const displayName = getItemName(item);
-    runtime.itemPickupName = displayName;
-    runtime.itemPickupDesc = getItemDescription(item);
+    runtime.itemPickupName = item.name;
+    runtime.itemPickupDesc = item.description || '';
     runtime.itemPickupTimer = 2.4;
-    cheatItemResult.textContent = t('messages.cheatGained', {name: displayName});
+    cheatItemResult.textContent = `已获得「${item.name}」`;  
     cheatItemResult.style.color = 'var(--accent)';
     syncCheatPanel();
   }
@@ -1370,7 +900,8 @@
   });
   window.addEventListener('keyup', (e)=> processKeyUp(e.code));
 
-
+  const virtualKbToggle = document.getElementById('vk-toggle');
+  const virtualKbPanel = document.getElementById('virtual-kb');
   const virtualKeyboard = createVirtualKeyboard({
     panel: virtualKbPanel,
     toggle: virtualKbToggle,
@@ -1729,6 +1260,7 @@
         bossRoom.isBoss=true;
         const bossType = rollBossType();
         bossRoom.bossId = bossType.id;
+        bossRoom.bossName = bossType.name;
         this.rooms[ni][nj]=bossRoom;
         farthest.doors[dir.key]=true;
         bossRoom.doors[dir.opp]=true;
@@ -1739,6 +1271,7 @@
       farthest.isBoss=true;
       const fallbackType = rollBossType();
       farthest.bossId = fallbackType.id;
+      farthest.bossName = fallbackType.name;
       return farthest;
     }
 
@@ -1985,12 +1518,11 @@
     if(!pickup || !pickup.item) return;
     const item = pickup.item;
     if(typeof item.apply === 'function'){ item.apply(player); }
-    const slug = item?.slug || item?.name;
-    if(player && slug && !player.items.includes(slug)){ player.items.push(slug); }
+    if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
     registerItemDiscovery(item);
     if(pickup.room){ pickup.room.itemClaimed = true; pickup.room.itemSpawned = false; }
-    runtime.itemPickupName = getItemName(item);
-    runtime.itemPickupDesc = getItemDescription(item);
+    runtime.itemPickupName = item.name;
+    runtime.itemPickupDesc = item.description || '';
     runtime.itemPickupTimer = 3.2;
   }
   function grantResource(type, amount){
@@ -2510,13 +2042,11 @@
 
   function makeBoss(pos, room){
     const bossId = room?.bossId || 'idol';
-    const meta = getBossMeta(bossId);
-    const name = getBossName(meta.id);
     let boss;
-    if(meta.id==='master'){
-      boss = new EnemyBossMaster(pos.x, pos.y, name);
+    if(bossId==='master'){
+      boss = new EnemyBossMaster(pos.x, pos.y, room?.bossName || getBossMeta('master').name);
     } else {
-      boss = new EnemyBoss(pos.x, pos.y, name);
+      boss = new EnemyBoss(pos.x, pos.y, room?.bossName || getBossMeta('idol').name);
     }
     boss.room = room;
     return boss;
@@ -3339,7 +2869,7 @@
     const radius = portal.r ?? (cfg.radius ?? 34);
     const wobble = 1 + 0.08*Math.sin((portal.phase || 0) * 4.2);
     const highlight = portal.highlight || 0;
-    const hint = cfg.hint || t('portal.hint');
+    const hint = cfg.hint || '按 F 进入下一层';
 
     ctx.save();
     ctx.globalAlpha = 0.35 + highlight*0.15;
@@ -3390,7 +2920,19 @@
   }
 
   // ======= 运行时上下文 =======
-  // runtime 对象在前面初始化，以便语言切换等早期流程可以安全访问
+  const runtime = {
+    bullets: [],
+    enemyProjectiles: [],
+    pendingEnemySpawns: [],
+    bossIntroTimer: 0,
+    bossIntroText: '',
+    itemPickupTimer: 0,
+    itemPickupName: '',
+    itemPickupDesc: '',
+    floor: currentFloor,
+  };
+  let dungeon, player;
+
   function startGame(){
     overlayManager.clear();
     recentItemHistory.length = 0;
@@ -3445,8 +2987,8 @@
     runtime.pendingEnemySpawns.length = 0;
     runtime.bossIntroTimer = 0;
     runtime.bossIntroText = '';
-    runtime.itemPickupName = t('messages.floorReachedTitle', {floor: currentFloor});
-    runtime.itemPickupDesc = t('messages.floorReachedDesc');
+    runtime.itemPickupName = `已抵达第 ${currentFloor} 层`;
+    runtime.itemPickupDesc = '敌人变得更加愤怒。';
     runtime.itemPickupTimer = 2.6;
     keys.clear();
     for(const code of preservedKeys){ keys.add(code); }
@@ -3481,13 +3023,13 @@
           player.recalculateDamage();
           nr.locked = false;
           if(runtime.itemPickupTimer<=0){
-            runtime.itemPickupName = t('messages.doorSpentTitle');
-            runtime.itemPickupDesc = nr.isShop ? t('messages.doorSpentDescShop') : t('messages.doorSpentDescDoor');
+            runtime.itemPickupName = '钥匙冒着烟消失';
+            runtime.itemPickupDesc = nr.isShop ? '商店老板：欢迎惠顾！' : '门锁：「勉强通过。」';
             runtime.itemPickupTimer = 1.4;
           }
         } else if(runtime.itemPickupTimer<=0){
-          runtime.itemPickupName = t('messages.doorNeedKeyTitle');
-          runtime.itemPickupDesc = t('messages.doorNeedKeyDesc');
+          runtime.itemPickupName = '缺钥匙提示';
+          runtime.itemPickupDesc = '门锁不吃嘴炮，只认金属';
           runtime.itemPickupTimer = 1.2;
         }
         continue;
@@ -3503,7 +3045,7 @@
       if(d.dir==='right'){ player.x=60; player.y=CONFIG.roomH/2; }
       runtime.bullets.length = 0; runtime.enemyProjectiles.length = 0;
       if(nr.isBoss && !nr.introPlayed){
-        runtime.bossIntroText = getBossName(nr.bossId);
+        runtime.bossIntroText = nr.bossName;
         runtime.bossIntroTimer = 3.2;
         nr.introPlayed = true;
       }
@@ -3690,39 +3232,27 @@
   }
 
   function renderHUD(){
-    if(!player) return;
     const hearts = '❤'.repeat(Math.max(0,player.hp)) + '·'.repeat(Math.max(0, player.maxHp - player.hp));
-    const healthLabel = t('hud.health');
-    HUDL.innerHTML = `${healthLabel}:<span style="letter-spacing:1px">${hearts}</span><span class="kbd">💣 ${player.bombs}</span><span class="kbd">🔑 ${player.keys}</span><span class="kbd">🪙 ${player.coins}</span>`;
-    const statConfig = t('hud.stats') || [];
-    const statValues = {
-      fireRate: player.fireInterval>0 ? (1000/player.fireInterval).toFixed(2) : '∞',
-      damage: Number.isInteger(player.damage) ? player.damage : player.damage.toFixed(1),
-      moveSpeed: Math.round(player.speed),
-      tearSpeed: Math.round(player.tearSpeed),
-      range: Math.round(player.tearSpeed * player.tearLife)
-    };
-    HUDS.innerHTML = statConfig.map(({key,label,unit})=>{
-      const value = statValues[key] ?? '';
-      const unitHtml = unit ? `<small>${unit}</small>` : '';
-      return `<span>${label}:<strong>${value}</strong>${unitHtml}</span>`;
-    }).join('');
-    const separator = t('hud.itemSeparator') || ', ';
-    const itemNames = player.items.map(slug=>{
-      const base = ITEM_ID_REGISTRY.byKey.get(slug);
-      return base ? getItemName(base) : slug;
-    });
-    const itemsText = itemNames.length ? itemNames.join(separator) : t('hud.emptyItems');
+    HUDL.innerHTML = `生命：<span style="letter-spacing:1px">${hearts}</span><span class="kbd">💣 ${player.bombs}</span><span class="kbd">🔑 ${player.keys}</span><span class="kbd">🪙 ${player.coins}</span>`;
+    const fireRate = player.fireInterval>0 ? (1000/player.fireInterval).toFixed(2) : '∞';
+    const damage = Number.isInteger(player.damage) ? player.damage : player.damage.toFixed(1);
+    const moveSpeed = Math.round(player.speed);
+    const tearSpeed = Math.round(player.tearSpeed);
+    const range = Math.round(player.tearSpeed * player.tearLife);
+    const statItems = [
+      {label:'攻速', value: fireRate, unit:'次/秒'},
+      {label:'伤害', value: damage},
+      {label:'移动速度', value: moveSpeed},
+      {label:'子弹速度', value: tearSpeed},
+      {label:'射程', value: range}
+    ];
+    HUDS.innerHTML = statItems.map(({label,value,unit})=>`<span>${label}：<strong>${value}</strong>${unit?`<small>${unit}</small>`:''}</span>`).join('');
+    const itemsText = player.items.length ? player.items.join('、') : '空手上阵';
     const floorLevel = runtime.floor || currentFloor || 1;
-    const itemsLabel = t('hud.itemsLabel');
-    const floorLabel = t('hud.floor');
-    const exploredLabel = t('hud.explored');
-    const bossLabel = t('hud.boss');
     if(dungeon.current.isBoss && dungeon.current.bossEntity && !dungeon.current.bossEntity.dead){
-      const bossName = getBossName(dungeon.current.bossId);
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>${floorLabel}: ${floorLevel} / <span style="color:#ffb4c8">${bossLabel}: ${bossName}</span></span><span>${itemsLabel}: ${itemsText}</span></span>`;
+      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span></span>`;
     } else {
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>${floorLabel}: ${floorLevel} / ${exploredLabel}: ${exploredRooms()}</span><span>${itemsLabel}: ${itemsText}</span></span>`;
+      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span></span>`;
     }
     if(cheatPanelNode?.classList.contains('show')){ syncCheatPanel(); }
   }
@@ -3732,12 +3262,6 @@
 
   // ======= 渲染 =======
   function draw(){
-      ctx.clearRect(0,0,CONFIG.roomW, CONFIG.roomH);
-    if(!dungeon || !dungeon.current || !player){
-      ctx.fillStyle = '#10141d';
-      ctx.fillRect(0,0,CONFIG.roomW, CONFIG.roomH);
-      return;
-    }
     // 背景
     ctx.clearRect(0,0,CONFIG.roomW, CONFIG.roomH);
     drawRoomBackdrop();
@@ -3925,18 +3449,14 @@
       drawResourceIcon(p.entry.resource, p.r*0.9);
     }
     ctx.restore();
-   const resourceLabel = p.entry.type!=='item' ? getResourceLabel(p.entry.resource) : '';
-    const title = p.entry.type==='item'
-      ? getItemName(p.entry.item)
-      : `${resourceLabel} x${p.entry.amount}`;
-    const priceText = `${p.price}🪙`;
+    const title = p.entry.type==='item' ? p.entry.item.name : `${RESOURCE_LABELS[p.entry.resource]} x${p.entry.amount}`;
     ctx.save();
     ctx.fillStyle = '#d6dcff';
     ctx.font = '12px "HYWenHei", "PingFang SC", sans-serif';
     ctx.textAlign='center';
     ctx.fillText(title, p.x, p.y - 32);
     ctx.fillStyle = near ? '#facc15' : '#cbd5f5';
-    ctx.fillText(priceText, p.x, p.y - 16);
+    ctx.fillText(`${p.price}🪙`, p.x, p.y - 16);
     ctx.restore();
   }
 
@@ -4153,13 +3673,13 @@
     ctx.fillText(runtime.bossIntroText, CONFIG.roomW/2, CONFIG.roomH/2 - 6);
     ctx.fillStyle='#ffd6e6';
     ctx.font='18px "HYWenHei", "PingFang SC", sans-serif';
-    ctx.fillText(t('messages.bossFlavor'), CONFIG.roomW/2, CONFIG.roomH/2 + 28);
+    ctx.fillText('地窖打工仔：又是背锅的加班日。', CONFIG.roomW/2, CONFIG.roomH/2 + 28);
     ctx.restore();
   }
 
   function drawItemPickupBanner(){
     if(runtime.itemPickupTimer<=0 || !runtime.itemPickupName) return;
-    const baseText = t('messages.portalArrive', {name: runtime.itemPickupName});
+    const baseText = `${runtime.itemPickupName} 入手！`;
     const desc = runtime.itemPickupDesc;
     ctx.save();
     const lifeRatio = Math.min(1, runtime.itemPickupTimer / 1.2);
@@ -4335,8 +3855,8 @@
     const pickup = room.pickups[targetIndex];
     if(player.coins < pickup.price){
       if(runtime.itemPickupTimer<=0){
-        runtime.itemPickupName = t('messages.shopNoMoneyTitle');
-        runtime.itemPickupDesc = t('messages.shopNoMoneyDesc', {amount: pickup.price - player.coins});
+        runtime.itemPickupName = '钱包在抗议';
+        runtime.itemPickupDesc = `还差 ${pickup.price - player.coins} 枚金币才买得起`;
         runtime.itemPickupTimer = 1.2;
       }
       return;
@@ -4348,23 +3868,21 @@
     if(pickup.entry.type==='item'){
       const item = pickup.entry.item;
       if(typeof item.apply === 'function'){ item.apply(player); }
-      const slug = item?.slug || item?.name;
-      if(player && slug && !player.items.includes(slug)){ player.items.push(slug); }
+      if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
       registerItemDiscovery(item);
-      const displayName = getItemName(item);
-      runtime.itemPickupName = displayName;
-      runtime.itemPickupDesc = getItemDescription(item);
+      runtime.itemPickupName = item.name;
+      runtime.itemPickupDesc = item.description || '';
       runtime.itemPickupTimer = 2.4;
     } else if(pickup.entry.type==='resource'){
       const gained = grantResource(pickup.entry.resource, pickup.entry.amount);
-      const label = getResourceLabel(pickup.entry.resource);
+      const label = RESOURCE_LABELS[pickup.entry.resource] || '资源';
       if(gained>0){
-        runtime.itemPickupName = t('messages.shopPurchaseTitle', {resource: `${label} +${gained}`});
-        runtime.itemPickupDesc = t('messages.shopPurchaseDesc');
+        runtime.itemPickupName = `${label} +${gained}`;
+        runtime.itemPickupDesc = '来自商店柜台的友情价';
         runtime.itemPickupTimer = 1.5;
       } else {
-        runtime.itemPickupName = t('messages.shopFullTitle', {resource: label});
-        runtime.itemPickupDesc = t('messages.shopFullDesc');
+        runtime.itemPickupName = `${label} 背包已满`;
+        runtime.itemPickupDesc = '再整理一下口袋吧';
         runtime.itemPickupTimer = 1.2;
       }
     }
