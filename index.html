@@ -18,7 +18,12 @@
     .panel{background:linear-gradient(180deg,#121623,#0f131e);border:1px solid #202736;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35);}
     .canvas-wrap{position:relative;aspect-ratio:4/3}
     canvas{width:100%;height:100%;display:block;border-radius:16px}
-    .hud{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 12px;margin-top:10px}
+    .hud{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 12px;margin-top:10px;flex-wrap:wrap}
+    .hud-section{display:flex;align-items:center;gap:6px}
+    .hud-stats{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--muted);letter-spacing:.2px}
+    .hud-stats span{display:flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid #222a38;border-radius:8px;background:rgba(17,21,29,.65);color:var(--muted)}
+    .hud-stats span strong{color:var(--ink);font-weight:600;min-width:36px;text-align:right;font-variant-numeric:tabular-nums}
+    .hud-stats span small{font-size:12px;color:var(--muted);opacity:.8}
     .kbd{padding:2px 6px;border:1px solid #2a3142;border-radius:6px;color:var(--muted)}
     footer{margin-top:16px;color:var(--muted);text-align:center}
     /* overlays */
@@ -66,8 +71,9 @@
       </div>
     </div>
     <div class="panel hud">
-      <div id="hud-left"></div>
-      <div id="hud-right"></div>
+      <div id="hud-left" class="hud-section"></div>
+      <div id="hud-stats" class="hud-stats"></div>
+      <div id="hud-right" class="hud-section"></div>
     </div>
     <footer>纯前端单文件 · 无素材 · 为演示而生</footer>
   </div>
@@ -102,6 +108,7 @@
   function dist(a,b){const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy)}
   const HUDL = document.getElementById('hud-left');
   const HUDR = document.getElementById('hud-right');
+  const HUDS = document.getElementById('hud-stats');
 
   // DPR 缩放（保持内部 800x600 逻辑坐标）
   const canvas = document.getElementById('game');
@@ -251,7 +258,9 @@
       this.x=x; this.y=y; this.r=CONFIG.player.radius; this.speed=CONFIG.player.speed;
       this.maxHp = CONFIG.player.hp;
       this.hp = this.maxHp; this.ifr=0; // 无敌帧
-      this.fireCd = 0; this.tearSpeed=CONFIG.player.tearSpeed; this.tearLife=CONFIG.player.tearLife;
+      this.fireCd = 0; this.fireInterval = CONFIG.player.fireCd;
+      this.tearSpeed=CONFIG.player.tearSpeed; this.tearLife=CONFIG.player.tearLife;
+      this.damage = 1;
     }
     update(dt){
       const mv = {x:0,y:0};
@@ -276,8 +285,8 @@
       if(keys.has('ArrowRight')) sx += 1;
       if((sx||sy) && this.fireCd<=0){
         const l = Math.hypot(sx,sy)||1; sx/=l; sy/=l;
-        bullets.push(new Bullet(this.x, this.y, sx*this.tearSpeed, sy*this.tearSpeed, this.tearLife));
-        this.fireCd = CONFIG.player.fireCd;
+        bullets.push(new Bullet(this.x, this.y, sx*this.tearSpeed, sy*this.tearSpeed, this.tearLife, this.damage));
+        this.fireCd = this.fireInterval;
       }
     }
     hurt(dmg){
@@ -289,7 +298,7 @@
   }
 
   class Bullet{
-    constructor(x,y,vx,vy,life){ this.x=x; this.y=y; this.vx=vx; this.vy=vy; this.life=life; this.alive=true; this.r=5; }
+    constructor(x,y,vx,vy,life,damage=1){ this.x=x; this.y=y; this.vx=vx; this.vy=vy; this.life=life; this.damage=damage; this.alive=true; this.r=5; }
     update(dt){ this.x += this.vx*dt; this.y += this.vy*dt; this.life -= dt; if(this.life<=0) this.alive=false; if(this.x<0||this.x>CONFIG.roomW||this.y<0||this.y>CONFIG.roomH) this.alive=false; }
     draw(){ ctx.beginPath(); ctx.fillStyle = '#a6e3ff'; ctx.arc(this.x,this.y,this.r,0,Math.PI*2); ctx.fill(); }
   }
@@ -554,7 +563,7 @@
         if(e.dead) continue;
         const dd = dist(b, e);
         if(dd < (b.r + e.r)){
-          if(e.damage(1)){ handleEnemyDeath(e, dungeon.current); }
+          if(e.damage(b.damage)){ handleEnemyDeath(e, dungeon.current); }
           b.alive=false; break;
         }
       }
@@ -597,6 +606,19 @@
   function renderHUD(){
     const hearts = '❤'.repeat(Math.max(0,player.hp)) + '·'.repeat(Math.max(0, player.maxHp - player.hp));
     HUDL.innerHTML = `生命：<span style="letter-spacing:1px">${hearts}</span>`;
+    const fireRate = player.fireInterval>0 ? (1000/player.fireInterval).toFixed(2) : '∞';
+    const damage = Number.isInteger(player.damage) ? player.damage : player.damage.toFixed(1);
+    const moveSpeed = Math.round(player.speed);
+    const tearSpeed = Math.round(player.tearSpeed);
+    const range = Math.round(player.tearSpeed * player.tearLife);
+    const statItems = [
+      {label:'攻速', value: fireRate, unit:'次/秒'},
+      {label:'伤害', value: damage},
+      {label:'移动速度', value: moveSpeed},
+      {label:'子弹速度', value: tearSpeed},
+      {label:'射程', value: range}
+    ];
+    HUDS.innerHTML = statItems.map(({label,value,unit})=>`<span>${label}：<strong>${value}</strong>${unit?`<small>${unit}</small>`:''}</span>`).join('');
     if(dungeon.current.isBoss && dungeon.current.bossEntity && !dungeon.current.bossEntity.dead){
       HUDR.innerHTML = `层数：${dungeon.depth} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span>`;
     } else {
