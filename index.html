@@ -49,7 +49,7 @@
     .virtual-kb-row[data-type="arrows"]{grid-template-columns:repeat(3,1fr)}
     .virtual-kb-row[data-type="actions"]{grid-template-columns:repeat(4,1fr)}
     .virtual-kb-row[data-type="system"]{grid-template-columns:repeat(3,1fr)}
-    .virtual-kb button{padding:10px 8px;border-radius:10px;border:1px solid #2f3a52;background:linear-gradient(180deg,#2c3348,#222735);color:var(--ink);font-weight:600;font-size:13px;min-width:0;transition:all .15s ease}
+    .virtual-kb button{padding:10px 8px;border-radius:10px;border:1px solid #2f3a52;background:linear-gradient(180deg,#2c3348,#222735);color:var(--ink);font-weight:600;font-size:13px;min-width:0;transition:all .15s ease;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none}
     .virtual-kb button:active,.virtual-kb button.active{transform:translateY(1px);border-color:#3c4c6a;background:linear-gradient(180deg,#34405a,#273044)}
     .virtual-kb button.small{font-size:12px;font-weight:500}
     .virtual-kb-spacer{visibility:hidden}
@@ -501,6 +501,8 @@
         btn.dataset.code = key.code;
         if(key.className) btn.classList.add(key.className);
         if(key.span){ btn.style.gridColumn = `span ${key.span}`; }
+        btn.addEventListener('selectstart', (e)=> e.preventDefault());
+        btn.addEventListener('contextmenu', (e)=> e.preventDefault());
         btn.addEventListener('pointerdown', (e)=>{
           e.preventDefault();
           btn.setPointerCapture?.(e.pointerId);
@@ -703,10 +705,10 @@
       const n = Math.max(1, Math.min(limit, baseCount));
       this.enemies = [];
       for(let k=0;k<n;k++){
-        const x = randRange(80, CONFIG.roomW-80);
-        const y = randRange(80, CONFIG.roomH-80);
         const t = rollEnemyType(depth);
-        this.enemies.push(makeEnemy(t, {x,y}, depth));
+        const radius = ENEMY_SPAWN_RADIUS[t] || CONFIG.player.radius;
+        const pos = this.findSpawnPosition(radius);
+        this.enemies.push(makeEnemy(t, pos, depth));
       }
       return this.enemies;
     }
@@ -821,6 +823,60 @@
       corridors.push({x:CONFIG.roomW/2-220,y:CONFIG.roomH/2-80,w:440,h:160});
       return corridors.some(c=>rectOverlap(c, rect));
     }
+    findSpawnPosition(radius){
+      const marginX = Math.max(60, radius + 36);
+      const marginY = Math.max(64, radius + 40);
+      const candidates = Math.max(20, (this.obstacles?.length||0) * 2 + 20);
+      for(let attempt=0; attempt<candidates; attempt++){
+        const x = randRange(marginX, CONFIG.roomW - marginX);
+        const y = randRange(marginY, CONFIG.roomH - marginY);
+        const circle = {x,y,r:radius};
+        const rect = {x:x-radius, y:y-radius, w:radius*2, h:radius*2};
+        if(this.collidesDoorCorridor(rect)) continue;
+        let blocked = false;
+        for(const obs of this.obstacles){
+          if(obs.destroyed) continue;
+          if(circleRectOverlap(circle, obs)){ blocked=true; break; }
+        }
+        if(blocked) continue;
+        for(const other of this.enemies){
+          if(other?.dead) continue;
+          if(dist(other, circle) < (other.r || radius) + radius + 6){ blocked=true; break; }
+        }
+        if(blocked) continue;
+        return {x,y};
+      }
+      const center = this.center();
+      const fallbackChecks = [
+        {x:center.x, y:center.y},
+        {x:center.x + radius*2.4, y:center.y},
+        {x:center.x - radius*2.4, y:center.y},
+        {x:center.x, y:center.y + radius*2.4},
+        {x:center.x, y:center.y - radius*2.4},
+      ];
+      for(const pos of fallbackChecks){
+        const x = clamp(pos.x, marginX, CONFIG.roomW - marginX);
+        const y = clamp(pos.y, marginY, CONFIG.roomH - marginY);
+        const circle = {x,y,r:radius};
+        const rect = {x:x-radius, y:y-radius, w:radius*2, h:radius*2};
+        if(this.collidesDoorCorridor(rect)) continue;
+        let blocked = false;
+        for(const obs of this.obstacles){
+          if(obs.destroyed) continue;
+          if(circleRectOverlap(circle, obs)){ blocked = true; break; }
+        }
+        if(blocked) continue;
+        for(const other of this.enemies){
+          if(other?.dead) continue;
+          if(dist(other, circle) < (other.r || radius) + radius + 6){ blocked = true; break; }
+        }
+        if(!blocked) return {x,y};
+      }
+      return {
+        x: clamp(center.x, marginX, CONFIG.roomW - marginX),
+        y: clamp(center.y, marginY, CONFIG.roomH - marginY)
+      };
+    }
     prepareShop(){
       if(!this.isShop || this.shopPrepared) return;
       this.shopPrepared = true;
@@ -838,11 +894,17 @@
         if(idx>=slots.length) break;
         const slot=slots[idx++];
         if(entry.type==='item'){
-          this.pickups.push(makeShopPickup(slot.x, slot.y, entry.item, CONFIG.shop.itemPrice));
+          this.pickups.push(makeShopPickup(slot.x, slot.y, entry, CONFIG.shop.itemPrice));
         } else {
-          this.pickups.push(makeShopPickup(slot.x, slot.y, entry.item, CONFIG.shop.dropPrice));
+          this.pickups.push(makeShopPickup(slot.x, slot.y, entry, CONFIG.shop.dropPrice));
         }
       }
+      this.shopInventory = shopItems.map(entry=>{
+        if(entry.type==='item'){
+          return {type:'item', item:{...entry.item}};
+        }
+        return {...entry};
+      });
     }
   }
 
@@ -1047,17 +1109,49 @@
   }
   function key(i,j){return `${i},${j}`}
 
-  function weightedRoll(pool){
-    const total = pool.reduce((sum,item)=>sum+item.weight,0);
-    let pick = rand()*total;
-    for(const item of pool){
-      pick -= item.weight;
-      if(pick<=0) return {...item};
+  function weightedRoll(pool, options={}){
+    const exclude = options.exclude;
+    const excludeSet = Array.isArray(exclude) && exclude.length ? new Set(exclude) : null;
+    let candidates = !excludeSet ? pool.slice() : pool.filter(item=>{
+      if(!item || typeof item !== 'object') return false;
+      if(item.id==null) return true;
+      return !excludeSet.has(item.id);
+    });
+    if(!candidates.length){
+      candidates = pool.slice();
     }
-    return {...pool[pool.length-1]};
+    candidates = candidates.filter(item=>item && typeof item === 'object');
+    if(!candidates.length){
+      const fallback = pool.find(item=>item && typeof item === 'object');
+      if(fallback) return {...fallback};
+      return {...(pool[0]||{})};
+    }
+    const weights = candidates.map(item=>{
+      const w = Number(item.weight);
+      return Number.isFinite(w) && w>0 ? w : 0;
+    });
+    const total = weights.reduce((sum,w)=>sum+w,0);
+    let pick = total>0 ? rand()*total : rand()*candidates.length;
+    for(let i=0;i<candidates.length;i++){
+      const weight = total>0 ? weights[i] : 1;
+      pick -= weight;
+      if(pick<=0){
+        return {...candidates[i]};
+      }
+    }
+    return {...candidates[candidates.length-1]};
+  }
+  const recentItemHistory = [];
+  const recentShopItemHistory = [];
+  function rememberRecent(history, id, limit){
+    if(!id) return;
+    history.push(id);
+    if(history.length>limit){ history.splice(0, history.length-limit); }
   }
   function rollItem(){
-    return weightedRoll(ITEM_POOL);
+    const item = weightedRoll(ITEM_POOL, {exclude: recentItemHistory});
+    rememberRecent(recentItemHistory, item.id, 3);
+    return item;
   }
   function rollShopItems(){
     const entries=[];
@@ -1067,7 +1161,9 @@
     const itemSlots = new Set(indices.slice(0,itemCount));
     for(let i=0;i<5;i++){
       if(itemSlots.has(i)){
-        entries.push({type:'item', item: weightedRoll(SHOP_ITEM_POOL)});
+        const shopItem = weightedRoll(SHOP_ITEM_POOL, {exclude: recentShopItemHistory});
+        rememberRecent(recentShopItemHistory, shopItem.id, 2);
+        entries.push({type:'item', item: shopItem});
       } else {
         const resType = CONFIG.drops.resourceTypes[Math.floor(rand()*CONFIG.drops.resourceTypes.length)];
         const amount = resType==='coin'?8:2;
@@ -1614,6 +1710,15 @@
       if(dist(proj, bomb) <= radius){ proj.alive=false; }
     }
   }
+
+  const ENEMY_SPAWN_RADIUS = {
+    chaser:12,
+    orbiter:10,
+    gasbag:14,
+    tinyfly:8,
+    elderfly:13,
+    spider:16,
+  };
 
   function rollEnemyType(depth){
     const weights = [
@@ -2392,6 +2497,8 @@
 
   function startGame(){
     overlayManager.clear();
+    recentItemHistory.length = 0;
+    recentShopItemHistory.length = 0;
     dungeon = new Dungeon();
     player = new Player(CONFIG.roomW/2, CONFIG.roomH/2);
     keys.clear();
