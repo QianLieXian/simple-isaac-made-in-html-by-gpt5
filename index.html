@@ -140,21 +140,22 @@
       roomClearResource: 0.5,
       resourceTypes: ['bomb','key','coin'],
     },
+    pickupSpawnGrace: 0.7,
     resources: {
       bombStart: 5,
       keyStart: 5,
       coinStart: 5,
     },
-    bomb: {damage:50, radius:60, fuse:3, playerDamage:1, knock:240},
+    bomb: {damage:65, radius:62, fuse:3, playerDamage:1, knock:270, spawnGrace:0.7},
     obstacles: {
-      min:1,
-      max:3,
-      tileSizePlayerRatio:1.5,
-      maxTiles:5,
-      maxClusterArea:25,
+      min:2,
+      max:4,
+      tileSizePlayerRatio:1.4,
+      maxTiles:6,
+      maxClusterArea:30,
       hiddenChance:0.005,
       hiddenItemChance:0.001,
-      hollowChance:0.5,
+      hollowChance:0.55,
     },
     shop: {
       itemChance: 0.95,
@@ -413,8 +414,17 @@
   window.addEventListener('resize', fitCanvasToCss);
 
   // ======= 输入 =======
+  function isTypingTarget(event){
+    const target = event && event.target;
+    if(!target) return false;
+    const tag = target.tagName;
+    if(tag==='INPUT' || tag==='TEXTAREA' || tag==='SELECT') return true;
+    return !!target.isContentEditable;
+  }
+
   const keys = new Set();
   window.addEventListener('keydown', (e)=>{
+    if(isTypingTarget(e)) return;
     const block = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'];
     if(block.includes(e.code)) e.preventDefault();
     keys.add(e.code);
@@ -523,22 +533,36 @@
       while(clustersPlaced < targetClusters && tries < 220){
         tries++;
         const maxTiles = Math.max(1, CONFIG.obstacles.maxTiles|0);
-        const shapeRoll = rand();
+        const isHidden = rand() < CONFIG.obstacles.hiddenChance;
         let tilesX = 1;
         let tilesY = 1;
-        if(shapeRoll < 0.33){
+        if(isHidden){
           tilesX = 1;
-          tilesY = Math.max(1, Math.floor(randRange(1, maxTiles+1)));
-        } else if(shapeRoll < 0.66){
           tilesY = 1;
-          tilesX = Math.max(1, Math.floor(randRange(1, maxTiles+1)));
         } else {
-          tilesX = Math.max(1, Math.floor(randRange(1, maxTiles+1)));
-          tilesY = Math.max(1, Math.floor(randRange(1, maxTiles+1)));
+          const baseX = Math.max(1, Math.floor(randRange(1, maxTiles+1)));
+          const baseY = Math.max(1, Math.floor(randRange(1, maxTiles+1)));
+          const emphasizeLarge = rand() < 0.6;
+          tilesX = emphasizeLarge ? Math.max(2, baseX) : baseX;
+          tilesY = emphasizeLarge ? Math.max(2, baseY) : baseY;
+          if(rand() < 0.4){
+            const square = Math.max(2, Math.floor(randRange(2, Math.min(maxTiles, 4)+1)));
+            tilesX = square;
+            tilesY = Math.max(2, Math.floor(randRange(2, maxTiles+1)));
+          }
+          if(rand() < 0.5){ tilesX = Math.max(2, tilesX); }
+          if(rand() < 0.5){ tilesY = Math.max(2, tilesY); }
+          if(tilesX===1 && tilesY===1){
+            if(rand()<0.5){ tilesX = Math.max(2, Math.floor(randRange(2, maxTiles+1))); }
+            else { tilesY = Math.max(2, Math.floor(randRange(2, maxTiles+1))); }
+          }
+        }
+        while(tilesX * tilesY > CONFIG.obstacles.maxClusterArea){
+          if(tilesX>=tilesY && tilesX>1){ tilesX--; }
+          else if(tilesY>1){ tilesY--; }
+          else break;
         }
         if(tilesX * tilesY > CONFIG.obstacles.maxClusterArea){ continue; }
-        const isHidden = rand() < CONFIG.obstacles.hiddenChance;
-        if(isHidden){ tilesX = 1; tilesY = 1; }
         const clusterW = tilesX * tileSize;
         const clusterH = tilesY * tileSize;
         if(clusterW >= CONFIG.roomW-120 || clusterH >= CONFIG.roomH-140) continue;
@@ -881,7 +905,8 @@
       r:12,
       vx:0,
       vy:0,
-      solid:true
+      solid:true,
+      spawnGrace:CONFIG.pickupSpawnGrace,
     };
   }
   function makeShopPickup(x,y,entry,price){
@@ -957,8 +982,9 @@
     if(typeof p.vx !== 'number') p.vx = 0;
     if(typeof p.vy !== 'number') p.vy = 0;
   }
-  function pushPickup(p, origin, strength){
+  function pushPickup(p, origin, strength, options={}){
     if(!isPhysicalPickup(p) || !origin) return;
+    if(!options.force && (p.spawnGrace||0) > 0) return;
     ensurePickupMotion(p);
     const dx = p.x - origin.x;
     const dy = p.y - origin.y;
@@ -991,6 +1017,7 @@
   }
   function resolvePickupObstacles(p){
     if(!dungeon?.current) return;
+    if(p.spawnGrace>0) return;
     for(const obs of dungeon.current.obstacles){
       if(obs.destroyed) continue;
       const push = circleRectResolve(p, obs);
@@ -1013,6 +1040,9 @@
     if(!picks) return;
     const decay = Math.exp(-dt*4.5);
     for(const p of picks){
+      if(typeof p.spawnGrace === 'number' && p.spawnGrace>0){
+        p.spawnGrace = Math.max(0, p.spawnGrace - dt);
+      }
       if(!isPhysicalPickup(p)) continue;
       ensurePickupMotion(p);
       p.x += p.vx * dt;
@@ -1022,7 +1052,9 @@
       if(Math.abs(p.vx) < 1e-2) p.vx = 0;
       if(Math.abs(p.vy) < 1e-2) p.vy = 0;
       keepPickupInBounds(p);
-      resolvePickupObstacles(p);
+      if(!(p.spawnGrace>0)){
+        resolvePickupObstacles(p);
+      }
     }
   }
   function keepBombInBounds(bomb){
@@ -1219,9 +1251,11 @@
       this.done=false;
       this.vx=0;
       this.vy=0;
+      this.spawnGrace = CONFIG.bomb.spawnGrace ?? CONFIG.pickupSpawnGrace ?? 0;
     }
     update(dt){
       if(this.done) return;
+      if(this.spawnGrace>0){ this.spawnGrace = Math.max(0, this.spawnGrace - dt); }
       if(this.exploded){
         this.explosionTimer = Math.max(0, this.explosionTimer - dt);
         if(this.explosionTimer<=0){ this.done=true; }
@@ -1240,7 +1274,9 @@
       if(Math.abs(this.vx) < 1e-2) this.vx = 0;
       if(Math.abs(this.vy) < 1e-2) this.vy = 0;
       keepBombInBounds(this);
-      resolveBombObstacles(this);
+      if(this.spawnGrace<=0){
+        resolveBombObstacles(this);
+      }
     }
     applyImpulse(dx,dy,strength){
       if(this.done || this.exploded) return;
@@ -1361,7 +1397,10 @@
       for(const drop of room.pickups){
         if(!isPhysicalPickup(drop)) continue;
         if(dist(drop, bomb) <= radius + drop.r){
-          pushPickup(drop, bomb, CONFIG.bomb.knock * 1.15);
+          pushPickup(drop, bomb, CONFIG.bomb.knock * 1.45, {force:true});
+          ensurePickupMotion(drop);
+          drop.vx *= 1.25;
+          drop.vy *= 1.25;
         }
       }
     }
@@ -1436,7 +1475,7 @@
   }
 
   class EnemyOrbiter{
-    constructor(x,y,hp){ this.x=x; this.y=y; this.r=10; this.hp=hp; this.t=rand()*Math.PI*2; this.base={x,y}; this.range=40+rand()*25; this.omega = 2+rand()*1.5; this.speed=40; }
+    constructor(x,y,hp){ this.x=x; this.y=y; this.r=10; this.hp=hp; this.t=rand()*Math.PI*2; this.base={x,y}; this.range=40+rand()*25; this.omega = 2+rand()*1.5; this.speed=40; this.flying=true; }
     update(dt){
       this.t += this.omega*dt;
       this.x = this.base.x + Math.cos(this.t)*this.range;
@@ -1465,6 +1504,7 @@
       this.knock = 0;
       this.knockVx = 0;
       this.knockVy = 0;
+      this.flying = true;
     }
     startFuse(){
       if(this.fuse>0) return;
@@ -1588,6 +1628,7 @@
       this.knock = 0;
       this.knockVx = 0;
       this.knockVy = 0;
+      this.flying = true;
     }
     update(dt){
       if(this.knock>0){
@@ -1643,6 +1684,7 @@
       this.knockVx = 0;
       this.knockVy = 0;
       this.charging = false;
+      this.flying = true;
     }
     update(dt){
       const cfg = CONFIG.enemy.elderFly;
@@ -2154,6 +2196,7 @@
     overlayManager.clear();
     dungeon = new Dungeon();
     player = new Player(CONFIG.roomW/2, CONFIG.roomH/2);
+    keys.clear();
     dungeon.current.visited=true;
     dungeon.revealRoom(dungeon.current);
     dungeon.current.spawnEnemies(dungeon.depth);
@@ -2241,7 +2284,11 @@
   }
   function resolveEntityObstacles(entity){
     if(!dungeon?.current) return;
-    if(entity===player && player.flying) return;
+    if(entity===player){
+      if(player.flying) return;
+    } else if(entity?.flying){
+      return;
+    }
     for(const obs of dungeon.current.obstacles){
       if(obs.destroyed) continue;
       const push = circleRectResolve(entity, obs);
@@ -2289,7 +2336,7 @@
     }
     updatePickups(dt);
     for(const b of bombs){
-      if(b.done || b.exploded) continue;
+      if(b.done || b.exploded || b.spawnGrace>0) continue;
       const d = dist(player, b);
       if(d < player.r + b.r){
         const dx = b.x - player.x;
@@ -2354,6 +2401,7 @@
     const picks = dungeon.current.pickups;
     for(let i=picks.length-1;i>=0;i--){
       const p = picks[i];
+      if((p.spawnGrace||0)>0) continue;
       const distance = dist(p,player);
       if(distance < p.r + player.r){
         const movement = Math.hypot(player.lastDisplacement.x, player.lastDisplacement.y);
@@ -2951,7 +2999,7 @@
   }
 
   function makeHeartPickup(x,y,heal){
-    return {type:'heart', x:clamp(x,60,CONFIG.roomW-60), y:clamp(y,60,CONFIG.roomH-60), r: heal>1?14:10, heal, vx:0, vy:0, solid:true};
+    return {type:'heart', x:clamp(x,60,CONFIG.roomW-60), y:clamp(y,60,CONFIG.roomH-60), r: heal>1?14:10, heal, vx:0, vy:0, solid:true, spawnGrace:CONFIG.pickupSpawnGrace};
   }
 
   function queueEnemySpawn(enemy){ runtime.pendingEnemySpawns.push(enemy); }
