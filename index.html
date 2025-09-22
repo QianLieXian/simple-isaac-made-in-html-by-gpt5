@@ -92,6 +92,11 @@
       baseHP: 2,
       speed: 90,
       spawnMin: 3, spawnMax: 6,
+      maxPerRoom: 5,
+      gasbag: {speed: 95, safeRadius: 180, triggerRange: 70, triggerChance: 0.55, triggerCooldown: 0.9, fuse: 1.1, explosionRadius: 68, spawnMin: 3, spawnMax: 5},
+      tinyFly: {speed: 80},
+      elderFly: {speed: 60, minRange: 130, maxRange: 220, fireInterval: 2.5, telegraph: 1, projectileSpeed: 200},
+      spider: {leapSpeed: 320, maxDistance: 320, telegraph: 1, cooldown: 3.2},
     },
     drops: {
       heartPerEnemy: 0.2,
@@ -139,6 +144,16 @@
     {di:0,dj:-1,key:'left',opp:'right'},
     {di:0,dj:1,key:'right',opp:'left'}
   ];
+  const BOSS_TYPES = [
+    {id:'idol', name:'哭泣塑像 · 社畜蛹'},
+    {id:'master', name:'余烬教官 · Master'},
+  ];
+  function rollBossType(){
+    return BOSS_TYPES[Math.floor(rand()*BOSS_TYPES.length)];
+  }
+  function getBossMeta(id){
+    return BOSS_TYPES.find(b=>b.id===id) || BOSS_TYPES[0];
+  }
   const ITEM_POOL = [
     {
       id:'onion',
@@ -326,7 +341,7 @@
       this.enemies=[]; this.pickups=[];
       this.obstacles=[]; this.obstaclesGenerated=false;
       this.bombs=[];
-      this.isBoss=false; this.bossEntity=null; this.bossDefeated=false; this.bossName=''; this.introPlayed=false;
+      this.isBoss=false; this.bossEntity=null; this.bossDefeated=false; this.bossName=''; this.introPlayed=false; this.bossId='idol';
       this.isItemRoom=false; this.itemData=null; this.itemClaimed=false; this.itemSpawned=false;
       this.isShop=false; this.shopInventory=[]; this.shopPrepared=false; this.locked=false;
       this.isSafeRoom=false;
@@ -362,12 +377,14 @@
         return this.enemies;
       }
       // 按深度稍微增加数量
-      const n = Math.floor(randRange(CONFIG.enemy.spawnMin, CONFIG.enemy.spawnMax+1) + (depth*0.3));
+      const baseCount = Math.floor(randRange(CONFIG.enemy.spawnMin, CONFIG.enemy.spawnMax+1) + (depth*0.3));
+      const limit = CONFIG.enemy.maxPerRoom || baseCount;
+      const n = Math.max(1, Math.min(limit, baseCount));
       this.enemies = [];
       for(let k=0;k<n;k++){
         const x = randRange(80, CONFIG.roomW-80);
         const y = randRange(80, CONFIG.roomH-80);
-        const t = rand() < 0.7 ? 'chaser' : 'orbiter';
+        const t = rollEnemyType(depth);
         this.enemies.push(makeEnemy(t, {x,y}, depth));
       }
       return this.enemies;
@@ -510,7 +527,9 @@
         if(this.rooms[ni][nj]) continue;
         const bossRoom = new Room(ni,nj);
         bossRoom.isBoss=true;
-        bossRoom.bossName = '哭泣塑像 · 社畜蛹';
+        const bossType = rollBossType();
+        bossRoom.bossId = bossType.id;
+        bossRoom.bossName = bossType.name;
         this.rooms[ni][nj]=bossRoom;
         farthest.doors[dir.key]=true;
         bossRoom.doors[dir.opp]=true;
@@ -519,7 +538,9 @@
       }
       // 如果周围无空位，则直接把最远房间作为 Boss 房
       farthest.isBoss=true;
-      farthest.bossName = '哭泣塑像 · 社畜蛹';
+      const fallbackType = rollBossType();
+      farthest.bossId = fallbackType.id;
+      farthest.bossName = fallbackType.name;
       return farthest;
     }
 
@@ -947,14 +968,43 @@
     }
   }
 
+  function rollEnemyType(depth){
+    const weights = [
+      {type:'chaser', w: 2.6},
+      {type:'orbiter', w: 1.2 + depth*0.05},
+      {type:'gasbag', w: 0.7 + depth*0.04},
+      {type:'tinyfly', w: 0.6 + Math.max(0, depth-1)*0.05},
+      {type:'elderfly', w: 0.75 + depth*0.06},
+      {type:'spider', w: 0.65 + depth*0.07},
+    ];
+    const total = weights.reduce((sum, entry)=>sum+entry.w,0);
+    let r = rand()*total;
+    for(const entry of weights){
+      r -= entry.w;
+      if(r<=0) return entry.type;
+    }
+    return 'chaser';
+  }
+
   function makeEnemy(type, pos, depth){
     const hp = Math.max(1, Math.round(CONFIG.enemy.baseHP + depth*0.3 + rand()*1.0));
     if(type==='chaser') return new EnemyChaser(pos.x,pos.y,hp);
-    return new EnemyOrbiter(pos.x,pos.y,hp);
+    if(type==='orbiter') return new EnemyOrbiter(pos.x,pos.y,hp);
+    if(type==='gasbag') return new EnemyGasbag(pos.x,pos.y, Math.max(hp+1, 3));
+    if(type==='tinyfly') return new EnemyTinyFly(pos.x,pos.y, Math.max(1, Math.round(1 + depth*0.15)));
+    if(type==='elderfly') return new EnemyElderFly(pos.x,pos.y, Math.max(hp, 3));
+    if(type==='spider') return new EnemySpiderLeaper(pos.x,pos.y, Math.max(hp+1, 4));
+    return new EnemyChaser(pos.x,pos.y,hp);
   }
 
   function makeBoss(pos, room){
-    const boss = new EnemyBoss(pos.x, pos.y, room?.bossName || '未知胎物');
+    const bossId = room?.bossId || 'idol';
+    let boss;
+    if(bossId==='master'){
+      boss = new EnemyBossMaster(pos.x, pos.y, room?.bossName || getBossMeta('master').name);
+    } else {
+      boss = new EnemyBoss(pos.x, pos.y, room?.bossName || getBossMeta('idol').name);
+    }
     boss.room = room;
     return boss;
   }
@@ -991,6 +1041,371 @@
     damage(d){ this.hp-=d; if(this.hp<=0){ this.dead=true; return true; } return false; }
   }
 
+  class EnemyGasbag{
+    constructor(x,y,hp){
+      this.x=x; this.y=y; this.r=14; this.hp=hp;
+      const cfg = CONFIG.enemy.gasbag;
+      this.speed = cfg.speed * randRange(0.85,1.15);
+      this.wanderAngle = rand()*Math.PI*2;
+      this.wanderTimer = randRange(0.6,1.4);
+      this.safeRadius = cfg.safeRadius;
+      this.fuse = -1;
+      this.flashTimer = 0;
+      this.cooldown = 0;
+      this.knock = 0;
+      this.knockVx = 0;
+      this.knockVy = 0;
+    }
+    startFuse(){
+      if(this.fuse>0) return;
+      this.fuse = CONFIG.enemy.gasbag.fuse;
+      this.flashTimer = this.fuse;
+    }
+    detonate(){
+      if(this.dead) return;
+      this.dead = true;
+      const cfg = CONFIG.enemy.gasbag;
+      if(player && dist(this, player) < this.r + cfg.explosionRadius){
+        player.hurt(1);
+        player.applyImpulse(player.x - this.x, player.y - this.y, 180);
+      }
+      const room = dungeon?.current;
+      if(room){
+        const count = Math.floor(randRange(cfg.spawnMin, cfg.spawnMax+1));
+        for(let i=0;i<count;i++){
+          const ang = rand()*Math.PI*2;
+          const rad = randRange(14, 38);
+          const pos = {
+            x: clamp(this.x + Math.cos(ang)*rad, 60, CONFIG.roomW-60),
+            y: clamp(this.y + Math.sin(ang)*rad, 60, CONFIG.roomH-60)
+          };
+          queueEnemySpawn(makeEnemy('tinyfly', pos, dungeon.depth));
+        }
+        handleEnemyDeath(this, room);
+      }
+    }
+    update(dt){
+      if(this.dead) return;
+      const cfg = CONFIG.enemy.gasbag;
+      this.flashTimer = Math.max(0, this.flashTimer - dt);
+      if(this.fuse>0){
+        this.fuse -= dt;
+        if(this.fuse<=0){ this.detonate(); return; }
+      }
+      if(this.knock>0){
+        this.x += this.knockVx * dt;
+        this.y += this.knockVy * dt;
+        this.knock -= dt;
+        this.knockVx *= 0.86;
+        this.knockVy *= 0.86;
+      } else {
+        const dx = this.x - player.x;
+        const dy = this.y - player.y;
+        const d = Math.hypot(dx,dy)||1;
+        if(this.fuse<=0 && d < cfg.triggerRange){
+          this.cooldown -= dt;
+          if(this.cooldown<=0){
+            if(rand() < cfg.triggerChance){ this.startFuse(); }
+            this.cooldown = cfg.triggerCooldown;
+          }
+        } else {
+          this.cooldown = Math.max(0, this.cooldown - dt*0.5);
+        }
+        if(d < this.safeRadius){
+          this.x += (dx/d) * this.speed * dt;
+          this.y += (dy/d) * this.speed * dt;
+        } else {
+          this.wanderTimer -= dt;
+          if(this.wanderTimer<=0){
+            this.wanderAngle = rand()*Math.PI*2;
+            this.wanderTimer = randRange(0.6,1.4);
+          }
+          this.x += Math.cos(this.wanderAngle) * this.speed * 0.45 * dt;
+          this.y += Math.sin(this.wanderAngle) * this.speed * 0.45 * dt;
+        }
+      }
+      this.x = clamp(this.x, 46, CONFIG.roomW-46);
+      this.y = clamp(this.y, 56, CONFIG.roomH-56);
+      resolveEntityObstacles(this);
+      if(dist(this, player) < this.r + player.r){
+        player.hurt(1);
+        this.knock = 0.16;
+        const vec = {x:this.x - player.x, y:this.y - player.y};
+        const len = Math.hypot(vec.x,vec.y)||1;
+        this.knockVx = (vec.x/len)*180;
+        this.knockVy = (vec.y/len)*180;
+      }
+    }
+    damage(d){
+      if(this.dead) return false;
+      this.hp -= d;
+      if(this.hp<=0){ this.dead=true; return true; }
+      this.knock = 0.18;
+      const vec = {x:this.x - player.x, y:this.y - player.y};
+      const len = Math.hypot(vec.x,vec.y)||1;
+      this.knockVx = (vec.x/len)*200;
+      this.knockVy = (vec.y/len)*200;
+      return false;
+    }
+    draw(){
+      const telegraph = this.fuse>0;
+      const base = telegraph ? '#ffd6a8' : '#fcd5ce';
+      const edge = telegraph ? '#fb923c' : '#f973a6';
+      drawBlob(this.x,this.y,this.r,base,edge);
+      ctx.save();
+      ctx.translate(this.x,this.y);
+      ctx.fillStyle = '#2f1d38';
+      ctx.beginPath();
+      ctx.ellipse(-this.r*0.25, -this.r*0.15, this.r*0.18, this.r*0.26, 0, 0, Math.PI*2);
+      ctx.ellipse(this.r*0.25, -this.r*0.15, this.r*0.18, this.r*0.26, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      if(telegraph){
+        ctx.save();
+        ctx.globalAlpha = 0.65 + 0.3*Math.sin(performance.now()/80);
+        ctx.strokeStyle = '#ffd29a';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.r + 8, 0, Math.PI*2); ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  class EnemyTinyFly{
+    constructor(x,y,hp){
+      this.x=x; this.y=y; this.r=8; this.hp=hp;
+      this.speed = CONFIG.enemy.tinyFly.speed * randRange(0.85,1.15);
+      this.knock = 0;
+      this.knockVx = 0;
+      this.knockVy = 0;
+    }
+    update(dt){
+      if(this.knock>0){
+        this.x += this.knockVx * dt;
+        this.y += this.knockVy * dt;
+        this.knock -= dt;
+        this.knockVx *= 0.85;
+        this.knockVy *= 0.85;
+      } else {
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const d = Math.hypot(dx,dy)||1;
+        this.x += (dx/d) * this.speed * dt;
+        this.y += (dy/d) * this.speed * dt;
+      }
+      this.x = clamp(this.x, 36, CONFIG.roomW-36);
+      this.y = clamp(this.y, 40, CONFIG.roomH-40);
+      resolveEntityObstacles(this);
+      if(dist(this, player) < this.r + player.r){ player.hurt(1); }
+    }
+    draw(){
+      const wobble = Math.sin(performance.now()/120 + this.x*0.01)*1.2;
+      drawBlob(this.x,this.y,this.r,'#fef08a','#facc15');
+      ctx.save();
+      ctx.translate(this.x,this.y - this.r*0.2);
+      ctx.rotate(wobble*0.05);
+      ctx.fillStyle = '#fde68aaa';
+      ctx.beginPath();
+      ctx.ellipse(-this.r*0.8, -this.r*0.3, this.r*0.9, this.r*0.35, -0.6, 0, Math.PI*2);
+      ctx.ellipse(this.r*0.8, -this.r*0.3, this.r*0.9, this.r*0.35, 0.6, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+    damage(d){
+      this.hp -= d;
+      if(this.hp<=0){ this.dead=true; return true; }
+      this.knock = 0.12;
+      const vec = {x:this.x - player.x, y:this.y - player.y};
+      const len = Math.hypot(vec.x,vec.y)||1;
+      this.knockVx = (vec.x/len)*140;
+      this.knockVy = (vec.y/len)*140;
+      return false;
+    }
+  }
+
+  class EnemyElderFly{
+    constructor(x,y,hp){
+      this.x=x; this.y=y; this.r=13; this.hp=hp;
+      const cfg = CONFIG.enemy.elderFly;
+      this.speed = cfg.speed;
+      this.fireTimer = randRange(cfg.telegraph, cfg.fireInterval);
+      this.knock = 0;
+      this.knockVx = 0;
+      this.knockVy = 0;
+      this.charging = false;
+    }
+    update(dt){
+      const cfg = CONFIG.enemy.elderFly;
+      if(this.knock>0){
+        this.x += this.knockVx * dt;
+        this.y += this.knockVy * dt;
+        this.knock -= dt;
+        this.knockVx *= 0.84;
+        this.knockVy *= 0.84;
+      } else {
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const distLen = Math.hypot(dx,dy)||1;
+        let mx=0, my=0;
+        if(distLen < cfg.minRange){ mx = -dx/distLen; my = -dy/distLen; }
+        else if(distLen > cfg.maxRange){ mx = dx/distLen; my = dy/distLen; }
+        else { mx = -dy/distLen; my = dx/distLen; }
+        this.x += mx * this.speed * dt;
+        this.y += my * this.speed * dt;
+      }
+      this.x = clamp(this.x, 50, CONFIG.roomW-50);
+      this.y = clamp(this.y, 54, CONFIG.roomH-54);
+      resolveEntityObstacles(this);
+      this.fireTimer -= dt;
+      if(this.fireTimer <= 0){
+        const angle = Math.atan2(player.y - this.y, player.x - this.x);
+        const speed = cfg.projectileSpeed + rand()*50;
+        runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.8, 'tear'));
+        this.fireTimer = cfg.fireInterval;
+        this.charging = false;
+      } else {
+        this.charging = this.fireTimer <= cfg.telegraph;
+      }
+      if(dist(this, player) < this.r + player.r){ player.hurt(1); }
+    }
+    draw(){
+      const charging = this.charging;
+      const base = charging ? '#fde68a' : '#dbeafe';
+      const edge = charging ? '#f97316' : '#93c5fd';
+      drawBlob(this.x,this.y,this.r,base,edge);
+      ctx.save();
+      ctx.translate(this.x,this.y);
+      ctx.fillStyle = charging ? '#7f1d1d' : '#1f2937';
+      ctx.beginPath();
+      ctx.arc(-this.r*0.3, -this.r*0.05, this.r*0.18, 0, Math.PI*2);
+      ctx.arc(this.r*0.3, -this.r*0.05, this.r*0.18, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+    damage(d){
+      this.hp -= d;
+      if(this.hp<=0){ this.dead=true; return true; }
+      this.knock = 0.18;
+      const vec = {x:this.x - player.x, y:this.y - player.y};
+      const len = Math.hypot(vec.x,vec.y)||1;
+      this.knockVx = (vec.x/len)*150;
+      this.knockVy = (vec.y/len)*150;
+      return false;
+    }
+  }
+
+  class EnemySpiderLeaper{
+    constructor(x,y,hp){
+      this.x=x; this.y=y; this.r=13; this.hp=hp;
+      this.state='idle';
+      this.cooldown = randRange(1.2, CONFIG.enemy.spider.cooldown);
+      this.telegraphTimer = 0;
+      this.leapDuration = 0;
+      this.leapElapsed = 0;
+      this.leapStart = {x,y};
+      this.leapEnd = {x,y};
+      this.knock = 0;
+      this.knockVx = 0;
+      this.knockVy = 0;
+    }
+    beginLeap(){
+      const cfg = CONFIG.enemy.spider;
+      const targetX = clamp(player.x, 50, CONFIG.roomW-50);
+      const targetY = clamp(player.y, 60, CONFIG.roomH-60);
+      const dx = targetX - this.x;
+      const dy = targetY - this.y;
+      const distLen = Math.hypot(dx,dy)||1;
+      const travel = Math.min(cfg.maxDistance, distLen);
+      const nx = dx/distLen;
+      const ny = dy/distLen;
+      this.leapStart = {x:this.x, y:this.y};
+      this.leapEnd = {
+        x: clamp(this.x + nx*travel, 40, CONFIG.roomW-40),
+        y: clamp(this.y + ny*travel, 46, CONFIG.roomH-46)
+      };
+      this.leapDuration = Math.max(0.2, travel / cfg.leapSpeed);
+      this.leapElapsed = 0;
+      this.state='leap';
+    }
+    update(dt){
+      const cfg = CONFIG.enemy.spider;
+      if(this.knock>0){
+        this.x += this.knockVx * dt;
+        this.y += this.knockVy * dt;
+        this.knock -= dt;
+        this.knockVx *= 0.85;
+        this.knockVy *= 0.85;
+        resolveEntityObstacles(this);
+        return;
+      }
+      if(this.state==='idle'){
+        this.cooldown -= dt;
+        if(this.cooldown<=0){
+          this.state='telegraph';
+          this.telegraphTimer = cfg.telegraph;
+        }
+      } else if(this.state==='telegraph'){
+        this.telegraphTimer -= dt;
+        if(this.telegraphTimer<=0){
+          this.beginLeap();
+        }
+      } else if(this.state==='leap'){
+        this.leapElapsed = Math.min(this.leapDuration, this.leapElapsed + dt);
+        const ratio = this.leapDuration>0 ? this.leapElapsed / this.leapDuration : 1;
+        const ease = ratio<0.5 ? 2*ratio*ratio : -1 + (4 - 2*ratio)*ratio; // easeInOutQuad
+        this.x = this.leapStart.x + (this.leapEnd.x - this.leapStart.x) * ease;
+        this.y = this.leapStart.y + (this.leapEnd.y - this.leapStart.y) * ease;
+        if(dist(this, player) < this.r + player.r){ player.hurt(1); }
+        if(this.leapElapsed>=this.leapDuration){
+          this.state='idle';
+          this.cooldown = cfg.cooldown;
+          this.x = this.leapEnd.x;
+          this.y = this.leapEnd.y;
+        }
+      }
+      if(this.state!=='leap'){ resolveEntityObstacles(this); }
+      this.x = clamp(this.x, 36, CONFIG.roomW-36);
+      this.y = clamp(this.y, 44, CONFIG.roomH-44);
+    }
+    getAltitude(){
+      if(this.state!=='leap' || this.leapDuration<=0) return 0;
+      const ratio = this.leapElapsed / this.leapDuration;
+      return Math.sin(Math.PI * ratio);
+    }
+    damage(d){
+      this.hp -= d;
+      if(this.hp<=0){ this.dead=true; return true; }
+      this.knock = 0.2;
+      const vec = {x:this.x - player.x, y:this.y - player.y};
+      const len = Math.hypot(vec.x,vec.y)||1;
+      this.knockVx = (vec.x/len)*180;
+      this.knockVy = (vec.y/len)*180;
+      return false;
+    }
+    draw(){
+      const altitude = this.getAltitude();
+      ctx.save();
+      ctx.globalAlpha = 0.35 + 0.25*altitude;
+      ctx.fillStyle = '#0006';
+      ctx.beginPath();
+      ctx.ellipse(this.x, this.y + this.r*0.9, this.r*(1-altitude*0.35), this.r*0.6*(1-altitude*0.45), 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      const telegraphing = this.state==='telegraph';
+      const base = telegraphing ? '#fed7aa' : '#cbd5f5';
+      const edge = telegraphing ? '#f97316' : '#8b5cf6';
+      drawBlob(this.x, this.y - altitude*this.r*0.8, this.r, base, edge);
+      ctx.save();
+      ctx.translate(this.x, this.y - altitude*this.r*0.8);
+      ctx.fillStyle = '#1f2937';
+      ctx.beginPath();
+      ctx.arc(-this.r*0.35, -this.r*0.1, this.r*0.18, 0, Math.PI*2);
+      ctx.arc(this.r*0.35, -this.r*0.1, this.r*0.18, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   class EnemyBoss{
     constructor(x,y,name){
       this.x=x; this.y=y; this.r=36;
@@ -999,6 +1414,7 @@
       this.state='idle';
       this.attackTimer=1.5; this.chargeTimer=0; this.recoverTimer=0;
       this.hitFlash=0; this.enraged=false;
+      this.isBossEntity = true;
     }
     update(dt){
       const drift = 40 + (this.enraged?25:0);
@@ -1060,7 +1476,7 @@
         const angle = rand()*Math.PI*2;
         const radius = 90 + rand()*60;
         const pos = {x: clamp(this.x + Math.cos(angle)*radius, 70, CONFIG.roomW-70), y: clamp(this.y + Math.sin(angle)*radius, 70, CONFIG.roomH-70)};
-        const minion = makeEnemy(rand()<0.5?'chaser':'orbiter', pos, dungeon.depth+2);
+        const minion = makeEnemy(rollEnemyType(dungeon.depth+2), pos, dungeon.depth+2);
         minion.r += 2;
         queueEnemySpawn(minion);
       }
@@ -1104,6 +1520,203 @@
       ctx.quadraticCurveTo(0, this.r*0.5, -this.r*0.4, this.r*0.1);
       ctx.fill();
       ctx.restore();
+    }
+  }
+
+  class EnemyBossMaster{
+    constructor(x,y,name){
+      this.x=x; this.y=y; this.r=34;
+      this.hp=85; this.maxHp=this.hp;
+      this.name=name;
+      this.state='idle';
+      this.attackCooldown = 1.8;
+      this.telegraphTimer = 0;
+      this.hitFlash = 0;
+      this.enraged=false;
+      this.recoverTimer = 0;
+      this.jumpStart = {x,y};
+      this.jumpEnd = {x,y};
+      this.jumpDuration = 0.8;
+      this.jumpElapsed = 0;
+      this.altitude = 0;
+      this.isBossEntity = true;
+    }
+    update(dt){
+      this.hitFlash = Math.max(0, this.hitFlash - dt*3.5);
+      if(!this.enraged && this.hp <= this.maxHp*0.45){ this.enraged = true; }
+      if(this.state==='idle'){
+        this.attackCooldown -= dt;
+        const drift = this.enraged ? 95 : 70;
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const distLen = Math.hypot(dx,dy)||1;
+        this.x += (dx/distLen) * drift * dt * 0.4;
+        this.y += (dy/distLen) * drift * dt * 0.4;
+        this.x += Math.cos(performance.now()/520) * 18 * dt;
+        this.y += Math.sin(performance.now()/430) * 18 * dt;
+        resolveEntityObstacles(this);
+        if(this.attackCooldown<=0){ this.chooseAttack(); }
+        this.altitude = Math.max(0, this.altitude - dt*2.8);
+      } else if(this.state==='telegraph-jump' || this.state==='telegraph-wave'){
+        this.telegraphTimer -= dt;
+        if(this.state==='telegraph-jump'){ this.altitude = 0.12 + 0.04*Math.sin(performance.now()/90); }
+        else { this.altitude = Math.max(0, this.altitude - dt*3); }
+        if(this.telegraphTimer<=0){
+          if(this.state==='telegraph-jump'){ this.beginJump(); }
+          else { this.performWave(); }
+        }
+      } else if(this.state==='jumping'){
+        this.jumpElapsed = Math.min(this.jumpDuration, this.jumpElapsed + dt);
+        const ratio = this.jumpDuration>0 ? this.jumpElapsed / this.jumpDuration : 1;
+        const ease = ratio<0.5 ? 2*ratio*ratio : -1 + (4 - 2*ratio)*ratio;
+        this.x = this.jumpStart.x + (this.jumpEnd.x - this.jumpStart.x) * ease;
+        this.y = this.jumpStart.y + (this.jumpEnd.y - this.jumpStart.y) * ease;
+        this.altitude = Math.sin(Math.PI * ratio);
+        if(this.jumpElapsed>=this.jumpDuration){
+          this.state='slam';
+          this.altitude = 0;
+          this.performSlam();
+          this.recoverTimer = this.enraged ? 0.6 : 0.75;
+        }
+      } else if(this.state==='slam'){
+        this.recoverTimer -= dt;
+        this.altitude = Math.max(0, this.altitude - dt*4);
+        if(this.recoverTimer<=0){
+          this.state='recover';
+          this.attackCooldown = this.enraged ? 1.2 : 1.6;
+          this.recoverTimer = this.enraged ? 0.5 : 0.7;
+        }
+      } else if(this.state==='wave'){
+        this.recoverTimer -= dt;
+        this.altitude = Math.max(0, this.altitude - dt*3.5);
+        if(this.recoverTimer<=0){
+          this.state='recover';
+          this.attackCooldown = this.enraged ? 1.35 : 1.8;
+          this.recoverTimer = this.enraged ? 0.45 : 0.6;
+        }
+      } else if(this.state==='recover'){
+        this.recoverTimer -= dt;
+        this.altitude = Math.max(0, this.altitude - dt*3);
+        if(this.recoverTimer<=0){ this.state='idle'; }
+      }
+      this.x = clamp(this.x, 70, CONFIG.roomW-70);
+      this.y = clamp(this.y, 90, CONFIG.roomH-90);
+    }
+    chooseAttack(){
+      if(rand() < 0.55){
+        this.state='telegraph-jump';
+        this.telegraphTimer = this.enraged ? 0.9 : 1.1;
+      } else {
+        this.state='telegraph-wave';
+        this.telegraphTimer = 1.0;
+      }
+    }
+    beginJump(){
+      const maxTravel = this.enraged ? 360 : 320;
+      const targetX = clamp(player.x, 80, CONFIG.roomW-80);
+      const targetY = clamp(player.y, 96, CONFIG.roomH-96);
+      const dx = targetX - this.x;
+      const dy = targetY - this.y;
+      const distLen = Math.hypot(dx,dy)||1;
+      const travel = clamp(distLen, 140, maxTravel);
+      const nx = dx/distLen;
+      const ny = dy/distLen;
+      this.jumpStart = {x:this.x, y:this.y};
+      this.jumpEnd = {
+        x: clamp(this.x + nx*travel, 70, CONFIG.roomW-70),
+        y: clamp(this.y + ny*travel, 86, CONFIG.roomH-86)
+      };
+      const speed = this.enraged ? 420 : 360;
+      this.jumpDuration = Math.max(0.55, travel / speed);
+      this.jumpElapsed = 0;
+      this.state='jumping';
+    }
+    performSlam(){
+      const radius = 90 + (this.enraged ? 20 : 0);
+      if(player && dist(this, player) <= this.r + radius){
+        player.hurt(2);
+        player.applyImpulse(player.x - this.x, player.y - this.y, 220);
+      }
+      const shards = this.enraged ? 14 : 10;
+      for(let i=0;i<shards;i++){
+        const angle = (Math.PI*2/shards) * i;
+        const speed = 180 + rand()*60 + (this.enraged?40:0);
+        runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 5, 'tear'));
+      }
+    }
+    performWave(){
+      const bursts = this.enraged ? 5 : 4;
+      const baseAngle = Math.atan2(player.y - this.y, player.x - this.x);
+      const spread = 0.3;
+      for(let lane=0; lane<bursts; lane++){
+        const offset = (lane - (bursts-1)/2) * spread;
+        const angle = baseAngle + offset;
+        const speed = 220 + rand()*60 + (this.enraged?40:0);
+        runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.2, 'tear'));
+      }
+      const secondary = this.enraged ? 8 : 6;
+      for(let i=0;i<secondary;i++){
+        const angle = baseAngle + randRange(-Math.PI, Math.PI);
+        const speed = 140 + rand()*40;
+        runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 3.2, 'tear'));
+      }
+      const spawns = this.enraged ? 2 : 1;
+      for(let k=0;k<spawns;k++){
+        const ang = baseAngle + (k===0?Math.PI/2:-Math.PI/2) + randRange(-0.35,0.35);
+        const distLen = 110 + rand()*60;
+        const pos = {
+          x: clamp(this.x + Math.cos(ang)*distLen, 80, CONFIG.roomW-80),
+          y: clamp(this.y + Math.sin(ang)*distLen, 90, CONFIG.roomH-90)
+        };
+        queueEnemySpawn(makeEnemy('spider', pos, dungeon.depth+1));
+      }
+      this.state='wave';
+      this.recoverTimer = this.enraged ? 0.8 : 1.0;
+    }
+    damage(d){
+      if(this.state==='jumping'){ d *= 0.6; }
+      this.hp -= d;
+      this.hitFlash = 0.2;
+      if(this.hp<=0){ this.dead=true; return true; }
+      return false;
+    }
+    draw(){
+      const telegraph = this.state==='telegraph-jump' || this.state==='telegraph-wave';
+      const enraged = this.enraged;
+      ctx.save();
+      ctx.globalAlpha = 0.4 + 0.3*this.altitude;
+      ctx.fillStyle = '#0007';
+      ctx.beginPath();
+      ctx.ellipse(this.x, this.y + this.r*0.9, this.r*(1 - this.altitude*0.4), this.r*0.6*(1 - this.altitude*0.45), 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      const base = this.hitFlash>0 ? '#ffe6ef' : telegraph ? '#fda4af' : (enraged ? '#f87171' : '#ffcad6');
+      const edge = telegraph ? '#fb7185' : (enraged ? '#ef4444' : '#f472b6');
+      drawBlob(this.x, this.y - this.altitude*this.r*0.9, this.r, base, edge);
+      ctx.save();
+      ctx.translate(this.x, this.y - this.altitude*this.r*0.9);
+      ctx.fillStyle = '#2d0f1f';
+      ctx.beginPath();
+      ctx.arc(-this.r*0.28, -this.r*0.1, this.r*0.18, 0, Math.PI*2);
+      ctx.arc(this.r*0.28, -this.r*0.1, this.r*0.18, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#3f1d33';
+      ctx.beginPath();
+      ctx.moveTo(-this.r*0.4, this.r*0.15);
+      ctx.quadraticCurveTo(0, this.r*(telegraph?0.45:0.35), this.r*0.4, this.r*0.15);
+      ctx.quadraticCurveTo(0, this.r*(telegraph?0.55:0.45), -this.r*0.4, this.r*0.15);
+      ctx.fill();
+      ctx.restore();
+      if(telegraph){
+        ctx.save();
+        ctx.globalAlpha = 0.6 + 0.2*Math.sin(performance.now()/90);
+        ctx.strokeStyle = enraged ? '#f87171' : '#fbcfe8';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y - this.altitude*this.r*0.9, this.r + 10, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
   }
 
@@ -1855,7 +2468,7 @@
   function handleEnemyDeath(enemy, room){
     if(enemy._dropHandled) return;
     enemy._dropHandled = true;
-    if(enemy instanceof EnemyBoss){
+    if(enemy.isBossEntity){
       room.bossDefeated = true;
       room.cleared = true;
       spawnBossRewards(room, enemy.x, enemy.y);
