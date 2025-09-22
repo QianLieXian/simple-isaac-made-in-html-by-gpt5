@@ -23,7 +23,12 @@
     .hud-stats{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--muted);letter-spacing:.2px}
     .hud-stats span{display:flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid #222a38;border-radius:8px;background:rgba(17,21,29,.65);color:var(--muted)}
     .hud-stats span strong{color:var(--ink);font-weight:600;min-width:36px;text-align:right;font-variant-numeric:tabular-nums}
-    .hud-cheat{position:relative;display:flex;align-items:flex-start;margin-left:auto}
+    .hud-tools{display:flex;gap:10px;margin-left:auto;align-items:flex-start;position:relative}
+    .hud-tools>div{position:relative}
+    .hud-tools button{background:rgba(31,36,52,.9);color:var(--ink);border:1px solid #2c3448;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px;letter-spacing:.4px;transition:all .2s ease}
+    .hud-tools button:hover,.hud-tools button.active{border-color:#3a4c6f;background:rgba(45,52,72,.95)}
+    .hud-virtual{display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+    .hud-cheat{position:relative;display:flex;align-items:flex-start}
     .cheat-toggle{background:rgba(31,36,52,.9);color:var(--ink);border:1px solid #2c3448;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px;letter-spacing:.4px;transition:all .2s ease}
     .cheat-toggle:hover{border-color:#3a4c6f;background:rgba(45,52,72,.95)}
     .cheat-panel{display:none;position:absolute;top:110%;right:0;z-index:20;min-width:240px;max-width:280px;padding:12px 14px;border-radius:12px;background:rgba(15,19,28,.95);border:1px solid #273146;box-shadow:0 16px 32px rgba(0,0,0,.45);gap:14px;flex-direction:column}
@@ -37,6 +42,27 @@
     .cheat-section button:hover{border-color:#3c4c6a;background:linear-gradient(180deg,#34405a,#273044)}
     .hud-stats span small{font-size:12px;color:var(--muted);opacity:.8}
     .kbd{padding:2px 6px;border:1px solid #2a3142;border-radius:6px;color:var(--muted)}
+    .virtual-kb{display:none;position:absolute;top:110%;right:0;z-index:19;min-width:260px;background:rgba(15,19,28,.95);border:1px solid #273146;border-radius:12px;padding:10px;box-shadow:0 16px 28px rgba(0,0,0,.45);gap:8px}
+    .virtual-kb.show{display:grid}
+    .virtual-kb-row{display:grid;gap:8px}
+    .virtual-kb-row[data-type="movement"]{grid-template-columns:repeat(3,1fr)}
+    .virtual-kb-row[data-type="arrows"]{grid-template-columns:repeat(3,1fr)}
+    .virtual-kb-row[data-type="actions"]{grid-template-columns:repeat(4,1fr)}
+    .virtual-kb-row[data-type="system"]{grid-template-columns:repeat(3,1fr)}
+    .virtual-kb button{padding:10px 8px;border-radius:10px;border:1px solid #2f3a52;background:linear-gradient(180deg,#2c3348,#222735);color:var(--ink);font-weight:600;font-size:13px;min-width:0;transition:all .15s ease}
+    .virtual-kb button:active,.virtual-kb button.active{transform:translateY(1px);border-color:#3c4c6a;background:linear-gradient(180deg,#34405a,#273044)}
+    .virtual-kb button.small{font-size:12px;font-weight:500}
+    .virtual-kb-spacer{visibility:hidden}
+    @media (max-width:720px){
+      .hud{flex-direction:column;align-items:stretch}
+      .hud-tools{align-self:flex-end}
+      .virtual-kb{position:fixed;left:50%;bottom:16px;top:auto;right:auto;transform:translateX(-50%);z-index:30;display:none;grid-template-columns:repeat(1,minmax(240px,1fr));width:min(92vw,400px)}
+      .virtual-kb.show{display:grid}
+      .virtual-kb-row{grid-template-columns:repeat(4,1fr)}
+      .virtual-kb-row[data-type="movement"]{grid-template-columns:repeat(3,1fr)}
+      .virtual-kb-row[data-type="arrows"]{grid-template-columns:repeat(3,1fr)}
+      .virtual-kb-row[data-type="system"]{grid-template-columns:repeat(3,1fr)}
+    }
     footer{margin-top:16px;color:var(--muted);text-align:center}
     /* overlays */
     .overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;padding:24px}
@@ -86,9 +112,14 @@
       <div id="hud-left" class="hud-section"></div>
       <div id="hud-stats" class="hud-stats"></div>
       <div id="hud-right" class="hud-section"></div>
-      <div class="hud-cheat">
-        <button id="cheat-toggle" class="cheat-toggle" type="button">作弊台</button>
-        <div id="cheat-panel" class="cheat-panel">
+      <div class="hud-tools">
+        <div class="hud-virtual">
+          <button id="vk-toggle" type="button" aria-controls="virtual-kb" aria-expanded="false">屏幕键盘</button>
+          <div id="virtual-kb" class="virtual-kb" aria-hidden="true"></div>
+        </div>
+        <div class="hud-cheat">
+          <button id="cheat-toggle" class="cheat-toggle" type="button" aria-controls="cheat-panel" aria-expanded="false">作弊台</button>
+          <div id="cheat-panel" class="cheat-panel">
           <div class="cheat-section">
             <h4>状态</h4>
             <label>当前血量 <input id="cheat-hp" type="number" min="0" max="20" step="1"></label>
@@ -105,6 +136,7 @@
             <label>钥匙 <input id="cheat-keys" type="number" min="0" max="99" step="1"></label>
             <label>金币 <input id="cheat-coins" type="number" min="0" max="99" step="1"></label>
             <button id="cheat-apply-resources" type="button">应用资源</button>
+          </div>
           </div>
         </div>
       </div>
@@ -338,16 +370,18 @@
 
   function syncCheatPanel(){
     if(!cheatPanelNode || !cheatPanelNode.classList.contains('show') || !player) return;
-    cheatInputs.hp.value = player ? Math.floor(player.hp) : 0;
-    cheatInputs.maxHp.value = player ? Math.floor(player.maxHp) : 0;
-    cheatInputs.damage.value = player ? player.baseDamage.toFixed(2) : '0';
-    cheatInputs.speed.value = player ? Math.round(player.speed) : 0;
+    const active = document.activeElement;
+    const skip = (input)=> input && input===active;
+    if(!skip(cheatInputs.hp)) cheatInputs.hp.value = player ? Math.floor(player.hp) : 0;
+    if(!skip(cheatInputs.maxHp)) cheatInputs.maxHp.value = player ? Math.floor(player.maxHp) : 0;
+    if(!skip(cheatInputs.damage)) cheatInputs.damage.value = player ? player.baseDamage.toFixed(2) : '0';
+    if(!skip(cheatInputs.speed)) cheatInputs.speed.value = player ? Math.round(player.speed) : 0;
     const rate = player && player.fireInterval>0 ? (1000/player.fireInterval) : 0;
-    cheatInputs.firerate.value = rate ? rate.toFixed(2) : '0';
-    cheatInputs.tearSpeed.value = player ? Math.round(player.tearSpeed) : 0;
-    cheatInputs.bombs.value = player ? Math.floor(player.bombs) : 0;
-    cheatInputs.keys.value = player ? Math.floor(player.keys) : 0;
-    cheatInputs.coins.value = player ? Math.floor(player.coins) : 0;
+    if(!skip(cheatInputs.firerate)) cheatInputs.firerate.value = rate ? rate.toFixed(2) : '0';
+    if(!skip(cheatInputs.tearSpeed)) cheatInputs.tearSpeed.value = player ? Math.round(player.tearSpeed) : 0;
+    if(!skip(cheatInputs.bombs)) cheatInputs.bombs.value = player ? Math.floor(player.bombs) : 0;
+    if(!skip(cheatInputs.keys)) cheatInputs.keys.value = player ? Math.floor(player.keys) : 0;
+    if(!skip(cheatInputs.coins)) cheatInputs.coins.value = player ? Math.floor(player.coins) : 0;
   }
   function applyCheatStats(){
     if(!player) return;
@@ -385,6 +419,8 @@
   if(cheatToggle && cheatPanelNode){
     cheatToggle.addEventListener('click', ()=>{
       cheatPanelNode.classList.toggle('show');
+      cheatToggle.classList.toggle('active', cheatPanelNode.classList.contains('show'));
+      cheatToggle.setAttribute('aria-expanded', cheatPanelNode.classList.contains('show') ? 'true' : 'false');
       syncCheatPanel();
     });
   }
@@ -398,6 +434,148 @@
         for(const [key,node] of entries){ node.classList.toggle('show', key===target); }
       },
       clear(){ for(const [,node] of entries){ node.classList.remove('show'); } }
+    };
+  }
+
+  function createVirtualKeyboard({panel, toggle, onKeyDown, onKeyUp}){
+    if(!panel || !toggle || typeof onKeyDown !== 'function' || typeof onKeyUp !== 'function') return null;
+    const layout = [
+      {type:'movement', keys:[null,{label:'W', code:'KeyW', hold:true},null]},
+      {type:'movement', keys:[
+        {label:'A', code:'KeyA', hold:true},
+        {label:'S', code:'KeyS', hold:true},
+        {label:'D', code:'KeyD', hold:true},
+      ]},
+      {type:'arrows', keys:[null,{label:'↑', code:'ArrowUp', hold:true},null]},
+      {type:'arrows', keys:[
+        {label:'←', code:'ArrowLeft', hold:true},
+        {label:'↓', code:'ArrowDown', hold:true},
+        {label:'→', code:'ArrowRight', hold:true},
+      ]},
+      {type:'actions', keys:[
+        {label:'E', code:'KeyE', tap:true},
+        {label:'F', code:'KeyF', tap:true},
+        {label:'R', code:'KeyR', tap:true},
+        {label:'P', code:'KeyP', tap:true},
+      ]},
+      {type:'system', keys:[
+        {label:'Enter', code:'Enter', tap:true, span:3, className:'small'},
+      ]},
+    ];
+
+    panel.innerHTML = '';
+    const activeHoldButtons = new Map();
+    const pointerHold = new Map();
+
+    function releaseHold(code){
+      if(!code) return;
+      onKeyUp(code);
+      const btn = activeHoldButtons.get(code);
+      if(btn){
+        btn.classList.remove('active');
+        activeHoldButtons.delete(code);
+      }
+    }
+
+    function releaseAll(){
+      for(const code of Array.from(activeHoldButtons.keys())){
+        releaseHold(code);
+      }
+      pointerHold.clear();
+    }
+
+    for(const row of layout){
+      const rowEl = document.createElement('div');
+      rowEl.className = 'virtual-kb-row';
+      rowEl.dataset.type = row.type;
+      for(const key of row.keys){
+        if(!key){
+          const spacer = document.createElement('div');
+          spacer.className = 'virtual-kb-spacer';
+          rowEl.appendChild(spacer);
+          continue;
+        }
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = key.label;
+        btn.dataset.code = key.code;
+        if(key.className) btn.classList.add(key.className);
+        if(key.span){ btn.style.gridColumn = `span ${key.span}`; }
+        btn.addEventListener('pointerdown', (e)=>{
+          e.preventDefault();
+          btn.setPointerCapture?.(e.pointerId);
+          if(key.hold){
+            if(!activeHoldButtons.has(key.code)){
+              onKeyDown(key.code);
+            }
+            btn.classList.add('active');
+            activeHoldButtons.set(key.code, btn);
+            pointerHold.set(e.pointerId, key.code);
+          } else {
+            onKeyDown(key.code);
+            btn.classList.add('active');
+            setTimeout(()=>{
+              btn.classList.remove('active');
+            }, 120);
+            setTimeout(()=>{
+              onKeyUp(key.code);
+            }, 50);
+          }
+        });
+        const end = (e)=>{
+          if(!pointerHold.has(e.pointerId)) return;
+          const code = pointerHold.get(e.pointerId);
+          pointerHold.delete(e.pointerId);
+          releaseHold(code);
+        };
+        btn.addEventListener('pointerup', end);
+        btn.addEventListener('pointercancel', end);
+        btn.addEventListener('lostpointercapture', (e)=>{
+          if(pointerHold.has(e.pointerId)){
+            const code = pointerHold.get(e.pointerId);
+            pointerHold.delete(e.pointerId);
+            releaseHold(code);
+          }
+        });
+        btn.addEventListener('pointerleave', (e)=>{
+          if(pointerHold.has(e.pointerId)){
+            const code = pointerHold.get(e.pointerId);
+            pointerHold.delete(e.pointerId);
+            releaseHold(code);
+          }
+        });
+        rowEl.appendChild(btn);
+      }
+      panel.appendChild(rowEl);
+    }
+
+    panel.setAttribute('aria-hidden', 'true');
+    toggle.setAttribute('aria-expanded', 'false');
+    panel.addEventListener('contextmenu', (e)=> e.preventDefault());
+
+    function hide(){
+      panel.classList.remove('show');
+      panel.setAttribute('aria-hidden', 'true');
+      toggle.classList.remove('active');
+      toggle.setAttribute('aria-expanded', 'false');
+      releaseAll();
+    }
+    function show(){
+      panel.classList.add('show');
+      panel.setAttribute('aria-hidden', 'false');
+      toggle.classList.add('active');
+      toggle.setAttribute('aria-expanded', 'true');
+    }
+
+    toggle.addEventListener('click', ()=>{
+      if(panel.classList.contains('show')) hide();
+      else show();
+    });
+
+    return {
+      releaseAll,
+      hide,
+      show,
     };
   }
 
@@ -423,20 +601,40 @@
   }
 
   const keys = new Set();
+  function processKeyDown(code){
+    const firstPress = !keys.has(code);
+    keys.add(code);
+    if(!firstPress) return;
+    if(state===STATE.MENU && code==='Enter') startGame();
+    if(state===STATE.PLAY && code==='KeyP') togglePause();
+    if(state===STATE.PAUSE && code==='KeyP') togglePause();
+    if(state===STATE.OVER && code==='Enter') showMenu();
+    if((state===STATE.PLAY || state===STATE.PAUSE || state===STATE.OVER) && code==='KeyR') startGame();
+    if(state===STATE.PLAY && code==='KeyE') placeBomb();
+    if(state===STATE.PLAY && code==='KeyF') attemptPurchase();
+  }
+  function processKeyUp(code){
+    keys.delete(code);
+  }
   window.addEventListener('keydown', (e)=>{
     if(isTypingTarget(e)) return;
     const block = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'];
     if(block.includes(e.code)) e.preventDefault();
-    keys.add(e.code);
-    if(state===STATE.MENU && e.code==='Enter') startGame();
-    if(state===STATE.PLAY && e.code==='KeyP') togglePause();
-    if(state===STATE.PAUSE && e.code==='KeyP') togglePause();
-    if(state===STATE.OVER && e.code==='Enter') showMenu();
-    if((state===STATE.PLAY || state===STATE.PAUSE || state===STATE.OVER) && e.code==='KeyR') startGame();
-    if(state===STATE.PLAY && e.code==='KeyE') placeBomb();
-    if(state===STATE.PLAY && e.code==='KeyF') attemptPurchase();
+    processKeyDown(e.code);
   });
-  window.addEventListener('keyup', (e)=> keys.delete(e.code));
+  window.addEventListener('keyup', (e)=> processKeyUp(e.code));
+
+  const virtualKbToggle = document.getElementById('vk-toggle');
+  const virtualKbPanel = document.getElementById('virtual-kb');
+  const virtualKeyboard = createVirtualKeyboard({
+    panel: virtualKbPanel,
+    toggle: virtualKbToggle,
+    onKeyDown: processKeyDown,
+    onKeyUp: processKeyUp,
+  });
+  if(virtualKeyboard){
+    window.addEventListener('blur', ()=> virtualKeyboard.releaseAll());
+  }
 
   // ======= 游戏状态 =======
   const overlayMenu = document.getElementById('menu');
@@ -1504,7 +1702,7 @@
       this.knock = 0;
       this.knockVx = 0;
       this.knockVy = 0;
-      this.flying = true;
+      this.flying = false;
     }
     startFuse(){
       if(this.fuse>0) return;
