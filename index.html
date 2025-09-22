@@ -179,7 +179,17 @@
     grid: 9, // 更大的潜在网格，随机游走生成不规则结构
     roomsToMake: 9, // 随机游走生成房间数量
     itemRooms: 1,
-    player: {speed: 210, radius: 12, hp: 6, fireCd: 360, tearSpeed: 230, tearLife: 0.65}, // fireCd 毫秒
+    player: {
+      speed: 210,
+      radius: 12,
+      hp: 6,
+      fireCd: 360,
+      tearSpeed: 230,
+      tearLife: 0.65,
+      friction: 3.15,      // 基础滑行阻力（越小越滑）
+      accelFactor: 1.02,  // 加速效率（=1 时稳态速度约等于 speed）
+      maxSpeedScale: 1.1, // 允许的速度上限倍率，给予一点惯性裕度
+    }, // fireCd 毫秒
     enemy: {
       baseHP: 2,
       speed: 90,
@@ -1681,6 +1691,10 @@
       this.moveDir = {x:0,y:0};
       this.lastDisplacement = {x:0,y:0};
       this.lastVelocity = {x:0,y:0};
+      this.vel = {x:0,y:0};
+      this.moveFriction = CONFIG.player.friction ?? 3.15;
+      this.accelFactor = CONFIG.player.accelFactor ?? 1.0;
+      this.maxSpeedScale = CONFIG.player.maxSpeedScale ?? 1.1;
     }
     update(dt){
       this.bombCooldown = Math.max(0, this.bombCooldown - dt);
@@ -1691,18 +1705,40 @@
       if(keys.has('KeyS')) mv.y += 1;
       if(keys.has('KeyA')) mv.x -= 1;
       if(keys.has('KeyD')) mv.x += 1;
+      const friction = (this.moveFriction ?? CONFIG.player.friction ?? 3.15);
+      const accelFactor = (this.accelFactor ?? CONFIG.player.accelFactor ?? 1.0);
+      const maxSpeedScale = (this.maxSpeedScale ?? CONFIG.player.maxSpeedScale ?? 1.1);
+      const decay = Math.exp(-friction * dt);
+      this.vel.x *= decay;
+      this.vel.y *= decay;
       const len = Math.hypot(mv.x,mv.y);
       if(len>0){
         const nx = mv.x/len;
         const ny = mv.y/len;
         this.moveDir.x = nx;
         this.moveDir.y = ny;
-        this.x += nx * this.speed * dt;
-        this.y += ny * this.speed * dt;
+        const accel = this.speed * friction * accelFactor;
+        this.vel.x += nx * accel * dt;
+        this.vel.y += ny * accel * dt;
       } else {
-        this.moveDir.x = 0;
-        this.moveDir.y = 0;
+        const vmag = Math.hypot(this.vel.x, this.vel.y);
+        if(vmag>1e-3){
+          this.moveDir.x = this.vel.x / vmag;
+          this.moveDir.y = this.vel.y / vmag;
+        } else {
+          this.moveDir.x = 0;
+          this.moveDir.y = 0;
+        }
       }
+      const maxSpeed = this.speed * maxSpeedScale;
+      const curSpeed = Math.hypot(this.vel.x, this.vel.y);
+      if(curSpeed > maxSpeed){
+        const scale = maxSpeed / curSpeed;
+        this.vel.x *= scale;
+        this.vel.y *= scale;
+      }
+      this.x += this.vel.x * dt;
+      this.y += this.vel.y * dt;
       if(this.knockTimer>0){
         this.x += this.knockVel.x * dt;
         this.y += this.knockVel.y * dt;
@@ -1711,8 +1747,14 @@
         this.knockTimer = Math.max(0, this.knockTimer - dt);
       }
       // 边界
-      this.x = clamp(this.x, 30, CONFIG.roomW-30);
-      this.y = clamp(this.y, 30, CONFIG.roomH-30);
+      const minX = 30;
+      const maxX = CONFIG.roomW - 30;
+      const minY = 30;
+      const maxY = CONFIG.roomH - 30;
+      if(this.x < minX){ if(this.vel.x < 0) this.vel.x = 0; this.x = minX; }
+      if(this.x > maxX){ if(this.vel.x > 0) this.vel.x = 0; this.x = maxX; }
+      if(this.y < minY){ if(this.vel.y < 0) this.vel.y = 0; this.y = minY; }
+      if(this.y > maxY){ if(this.vel.y > 0) this.vel.y = 0; this.y = maxY; }
       this.ifr = Math.max(0, this.ifr - dt);
       this.fireCd = Math.max(0, this.fireCd - dt*1000);
 
@@ -1728,7 +1770,23 @@
         shotDir = {x: sx/l, y: sy/l};
         this.fireCd = this.fireInterval;
       }
+      const preResolveX = this.x;
+      const preResolveY = this.y;
       resolveEntityObstacles(this);
+      if(this.x!==preResolveX || this.y!==preResolveY){
+        const corrX = this.x - preResolveX;
+        const corrY = this.y - preResolveY;
+        const corrLen = Math.hypot(corrX, corrY);
+        if(corrLen>1e-6){
+          const nx = corrX / corrLen;
+          const ny = corrY / corrLen;
+          const dot = this.vel.x * nx + this.vel.y * ny;
+          if(dot<0){
+            this.vel.x -= dot * nx;
+            this.vel.y -= dot * ny;
+          }
+        }
+      }
       const dx = this.x - startX;
       const dy = this.y - startY;
       const lvx = dt>0 ? dx/dt : 0;
@@ -2976,6 +3034,7 @@
     player.knockVel.x = 0;
     player.knockVel.y = 0;
     player.knockTimer = 0;
+    if(player.vel){ player.vel.x = 0; player.vel.y = 0; }
     player.moveDir.x = 0;
     player.moveDir.y = 0;
     player.lastDisplacement.x = 0;
