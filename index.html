@@ -86,6 +86,11 @@
       speed: 90,
       spawnMin: 3, spawnMax: 6,
     },
+    drops: {
+      heartPerEnemy: 0.45,
+      heartRoomClear: 0.6,
+      doubleHeartChance: 0.22,
+    },
     rngSeed: Date.now() % 1000000,
   };
 
@@ -139,16 +144,32 @@
 
   // ======= 地图/房间生成 =======
   class Room{
-    constructor(i,j){ this.i=i; this.j=j; this.doors={up:false,down:false,left:false,right:false}; this.cleared=false; this.visited=false; this.enemies=[]; this.pickups=[]; }
+    constructor(i,j){
+      this.i=i; this.j=j;
+      this.doors={up:false,down:false,left:false,right:false};
+      this.cleared=false; this.visited=false;
+      this.enemies=[]; this.pickups=[];
+      this.isBoss=false; this.bossEntity=null; this.bossDefeated=false; this.bossName=''; this.introPlayed=false;
+    }
     center(){ return {x: CONFIG.roomW/2, y: CONFIG.roomH/2}; }
     spawnEnemies(depth){
+      if(this.isBoss){
+        if(this.bossDefeated){ this.enemies = []; return this.enemies; }
+        if(!this.bossEntity || this.bossEntity.dead){
+          const c = this.center();
+          this.bossEntity = makeBoss(c, this);
+        }
+        this.enemies = [this.bossEntity];
+        this.cleared = false;
+        return this.enemies;
+      }
       // 按深度稍微增加数量
       const n = Math.floor(randRange(CONFIG.enemy.spawnMin, CONFIG.enemy.spawnMax+1) + (depth*0.3));
       this.enemies = [];
       for(let k=0;k<n;k++){
         const x = randRange(80, CONFIG.roomW-80);
         const y = randRange(80, CONFIG.roomH-80);
-        const t = rand() < 0.75 ? 'chaser' : 'orbiter';
+        const t = rand() < 0.7 ? 'chaser' : 'orbiter';
         this.enemies.push(makeEnemy(t, {x,y}, depth));
       }
       return this.enemies;
@@ -188,6 +209,38 @@
       this.start = this.rooms[mid][mid];
       this.current = this.start;
       this.depth = 1;
+
+      // 指定 Boss 房
+      this.bossRoom = this.setupBossRoom(mid);
+    }
+
+    setupBossRoom(mid){
+      let farthest=null, maxDist=-1;
+      for(let i=0;i<this.gridN;i++){
+        for(let j=0;j<this.gridN;j++){
+          const r=this.rooms[i][j]; if(!r || (i===mid && j===mid)) continue;
+          const d = Math.abs(i-mid)+Math.abs(j-mid);
+          if(d>maxDist){ maxDist=d; farthest=r; }
+        }
+      }
+      if(!farthest) return null;
+      const dirs=[{di:-1,dj:0,key:'up',opp:'down'},{di:1,dj:0,key:'down',opp:'up'},{di:0,dj:-1,key:'left',opp:'right'},{di:0,dj:1,key:'right',opp:'left'}];
+      for(const dir of dirs){
+        const ni = clamp(farthest.i+dir.di,0,this.gridN-1);
+        const nj = clamp(farthest.j+dir.dj,0,this.gridN-1);
+        if(this.rooms[ni][nj]) continue;
+        const bossRoom = new Room(ni,nj);
+        bossRoom.isBoss=true;
+        bossRoom.bossName = '哭泣塑像 · 胎衣蛹';
+        this.rooms[ni][nj]=bossRoom;
+        farthest.doors[dir.key]=true;
+        bossRoom.doors[dir.opp]=true;
+        return bossRoom;
+      }
+      // 如果周围无空位，则直接把最远房间作为 Boss 房
+      farthest.isBoss=true;
+      farthest.bossName = '哭泣塑像 · 胎衣蛹';
+      return farthest;
     }
   }
   function key(i,j){return `${i},${j}`}
@@ -195,8 +248,9 @@
   // ======= 实体 =======
   class Player{
     constructor(x,y){
-      this.x=x; this.y=y; this.r=CONFIG.player.radius; this.speed=CONFIG.player.speed; 
-      this.hp = CONFIG.player.hp; this.ifr=0; // 无敌帧
+      this.x=x; this.y=y; this.r=CONFIG.player.radius; this.speed=CONFIG.player.speed;
+      this.maxHp = CONFIG.player.hp;
+      this.hp = this.maxHp; this.ifr=0; // 无敌帧
       this.fireCd = 0; this.tearSpeed=CONFIG.player.tearSpeed; this.tearLife=CONFIG.player.tearLife;
     }
     update(dt){
@@ -226,7 +280,12 @@
         this.fireCd = CONFIG.player.fireCd;
       }
     }
-    hurt(dmg){ if(this.ifr>0) return; this.hp -= dmg; this.ifr = 1.0; if(this.hp<=0) gameOver(); }
+    hurt(dmg){
+      if(this.ifr>0) return;
+      this.hp = Math.max(0, this.hp - dmg);
+      this.ifr = 1.0;
+      if(this.hp<=0) gameOver();
+    }
   }
 
   class Bullet{
@@ -241,6 +300,12 @@
     return new EnemyOrbiter(pos.x,pos.y,hp);
   }
 
+  function makeBoss(pos, room){
+    const boss = new EnemyBoss(pos.x, pos.y, room?.bossName || '未知胎物');
+    boss.room = room;
+    return boss;
+  }
+
   class EnemyChaser{
     constructor(x,y,hp){ this.x=x; this.y=y; this.r=12; this.hp=hp; this.speed = CONFIG.enemy.speed * randRange(0.9,1.2); this.knock=0; }
     update(dt){
@@ -253,7 +318,7 @@
       if(dist(this, player) < this.r + player.r){ player.hurt(1); this.knock = 0.2; }
     }
     draw(){ drawBlob(this.x,this.y,this.r,'#ff9aa2','#ff6b6b'); }
-    damage(d){ this.hp-=d; this.knock=0.15; if(this.hp<=0) this.dead=true; }
+    damage(d){ this.hp-=d; this.knock=0.15; if(this.hp<=0){ this.dead=true; return true; } return false; }
   }
 
   class EnemyOrbiter{
@@ -268,7 +333,122 @@
       if(dist(this, player) < this.r + player.r) player.hurt(1);
     }
     draw(){ drawBlob(this.x,this.y,this.r,'#b4c7ff','#7aa2ff'); }
-    damage(d){ this.hp-=d; if(this.hp<=0) this.dead=true; }
+    damage(d){ this.hp-=d; if(this.hp<=0){ this.dead=true; return true; } return false; }
+  }
+
+  class EnemyBoss{
+    constructor(x,y,name){
+      this.x=x; this.y=y; this.r=36;
+      this.hp=70; this.maxHp=this.hp;
+      this.name=name;
+      this.state='idle';
+      this.attackTimer=1.5; this.chargeTimer=0; this.recoverTimer=0;
+      this.hitFlash=0; this.enraged=false;
+    }
+    update(dt){
+      const drift = 40 + (this.enraged?25:0);
+      if(this.state==='charge'){
+        this.chargeTimer -= dt;
+        this.x += this.vx*dt; this.y += this.vy*dt;
+        if(this.chargeTimer<=0){ this.state='recover'; this.recoverTimer=0.6; }
+      } else {
+        const to = {x: player.x - this.x, y: player.y - this.y};
+        const l = Math.hypot(to.x,to.y)||1;
+        this.x += (to.x/l) * drift * dt * 0.55;
+        this.y += (to.y/l) * drift * dt * 0.55;
+        this.x += Math.cos(performance.now()/480) * 18 * dt;
+        this.y += Math.sin(performance.now()/360) * 18 * dt;
+        if(this.state==='recover'){
+          this.recoverTimer -= dt;
+          if(this.recoverTimer<=0) this.state='idle';
+        }
+      }
+      this.x = clamp(this.x, 90, CONFIG.roomW-90);
+      this.y = clamp(this.y, 110, CONFIG.roomH-110);
+      if(dist(this, player) < this.r + player.r - 2){ player.hurt(1); }
+
+      if(this.hitFlash>0) this.hitFlash -= dt;
+      if(!this.enraged && this.hp <= this.maxHp*0.55){ this.enraged=true; this.attackTimer = Math.min(this.attackTimer, 1.1); }
+
+      this.attackTimer -= dt;
+      if(this.attackTimer<=0){ this.chooseAttack(); }
+    }
+    chooseAttack(){
+      const roll = rand();
+      if(roll < 0.45){ this.sprayAttack(); this.attackTimer = this.enraged ? 1.6 : 2.2; }
+      else if(roll < 0.75){ this.spawnMinions(); this.attackTimer = this.enraged ? 2.0 : 2.6; }
+      else { this.chargeAttack(); this.attackTimer = this.enraged ? 2.4 : 3.2; }
+    }
+    sprayAttack(){
+      const waves = this.enraged ? 3 : 2;
+      for(let w=0; w<waves; w++){
+        const base = rand()*Math.PI*2;
+        const total = 10 + (this.enraged?4:0);
+        for(let i=0;i<total;i++){
+          const angle = base + (Math.PI*2/total)*i + w*0.12;
+          const speed = 120 + rand()*40 + (this.enraged?30:0);
+          enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.2, 'tear'));
+        }
+      }
+      // 指向性射流
+      const toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
+      for(let k=0;k<4;k++){
+        const angle = toPlayer + randRange(-0.4,0.4) + k*0.1*(this.enraged?1.2:0.6);
+        const speed = 160 + rand()*90;
+        enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 5, 'needle'));
+      }
+    }
+    spawnMinions(){
+      const count = this.enraged ? 3 : 2;
+      for(let i=0;i<count;i++){
+        const angle = rand()*Math.PI*2;
+        const radius = 90 + rand()*60;
+        const pos = {x: clamp(this.x + Math.cos(angle)*radius, 70, CONFIG.roomW-70), y: clamp(this.y + Math.sin(angle)*radius, 70, CONFIG.roomH-70)};
+        const minion = makeEnemy(rand()<0.5?'chaser':'orbiter', pos, dungeon.depth+2);
+        minion.r += 2;
+        queueEnemySpawn(minion);
+      }
+    }
+    chargeAttack(){
+      const to = {x: player.x - this.x, y: player.y - this.y};
+      const l = Math.hypot(to.x,to.y)||1;
+      const speed = this.enraged ? 300 : 240;
+      this.vx = (to.x/l) * speed;
+      this.vy = (to.y/l) * speed;
+      this.state='charge';
+      this.chargeTimer = 0.75;
+    }
+    damage(d){
+      this.hp -= d;
+      this.hitFlash = 0.18;
+      if(this.hp<=0){ this.dead=true; return true; }
+      return false;
+    }
+    draw(){
+      const outer = this.hitFlash>0 ? '#ffd5dc' : '#ffb4c8';
+      drawBlob(this.x,this.y,this.r, outer,'#d946ef');
+      ctx.save();
+      ctx.translate(this.x,this.y);
+      const blink = this.enraged ? 1.5 : 1;
+      ctx.fillStyle = this.enraged ? '#ffe5f2' : '#faf6ff';
+      ctx.beginPath();
+      ctx.ellipse(-this.r*0.35, -this.r*0.15, this.r*0.25, this.r*0.35, 0, 0, Math.PI*2);
+      ctx.ellipse(this.r*0.35, -this.r*0.15, this.r*0.25, this.r*0.35, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#151523';
+      const eyeOffset = Math.sin(performance.now()/240)*this.r*0.12;
+      ctx.beginPath();
+      ctx.arc(-this.r*0.32, -this.r*0.12 + eyeOffset, this.r*0.12*blink, 0, Math.PI*2);
+      ctx.arc(this.r*0.32, -this.r*0.12 - eyeOffset, this.r*0.12*blink, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#2f1d38';
+      ctx.beginPath();
+      ctx.moveTo(-this.r*0.4, this.r*0.1);
+      ctx.quadraticCurveTo(0, this.r*0.28 + Math.sin(performance.now()/200)*4, this.r*0.4, this.r*0.1);
+      ctx.quadraticCurveTo(0, this.r*0.5, -this.r*0.4, this.r*0.1);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   function drawBlob(x,y,r,base,edge){
@@ -279,7 +459,9 @@
   }
 
   // ======= 运行时上下文 =======
-  let dungeon, bullets=[], player;
+  let dungeon, bullets=[], enemyProjectiles=[], player;
+  let bossIntroTimer = 0, bossIntroText='';
+  const pendingEnemySpawns = [];
 
   function startGame(){
     overlayMenu.classList.remove('show'); overlayPaused.classList.remove('show'); overlayOver.classList.remove('show');
@@ -289,6 +471,7 @@
     dungeon.current.spawnEnemies(dungeon.depth);
     state = STATE.PLAY;
     lastTime = performance.now();
+    bullets.length=0; enemyProjectiles.length=0; bossIntroTimer=0;
   }
 
   // ======= 门与换房 =======
@@ -319,7 +502,12 @@
           if(d.dir==='down'){ player.x=CONFIG.roomW/2; player.y=60; }
           if(d.dir==='left'){ player.x=CONFIG.roomW-60; player.y=CONFIG.roomH/2; }
           if(d.dir==='right'){ player.x=60; player.y=CONFIG.roomH/2; }
-          bullets.length=0;
+          bullets.length=0; enemyProjectiles.length=0;
+          if(nr.isBoss && !nr.introPlayed){
+            bossIntroText = nr.bossName;
+            bossIntroTimer = 3.2;
+            nr.introPlayed = true;
+          }
           if(!nr.cleared){ nr.spawnEnemies(dungeon.depth); }
           break;
         }
@@ -354,6 +542,11 @@
     // 敌人
     const enemies = dungeon.current.enemies;
     for(const e of enemies) e.update(dt);
+    if(pendingEnemySpawns.length){ enemies.push(...pendingEnemySpawns.splice(0)); }
+
+    // 敌方弹幕
+    for(const eb of enemyProjectiles){ eb.update(dt); }
+    enemyProjectiles = enemyProjectiles.filter(p=>p.alive);
 
     // 碰撞：子弹-敌人
     for(const b of bullets){
@@ -361,19 +554,23 @@
         if(e.dead) continue;
         const dd = dist(b, e);
         if(dd < (b.r + e.r)){
-          e.damage(1); b.alive=false; break;
+          if(e.damage(1)){ handleEnemyDeath(e, dungeon.current); }
+          b.alive=false; break;
         }
       }
     }
     // 清理死亡
     dungeon.current.enemies = enemies.filter(e=>!e.dead);
 
+    // 玩家被弹幕命中
+    for(const eb of enemyProjectiles){ if(eb.checkHit(player)){ eb.alive=false; } }
+
     // 房间是否清空
     if(!dungeon.current.cleared && dungeon.current.enemies.length===0){
       dungeon.current.cleared = true;
       // 小概率掉红心
-      if(rand()<0.35){
-        dungeon.current.pickups.push({type:'heart',x:randRange(120,CONFIG.roomW-120),y:randRange(120,CONFIG.roomH-120),r:10});
+      if(rand()<CONFIG.drops.heartRoomClear){
+        dungeon.current.pickups.push(makeHeartPickup(randRange(120,CONFIG.roomW-120), randRange(120,CONFIG.roomH-120), 1));
       }
     }
 
@@ -382,7 +579,10 @@
     for(let i=picks.length-1;i>=0;i--){
       const p = picks[i];
       if(dist(p,player) < p.r + player.r){
-        if(p.type==='heart' && player.hp < CONFIG.player.hp){ player.hp++; picks.splice(i,1); }
+        if(p.type==='heart' && player.hp < player.maxHp){
+          player.hp = Math.min(player.maxHp, player.hp + (p.heal || 1));
+          picks.splice(i,1);
+        }
       }
     }
 
@@ -391,12 +591,17 @@
 
     // 更新 HUD
     renderHUD();
+    bossIntroTimer = Math.max(0, bossIntroTimer - dt);
   }
 
   function renderHUD(){
-    const hearts = '❤'.repeat(Math.max(0,player.hp)) + '·'.repeat(Math.max(0, CONFIG.player.hp - player.hp));
+    const hearts = '❤'.repeat(Math.max(0,player.hp)) + '·'.repeat(Math.max(0, player.maxHp - player.hp));
     HUDL.innerHTML = `生命：<span style="letter-spacing:1px">${hearts}</span>`;
-    HUDR.innerHTML = `层数：${dungeon.depth} / 已探索：${exploredRooms()} 间`;
+    if(dungeon.current.isBoss && dungeon.current.bossEntity && !dungeon.current.bossEntity.dead){
+      HUDR.innerHTML = `层数：${dungeon.depth} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span>`;
+    } else {
+      HUDR.innerHTML = `层数：${dungeon.depth} / 已探索：${exploredRooms()} 间`;
+    }
   }
   function exploredRooms(){
     let n=0; for(let i=0;i<dungeon.gridN;i++){for(let j=0;j<dungeon.gridN;j++){if(dungeon.rooms[i][j]?.visited) n++;}} return n;
@@ -415,11 +620,16 @@
     // 敌人
     for(const e of dungeon.current.enemies){ e.draw(); }
 
+    // 敌弹
+    for(const eb of enemyProjectiles){ eb.draw(); }
+
     // 子弹
     for(const b of bullets){ b.draw(); }
 
     // 玩家
     drawPlayer();
+
+    drawBossHealth();
 
     // 小地图
     drawMiniMap();
@@ -433,13 +643,15 @@
   function drawRoomBackdrop(){
     const w=CONFIG.roomW, h=CONFIG.roomH;
     // 地砖
+    const isBoss = dungeon.current.isBoss && !dungeon.current.cleared;
     const g = ctx.createLinearGradient(0,0,0,h);
-    g.addColorStop(0,'#10141d'); g.addColorStop(1,'#0d121a');
+    if(isBoss){ g.addColorStop(0,'#1b0f19'); g.addColorStop(1,'#120913'); }
+    else { g.addColorStop(0,'#10141d'); g.addColorStop(1,'#0d121a'); }
     ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
     // 边框
-    ctx.strokeStyle = '#2a3142'; ctx.lineWidth=14; ctx.strokeRect(10,10,w-20,h-20);
+    ctx.strokeStyle = isBoss ? '#663355' : '#2a3142'; ctx.lineWidth=14; ctx.strokeRect(10,10,w-20,h-20);
     // 裂纹/污渍
-    ctx.globalAlpha = 0.06; ctx.fillStyle='#bcd';
+    ctx.globalAlpha = isBoss ? 0.12 : 0.06; ctx.fillStyle=isBoss ? '#ff88b1' : '#bcd';
     for(let i=0;i<22;i++){ const x=randRange(30,w-30), y=randRange(30,h-30), r=randRange(8,38); ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); }
     ctx.globalAlpha = 1;
   }
@@ -462,12 +674,14 @@
       const r = p.r + Math.sin(t)*1.2;
       ctx.save();
       ctx.translate(p.x,p.y);
-      ctx.fillStyle='#ff7787';
+      ctx.fillStyle = p.heal>1 ? '#ff98a8' : '#ff7787';
+      ctx.strokeStyle = '#fff3'; ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(0, r*0.6);
       ctx.bezierCurveTo(r, -r*0.6, r*1.2, r*0.6, 0, r);
       ctx.bezierCurveTo(-r*1.2, r*0.6, -r, -r*0.6, 0, r*0.6);
       ctx.fill();
+      ctx.stroke();
       ctx.restore();
     }
   }
@@ -489,13 +703,120 @@
         const x = j*cell, y=i*cell;
         if(!r){ ctx.fillStyle='#0b0f16'; }
         else if(r===dungeon.current){ ctx.fillStyle='#6ee7ff'; }
+        else if(r.isBoss && !r.bossDefeated){ ctx.fillStyle='#ff6b6b'; }
         else if(r.visited){ ctx.fillStyle='#2c3a54'; }
         else { ctx.fillStyle='#182131'; }
         ctx.fillRect(x,y,cell-1,cell-1);
       }
     }
     ctx.restore();
+    if(bossIntroTimer>0){ drawBossIntro(); }
   }
+
+  function drawBossHealth(){
+    const room = dungeon.current;
+    const boss = room.isBoss ? room.bossEntity : null;
+    if(!boss || boss.dead) return;
+    const ratio = Math.max(0, boss.hp / boss.maxHp);
+    const barW = 360, barH = 16;
+    const x = CONFIG.roomW/2 - barW/2;
+    const y = 52;
+    ctx.save();
+    ctx.fillStyle = '#0b0912aa';
+    ctx.fillRect(x-6,y-10,barW+12,barH+24);
+    ctx.fillStyle = '#24152e';
+    ctx.fillRect(x,y,barW,barH);
+    const grad = ctx.createLinearGradient(x,0,x+barW,0);
+    grad.addColorStop(0,'#ff6b9a');
+    grad.addColorStop(1,'#f472b6');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x,y,barW*ratio,barH);
+    ctx.strokeStyle='#fff3'; ctx.strokeRect(x,y,barW,barH);
+    ctx.fillStyle='#ffcfdf';
+    ctx.font='16px "HYWenHei", "PingFang SC", sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText(boss.name, CONFIG.roomW/2, y-12);
+    ctx.restore();
+  }
+
+  function drawBossIntro(){
+    const alpha = Math.min(1, bossIntroTimer / 1.2);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle='#0b0912aa';
+    ctx.fillRect(0, CONFIG.roomH/2 - 60, CONFIG.roomW, 120);
+    ctx.fillStyle='#ffb4c8';
+    ctx.font='38px "HYWenHei", "PingFang SC", sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText(bossIntroText, CONFIG.roomW/2, CONFIG.roomH/2 - 6);
+    ctx.fillStyle='#ffd6e6';
+    ctx.font='18px "HYWenHei", "PingFang SC", sans-serif';
+    ctx.fillText('渗出的胎衣在地窖尽头凝聚成型……', CONFIG.roomW/2, CONFIG.roomH/2 + 28);
+    ctx.restore();
+  }
+
+  class EnemyProjectile{
+    constructor(x,y,vx,vy,life,type){
+      this.x=x; this.y=y; this.vx=vx; this.vy=vy; this.life=life; this.alive=true; this.r= type==='needle'?6:7;
+      this.type=type;
+    }
+    update(dt){
+      this.x += this.vx*dt;
+      this.y += this.vy*dt;
+      this.life -= dt;
+      if(this.life<=0) this.alive=false;
+      if(this.x<20||this.x>CONFIG.roomW-20||this.y<20||this.y>CONFIG.roomH-20) this.alive=false;
+    }
+    checkHit(target){
+      if(!this.alive) return false;
+      if(dist(this,target) < this.r + target.r){ target.hurt(this.type==='needle'?2:1); return true; }
+      return false;
+    }
+    draw(){
+      ctx.save();
+      ctx.translate(this.x,this.y);
+      ctx.rotate(Math.atan2(this.vy,this.vx));
+      if(this.type==='needle'){
+        ctx.fillStyle='#f973a6';
+        ctx.fillRect(-8,-2,16,4);
+        ctx.fillStyle='#ffe4f0';
+        ctx.fillRect(4,-1.2,6,2.4);
+      } else {
+        const g = ctx.createRadialGradient(0,0,1,0,0,this.r*1.4);
+        g.addColorStop(0,'#ffe6f3');
+        g.addColorStop(1,'#ff7aa9');
+        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,this.r,0,Math.PI*2); ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  function handleEnemyDeath(enemy, room){
+    if(enemy._dropHandled) return;
+    enemy._dropHandled = true;
+    if(enemy instanceof EnemyBoss){
+      room.bossDefeated = true;
+      room.cleared = true;
+      spawnHeartBundle(room, enemy.x, enemy.y);
+    } else {
+      if(rand() < CONFIG.drops.heartPerEnemy){
+        const heal = rand() < CONFIG.drops.doubleHeartChance ? 2 : 1;
+        room.pickups.push(makeHeartPickup(enemy.x + randRange(-12,12), enemy.y + randRange(-12,12), heal));
+      }
+    }
+  }
+
+  function spawnHeartBundle(room,x,y){
+    room.pickups.push(makeHeartPickup(x+randRange(-18,18), y, 2));
+    room.pickups.push(makeHeartPickup(x+randRange(-24,24), y+randRange(-20,20), 1));
+    room.pickups.push(makeHeartPickup(x+randRange(-24,24), y+randRange(-20,20), 1));
+  }
+
+  function makeHeartPickup(x,y,heal){
+    return {type:'heart', x:clamp(x,60,CONFIG.roomW-60), y:clamp(y,60,CONFIG.roomH-60), r: heal>1?14:10, heal};
+  }
+
+  function queueEnemySpawn(enemy){ pendingEnemySpawns.push(enemy); }
 
   // ======= 入口 =======
   function showStart(){ showMenu(); lastTime = performance.now(); }
