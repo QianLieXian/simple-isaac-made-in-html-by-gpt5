@@ -368,20 +368,43 @@
   const cheatStatsBtn = document.getElementById('cheat-apply-stats');
   const cheatResBtn = document.getElementById('cheat-apply-resources');
 
+  const cheatDirtyFields = new Set();
+
+  function setCheatDirty(key, dirty = true){
+    if(!key) return;
+    if(dirty){
+      cheatDirtyFields.add(key);
+    }else{
+      cheatDirtyFields.delete(key);
+    }
+  }
+  function clearCheatDirty(...keys){
+    if(!keys.length){
+      cheatDirtyFields.clear();
+      return;
+    }
+    for(const key of keys){ cheatDirtyFields.delete(key); }
+  }
+
+  for(const [key, input] of Object.entries(cheatInputs)){
+    if(!input) continue;
+    input.addEventListener('input', ()=> setCheatDirty(key, true));
+  }
+
   function syncCheatPanel(){
     if(!cheatPanelNode || !cheatPanelNode.classList.contains('show') || !player) return;
     const active = document.activeElement;
-    const skip = (input)=> input && input===active;
-    if(!skip(cheatInputs.hp)) cheatInputs.hp.value = player ? Math.floor(player.hp) : 0;
-    if(!skip(cheatInputs.maxHp)) cheatInputs.maxHp.value = player ? Math.floor(player.maxHp) : 0;
-    if(!skip(cheatInputs.damage)) cheatInputs.damage.value = player ? player.baseDamage.toFixed(2) : '0';
-    if(!skip(cheatInputs.speed)) cheatInputs.speed.value = player ? Math.round(player.speed) : 0;
+    const skip = (key, input)=> (input && input===active) || cheatDirtyFields.has(key);
+    if(!skip('hp', cheatInputs.hp)) cheatInputs.hp.value = player ? Math.floor(player.hp) : 0;
+    if(!skip('maxHp', cheatInputs.maxHp)) cheatInputs.maxHp.value = player ? Math.floor(player.maxHp) : 0;
+    if(!skip('damage', cheatInputs.damage)) cheatInputs.damage.value = player ? player.baseDamage.toFixed(2) : '0';
+    if(!skip('speed', cheatInputs.speed)) cheatInputs.speed.value = player ? Math.round(player.speed) : 0;
     const rate = player && player.fireInterval>0 ? (1000/player.fireInterval) : 0;
-    if(!skip(cheatInputs.firerate)) cheatInputs.firerate.value = rate ? rate.toFixed(2) : '0';
-    if(!skip(cheatInputs.tearSpeed)) cheatInputs.tearSpeed.value = player ? Math.round(player.tearSpeed) : 0;
-    if(!skip(cheatInputs.bombs)) cheatInputs.bombs.value = player ? Math.floor(player.bombs) : 0;
-    if(!skip(cheatInputs.keys)) cheatInputs.keys.value = player ? Math.floor(player.keys) : 0;
-    if(!skip(cheatInputs.coins)) cheatInputs.coins.value = player ? Math.floor(player.coins) : 0;
+    if(!skip('firerate', cheatInputs.firerate)) cheatInputs.firerate.value = rate ? rate.toFixed(2) : '0';
+    if(!skip('tearSpeed', cheatInputs.tearSpeed)) cheatInputs.tearSpeed.value = player ? Math.round(player.tearSpeed) : 0;
+    if(!skip('bombs', cheatInputs.bombs)) cheatInputs.bombs.value = player ? Math.floor(player.bombs) : 0;
+    if(!skip('keys', cheatInputs.keys)) cheatInputs.keys.value = player ? Math.floor(player.keys) : 0;
+    if(!skip('coins', cheatInputs.coins)) cheatInputs.coins.value = player ? Math.floor(player.coins) : 0;
   }
   function applyCheatStats(){
     if(!player) return;
@@ -403,6 +426,7 @@
     if(Number.isFinite(tearSpeed) && tearSpeed>0){ player.tearSpeed = tearSpeed; }
     if(player.hp>player.maxHp) player.hp = player.maxHp;
     player.recalculateDamage();
+    clearCheatDirty('hp','maxHp','damage','speed','firerate','tearSpeed');
     syncCheatPanel();
   }
   function applyCheatResources(){
@@ -414,14 +438,20 @@
     player.keys = keys;
     player.coins = coins;
     player.recalculateDamage();
+    clearCheatDirty('bombs','keys','coins');
     syncCheatPanel();
   }
   if(cheatToggle && cheatPanelNode){
     cheatToggle.addEventListener('click', ()=>{
       cheatPanelNode.classList.toggle('show');
       cheatToggle.classList.toggle('active', cheatPanelNode.classList.contains('show'));
-      cheatToggle.setAttribute('aria-expanded', cheatPanelNode.classList.contains('show') ? 'true' : 'false');
-      syncCheatPanel();
+      const isOpen = cheatPanelNode.classList.contains('show');
+      cheatToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      if(isOpen){
+        syncCheatPanel();
+      }else{
+        clearCheatDirty();
+      }
     });
   }
   cheatStatsBtn?.addEventListener('click', applyCheatStats);
