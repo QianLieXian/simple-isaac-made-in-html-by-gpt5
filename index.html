@@ -42,7 +42,7 @@
   <div class="wrap">
     <header>
       <div class="title">简易以撒-like · HTML5 Canvas</div>
-      <div class="badge">WASD 移动 · 方向键射击 · 回车开始 · P 暂停 · R 重开</div>
+      <div class="badge">WASD 移动 · 方向键射击 · E 放置炸弹 · F 购买 · 回车开始 · P 暂停 · R 重开</div>
     </header>
     <div class="panel canvas-wrap">
       <canvas id="game" width="800" height="600"></canvas>
@@ -94,9 +94,25 @@
       spawnMin: 3, spawnMax: 6,
     },
     drops: {
-      heartPerEnemy: 0.45,
-      heartRoomClear: 0.6,
-      doubleHeartChance: 0.22,
+      heartPerEnemy: 0.2,
+      heartRoomClear: 0.25,
+      doubleHeartChance: 0.18,
+      resourcePerEnemy: 0.14,
+      roomClearResource: 0.5,
+      resourceTypes: ['bomb','key','coin'],
+    },
+    resources: {
+      bombStart: 5,
+      keyStart: 5,
+      coinStart: 5,
+    },
+    bomb: {damage:50, radius:110, fuse:3, playerDamage:1, knock:240},
+    obstacles: {min:1, max:3, width:[70,140], height:[60,120]},
+    shop: {
+      itemChance: 0.95,
+      doubleItemChance: 0.05,
+      dropPrice: 5,
+      itemPrice: 15,
     },
     rngSeed: Date.now() % 1000000,
   };
@@ -107,6 +123,9 @@
   function randRange(min,max){return min + (max-min)*rand()}
   function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
   function dist(a,b){const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy)}
+  function rectOverlap(a,b){
+    return !(a.x+a.w < b.x || b.x+b.w < a.x || a.y+a.h < b.y || b.y+b.h < a.y);
+  }
   function adjustFireRate(player, delta){
     if(!player) return;
     const currentRate = player.fireInterval>0 ? 1000/player.fireInterval : 0;
@@ -124,25 +143,121 @@
     {
       id:'onion',
       name:'洋葱',
-      weight:5,
+      weight:50,
       description:'泪腺更发达，射速 +0.75 次/秒',
       apply(player){ adjustFireRate(player, 0.75); }
     },
     {
       id:'tar',
       name:'焦油抹布',
-      weight:3,
+      weight:30,
       description:'伤害 +0.5，泪滴更厚重',
-      apply(player){ player.damage = +(player.damage + 0.5).toFixed(2); }
+      apply(player){ player.addDamage(0.5); }
     },
     {
       id:'sneaker',
       name:'小短跑鞋',
-      weight:4,
+      weight:50,
       description:'移动速度 +35，轻盈不少',
       apply(player){ player.speed += 35; }
+    },
+    {
+      id:'pepper-steak',
+      name:'胡椒牛排',
+      weight:5,
+      description:'全身沸腾，伤害 +1，攻速 +1，射程 x1.5，血上限 +1',
+      apply(player){ player.addDamage(1); adjustFireRate(player,1); player.tearLife*=1.5; player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); }
+    },
+    {
+      id:'rope',
+      name:'绳子',
+      weight:20,
+      description:'轻盈漂浮，飞行不再畏惧地形',
+      apply(player){ player.flying = true; }
+    },
+    {
+      id:'spirit-date',
+      name:'酒枣',
+      weight:20,
+      description:'射程 x1.5，泪滴可穿透障碍',
+      apply(player){ player.tearLife*=1.5; player.canPierceObstacles = true; }
+    },
+    {
+      id:'betrayal-hound',
+      name:'伙伴倒戈犬',
+      weight:1,
+      description:'狂暴背叛，伤害 x2 +1.5，射速 -0.25 次/秒',
+      apply(player){ player.damageMultiplier *= 2; player.addDamage(1.5); adjustFireRate(player,-0.25); }
+    },
+    {
+      id:'despair-shout',
+      name:'绝望呐喊',
+      weight:40,
+      description:'撕裂呐喊，射程 x5',
+      apply(player){ player.tearLife*=5; }
+    },
+    {
+      id:'bad-thing',
+      name:'坏东西',
+      weight:50,
+      description:'速度有点危险，子弹速度 x1.1',
+      apply(player){ player.tearSpeed*=1.1; }
+    },
+    {
+      id:'good-thing',
+      name:'好东西',
+      weight:20,
+      description:'越看越顺眼，子弹速度 x0.75，射速 +0.75，射程 x1.25',
+      apply(player){ player.tearSpeed*=0.75; adjustFireRate(player,0.75); player.tearLife*=1.25; }
     }
   ];
+  const SHOP_ITEM_POOL = [
+    {
+      id:'blood-power',
+      name:'血之力',
+      weight:50,
+      description:'血越厚，伤害越高',
+      apply(player){ player.effects.bloodPower = true; player.recalculateDamage(); }
+    },
+    {
+      id:'money-power',
+      name:'钱之力',
+      weight:50,
+      description:'财源滚滚，伤害随金币提升',
+      apply(player){ player.effects.moneyPower = true; player.recalculateDamage(); }
+    },
+    {
+      id:'despair-power',
+      name:'绝望之力',
+      weight:20,
+      description:'血越少，越要反击',
+      apply(player){ player.effects.despairPower = true; player.recalculateDamage(); }
+    }
+  ];
+  const BOSS_ITEM_POOL = [
+    {
+      id:'dog-food',
+      name:'狗粮',
+      weight:50,
+      description:'血量上限 +1',
+      apply(player){ player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); }
+    },
+    {
+      id:'ending-note',
+      name:'结束纸条',
+      weight:50,
+      description:'射速 +0.75 次/秒，射程 x1.1',
+      apply(player){ adjustFireRate(player,0.75); player.tearLife*=1.1; }
+    },
+    {
+      id:'kettle',
+      name:'热水壶',
+      weight:50,
+      description:'伤害 +1',
+      apply(player){ player.addDamage(1); }
+    }
+  ];
+  const RESOURCE_LABELS = {bomb:'炸弹', key:'钥匙', coin:'金币'};
   const HUDL = document.getElementById('hud-left');
   const HUDR = document.getElementById('hud-right');
   const HUDS = document.getElementById('hud-stats');
@@ -170,6 +285,8 @@
     if(state===STATE.PAUSE && e.code==='KeyP') togglePause();
     if(state===STATE.OVER && e.code==='Enter') showMenu();
     if((state===STATE.PLAY || state===STATE.PAUSE || state===STATE.OVER) && e.code==='KeyR') startGame();
+    if(state===STATE.PLAY && e.code==='KeyE') placeBomb();
+    if(state===STATE.PLAY && e.code==='KeyF') attemptPurchase();
   });
   window.addEventListener('keyup', (e)=> keys.delete(e.code));
 
@@ -193,15 +310,25 @@
       this.doors={up:false,down:false,left:false,right:false};
       this.cleared=false; this.visited=false; this.discovered=false;
       this.enemies=[]; this.pickups=[];
+      this.obstacles=[]; this.obstaclesGenerated=false;
+      this.bombs=[];
       this.isBoss=false; this.bossEntity=null; this.bossDefeated=false; this.bossName=''; this.introPlayed=false;
       this.isItemRoom=false; this.itemData=null; this.itemClaimed=false; this.itemSpawned=false;
+      this.isShop=false; this.shopInventory=[]; this.shopPrepared=false; this.locked=false;
     }
     center(){ return {x: CONFIG.roomW/2, y: CONFIG.roomH/2}; }
     spawnEnemies(depth){
+      this.ensureObstacles();
       if(this.isItemRoom){
         this.enemies = [];
         this.cleared = true;
         this.ensureItem();
+        return this.enemies;
+      }
+      if(this.isShop){
+        this.prepareShop();
+        this.enemies = [];
+        this.cleared = true;
         return this.enemies;
       }
       if(this.isBoss){
@@ -233,6 +360,59 @@
       this.pickups = this.pickups.filter(p=>p.type!=='item');
       this.pickups.push(makeItemPickup(c.x, c.y, this));
       this.itemSpawned = true;
+    }
+    ensureObstacles(){
+      if(this.obstaclesGenerated) return;
+      this.obstaclesGenerated = true;
+      if(this.isBoss || this.isItemRoom || this.isShop) return;
+      const count = Math.floor(randRange(CONFIG.obstacles.min, CONFIG.obstacles.max+1));
+      const created=[];
+      let tries=0;
+      while(created.length<count && tries<120){
+        tries++;
+        const w = randRange(CONFIG.obstacles.width[0], CONFIG.obstacles.width[1]);
+        const h = randRange(CONFIG.obstacles.height[0], CONFIG.obstacles.height[1]);
+        const x = randRange(60, CONFIG.roomW-60-w);
+        const y = randRange(70, CONFIG.roomH-70-h);
+        const rect = {x,y,w,h,hp:60, destroyed:false};
+        if(this.collidesDoorCorridor(rect)) continue;
+        if(created.some(o=>rectOverlap(o,rect))) continue;
+        created.push(rect);
+      }
+      this.obstacles = created;
+    }
+    collidesDoorCorridor(rect){
+      const corridors = [];
+      if(this.doors.up) corridors.push({x:CONFIG.roomW/2-60,y:0,w:120,h:180});
+      if(this.doors.down) corridors.push({x:CONFIG.roomW/2-60,y:CONFIG.roomH-180,w:120,h:180});
+      if(this.doors.left) corridors.push({x:0,y:CONFIG.roomH/2-70,w:180,h:140});
+      if(this.doors.right) corridors.push({x:CONFIG.roomW-180,y:CONFIG.roomH/2-70,w:180,h:140});
+      corridors.push({x:CONFIG.roomW/2-80,y:CONFIG.roomH/2-200,w:160,h:400});
+      corridors.push({x:CONFIG.roomW/2-220,y:CONFIG.roomH/2-80,w:440,h:160});
+      return corridors.some(c=>rectOverlap(c, rect));
+    }
+    prepareShop(){
+      if(!this.isShop || this.shopPrepared) return;
+      this.shopPrepared = true;
+      this.pickups = [];
+      const slots = [
+        {x:CONFIG.roomW*0.28, y:CONFIG.roomH*0.28},
+        {x:CONFIG.roomW*0.5, y:CONFIG.roomH*0.26},
+        {x:CONFIG.roomW*0.72, y:CONFIG.roomH*0.28},
+        {x:CONFIG.roomW*0.32, y:CONFIG.roomH*0.64},
+        {x:CONFIG.roomW*0.68, y:CONFIG.roomH*0.64},
+      ];
+      const shopItems = rollShopItems();
+      let idx=0;
+      for(const entry of shopItems){
+        if(idx>=slots.length) break;
+        const slot=slots[idx++];
+        if(entry.type==='item'){
+          this.pickups.push(makeShopPickup(slot.x, slot.y, entry.item, CONFIG.shop.itemPrice));
+        } else {
+          this.pickups.push(makeShopPickup(slot.x, slot.y, entry.item, CONFIG.shop.dropPrice));
+        }
+      }
     }
   }
 
@@ -273,6 +453,7 @@
       // 指定 Boss 房 & 道具房
       this.bossRoom = this.setupBossRoom(mid);
       this.itemRooms = this.setupItemRooms(mid);
+      this.shopRoom = this.setupShopRoom(mid);
 
       // 连接所有相邻房间的门，确保连通性
       for(let i=0;i<this.gridN;i++){
@@ -342,6 +523,7 @@
         const itemRoom = new Room(target.ni, target.nj);
         itemRoom.isItemRoom = true;
         itemRoom.cleared = true;
+        itemRoom.locked = true;
         this.rooms[target.ni][target.nj] = itemRoom;
         choice.room.doors[target.dir.key] = true;
         itemRoom.doors[target.dir.opp] = true;
@@ -361,6 +543,7 @@
             if(!r || r.isBoss || (i===mid && j===mid)) continue;
             r.isItemRoom = true;
             r.cleared = true;
+            r.locked = true;
             items.push(r);
             placed=1;
             break;
@@ -369,6 +552,47 @@
         }
       }
       return items;
+    }
+
+    setupShopRoom(mid){
+      const candidates=[];
+      for(let i=0;i<this.gridN;i++){
+        for(let j=0;j<this.gridN;j++){
+          const r=this.rooms[i][j];
+          if(!r || r.isBoss || r.isItemRoom || (i===mid && j===mid)) continue;
+          const dist = Math.abs(i-mid)+Math.abs(j-mid);
+          const options = DIRS.map(dir=>({dir,ni:i+dir.di,nj:j+dir.dj}))
+            .filter(opt=>opt.ni>=0 && opt.nj>=0 && opt.ni<this.gridN && opt.nj<this.gridN && !this.rooms[opt.ni][opt.nj]);
+          if(options.length){ candidates.push({room:r, options, dist}); }
+        }
+      }
+      candidates.sort((a,b)=>b.dist-a.dist || rand()-0.5);
+      const choice = candidates[0];
+      if(choice){
+        const target = choice.options[Math.floor(rand()*choice.options.length)];
+        const shop = new Room(target.ni, target.nj);
+        shop.isShop = true;
+        shop.cleared = true;
+        shop.locked = true;
+        this.rooms[target.ni][target.nj] = shop;
+        choice.room.doors[target.dir.key] = true;
+        shop.doors[target.dir.opp] = true;
+        this.allRooms.push(shop);
+        return shop;
+      }
+      for(let i=0;i<this.gridN;i++){
+        for(let j=0;j<this.gridN;j++){
+          const r=this.rooms[i][j];
+          if(!r || r.isBoss || r.isItemRoom || (i===mid && j===mid)) continue;
+          r.isShop = true;
+          r.cleared = true;
+          r.locked = true;
+          r.obstacles = [];
+          r.obstaclesGenerated = true;
+          return r;
+        }
+      }
+      return null;
     }
 
     updateBounds(room){
@@ -387,14 +611,37 @@
   }
   function key(i,j){return `${i},${j}`}
 
-  function rollItem(){
-    const total = ITEM_POOL.reduce((sum,item)=>sum+item.weight,0);
+  function weightedRoll(pool){
+    const total = pool.reduce((sum,item)=>sum+item.weight,0);
     let pick = rand()*total;
-    for(const item of ITEM_POOL){
+    for(const item of pool){
       pick -= item.weight;
       if(pick<=0) return {...item};
     }
-    return {...ITEM_POOL[ITEM_POOL.length-1]};
+    return {...pool[pool.length-1]};
+  }
+  function rollItem(){
+    return weightedRoll(ITEM_POOL);
+  }
+  function rollShopItems(){
+    const entries=[];
+    const indices=[0,1,2,3,4];
+    for(let i=indices.length-1;i>0;i--){ const j=Math.floor(rand()*(i+1)); [indices[i],indices[j]]=[indices[j],indices[i]]; }
+    const itemCount = rand()<CONFIG.shop.doubleItemChance ? 2 : 1;
+    const itemSlots = new Set(indices.slice(0,itemCount));
+    for(let i=0;i<5;i++){
+      if(itemSlots.has(i)){
+        entries.push({type:'item', item: weightedRoll(SHOP_ITEM_POOL)});
+      } else {
+        const resType = CONFIG.drops.resourceTypes[Math.floor(rand()*CONFIG.drops.resourceTypes.length)];
+        const amount = resType==='coin'?8:2;
+        entries.push({type:'resource', resource:resType, amount});
+      }
+    }
+    return entries;
+  }
+  function rollBossItem(){
+    return weightedRoll(BOSS_ITEM_POOL);
   }
 
   function makeItemPickup(x,y,room){
@@ -405,6 +652,27 @@
       r:18,
       item:room.itemData,
       room
+    };
+  }
+  function makeResourcePickup(type,x,y,amount){
+    return {
+      type,
+      resource:type,
+      amount:amount||1,
+      x:clamp(x,70,CONFIG.roomW-70),
+      y:clamp(y,80,CONFIG.roomH-80),
+      r:12
+    };
+  }
+  function makeShopPickup(x,y,entry,price){
+    return {
+      type:'shop',
+      x:clamp(x,90,CONFIG.roomW-90),
+      y:clamp(y,100,CONFIG.roomH-100),
+      r:22,
+      entry,
+      price,
+      purchased:false
     };
   }
 
@@ -418,6 +686,14 @@
     itemPickupDesc = item.description || '';
     itemPickupTimer = 3.2;
   }
+  function grantResource(type, amount){
+    if(!player) return;
+    const amt = amount||1;
+    if(type==='bomb'){ player.bombs += amt; }
+    else if(type==='key'){ player.keys += amt; }
+    else if(type==='coin'){ player.coins += amt; }
+    player.recalculateDamage();
+  }
 
   // ======= 实体 =======
   class Player{
@@ -427,10 +703,22 @@
       this.hp = this.maxHp; this.ifr=0; // 无敌帧
       this.fireCd = 0; this.fireInterval = CONFIG.player.fireCd;
       this.tearSpeed=CONFIG.player.tearSpeed; this.tearLife=CONFIG.player.tearLife;
+      this.baseDamage = 1;
+      this.damageMultiplier = 1;
       this.damage = 1;
       this.items=[];
+      this.bombs = CONFIG.resources.bombStart;
+      this.keys = CONFIG.resources.keyStart;
+      this.coins = CONFIG.resources.coinStart;
+      this.bombCooldown = 0;
+      this.knockVel = {x:0,y:0};
+      this.knockTimer = 0;
+      this.flying = false;
+      this.canPierceObstacles = false;
+      this.effects = {bloodPower:false, moneyPower:false, despairPower:false};
     }
     update(dt){
+      this.bombCooldown = Math.max(0, this.bombCooldown - dt);
       const mv = {x:0,y:0};
       if(keys.has('KeyW')) mv.y -= 1;
       if(keys.has('KeyS')) mv.y += 1;
@@ -439,6 +727,13 @@
       const len = Math.hypot(mv.x,mv.y) || 1;
       this.x += (mv.x/len) * this.speed * dt;
       this.y += (mv.y/len) * this.speed * dt;
+      if(this.knockTimer>0){
+        this.x += this.knockVel.x * dt;
+        this.y += this.knockVel.y * dt;
+        this.knockVel.x *= 0.86;
+        this.knockVel.y *= 0.86;
+        this.knockTimer = Math.max(0, this.knockTimer - dt);
+      }
       // 边界
       this.x = clamp(this.x, 30, CONFIG.roomW-30);
       this.y = clamp(this.y, 30, CONFIG.roomH-30);
@@ -453,15 +748,36 @@
       if(keys.has('ArrowRight')) sx += 1;
       if((sx||sy) && this.fireCd<=0){
         const l = Math.hypot(sx,sy)||1; sx/=l; sy/=l;
-        bullets.push(new Bullet(this.x, this.y, sx*this.tearSpeed, sy*this.tearSpeed, this.tearLife, this.damage));
+        bullets.push(new Bullet(this.x, this.y, sx*this.tearSpeed, sy*this.tearSpeed, this.tearLife, this.damage, this.canPierceObstacles));
         this.fireCd = this.fireInterval;
       }
+      resolveEntityObstacles(this);
+      this.recalculateDamage();
     }
     hurt(dmg){
       if(this.ifr>0) return;
       this.hp = Math.max(0, this.hp - dmg);
       this.ifr = 1.0;
       if(this.hp<=0) gameOver();
+      this.recalculateDamage();
+    }
+    addDamage(amount){
+      this.baseDamage = +(this.baseDamage + amount).toFixed(2);
+      this.recalculateDamage();
+    }
+    applyImpulse(dx,dy,strength){
+      const len = Math.hypot(dx,dy) || 1;
+      const power = strength || CONFIG.bomb.knock;
+      this.knockVel.x += (dx/len) * power;
+      this.knockVel.y += (dy/len) * power;
+      this.knockTimer = 0.25;
+    }
+    recalculateDamage(){
+      let dmg = this.baseDamage;
+      if(this.effects.bloodPower){ dmg += this.hp * 0.3; }
+      if(this.effects.moneyPower){ dmg += this.coins * 0.05; }
+      if(this.effects.despairPower){ const missing = this.maxHp - this.hp; dmg += missing * 0.6; }
+      this.damage = +(Math.max(0.4, dmg) * this.damageMultiplier).toFixed(2);
     }
   }
 
@@ -474,7 +790,7 @@
   }
 
   class Bullet{
-    constructor(x,y,vx,vy,life,damage=1){
+    constructor(x,y,vx,vy,life,damage=1,pierce=false){
       this.x=x;
       this.y=y;
       this.vx=vx;
@@ -483,6 +799,7 @@
       this.damage=damage;
       this.alive=true;
       this.r=calcTearRadius(damage);
+      this.pierceObstacles = pierce;
     }
     update(dt){
       this.x += this.vx*dt;
@@ -490,12 +807,121 @@
       this.life -= dt;
       if(this.life<=0) this.alive=false;
       if(this.x<0||this.x>CONFIG.roomW||this.y<0||this.y>CONFIG.roomH) this.alive=false;
+      if(!this.pierceObstacles){
+        for(const obs of dungeon.current.obstacles){
+          if(obs.destroyed) continue;
+          if(circleRectOverlap(this, obs)){ this.alive=false; break; }
+        }
+      }
     }
     draw(){
       ctx.beginPath();
       ctx.fillStyle = '#a6e3ff';
       ctx.arc(this.x,this.y,this.r,0,Math.PI*2);
       ctx.fill();
+    }
+  }
+
+  class Bomb{
+    constructor(x,y){
+      this.x=x;
+      this.y=y;
+      this.r=14;
+      this.timer=CONFIG.bomb.fuse;
+      this.exploded=false;
+      this.explosionTimer=0;
+      this.done=false;
+    }
+    update(dt){
+      if(this.done) return;
+      if(this.exploded){
+        this.explosionTimer = Math.max(0, this.explosionTimer - dt);
+        if(this.explosionTimer<=0){ this.done=true; }
+        return;
+      }
+      this.timer -= dt;
+      if(this.timer<=0){ this.explode(); }
+    }
+    explode(){
+      if(this.exploded) return;
+      this.exploded=true;
+      this.explosionTimer = 0.4;
+      handleBombExplosion(dungeon.current, this);
+    }
+    draw(){
+      if(this.exploded){
+        const ratio = this.explosionTimer / 0.4;
+        const radius = CONFIG.bomb.radius * (1 + (1-ratio)*0.2);
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, ratio*0.7);
+        const g = ctx.createRadialGradient(this.x,this.y,radius*0.15,this.x,this.y,radius);
+        g.addColorStop(0,'#fff5');
+        g.addColorStop(0.4,'#ffd5');
+        g.addColorStop(1,'#ff4d');
+        ctx.fillStyle=g;
+        ctx.beginPath(); ctx.arc(this.x,this.y,radius,0,Math.PI*2); ctx.fill();
+        ctx.globalAlpha = Math.max(0, ratio*0.9);
+        ctx.strokeStyle='#ffe4';
+        ctx.lineWidth=3;
+        ctx.beginPath(); ctx.arc(this.x,this.y,radius*0.55,0,Math.PI*2); ctx.stroke();
+        ctx.restore();
+        return;
+      }
+      const progress = Math.max(0, CONFIG.bomb.fuse - this.timer);
+      const freq = 2 + progress*6;
+      const pulse = Math.sin(progress*freq*Math.PI) > 0 ? '#ff6b6b' : '#ffffff';
+      ctx.save();
+      ctx.translate(this.x,this.y);
+      ctx.fillStyle = '#2f3345';
+      ctx.beginPath(); ctx.arc(0,0,this.r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = pulse;
+      ctx.beginPath(); ctx.arc(0,0,this.r*0.7,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#2f3345';
+      ctx.fillRect(-2,-this.r*1.1,4,this.r*0.6);
+      ctx.restore();
+    }
+  }
+
+  function handleBombExplosion(room, bomb){
+    if(!room) return;
+    const radius = CONFIG.bomb.radius;
+    const circle = {x:bomb.x, y:bomb.y, r:radius};
+    for(const enemy of room.enemies){
+      if(enemy.dead) continue;
+      const d = dist(bomb, enemy);
+      if(d <= radius + enemy.r){
+        if(typeof enemy.damage === 'function'){
+          if(enemy.damage(CONFIG.bomb.damage)){ handleEnemyDeath(enemy, room); }
+        }
+        const len = Math.max(1, d);
+        const push = (radius - Math.min(radius, d)) * 0.6;
+        if(enemy.knock!==undefined){ enemy.knock = 0.35; }
+        enemy.x += (enemy.x - bomb.x)/len * push;
+        enemy.y += (enemy.y - bomb.y)/len * push;
+        if(enemy.base){
+          enemy.base.x += (enemy.base.x - bomb.x)/len * push;
+          enemy.base.y += (enemy.base.y - bomb.y)/len * push;
+        }
+        if(enemy.vx!==undefined && enemy.vy!==undefined && enemy.state!=='charge'){
+          enemy.vx += (enemy.x - bomb.x)/len * 160;
+          enemy.vy += (enemy.y - bomb.y)/len * 160;
+        }
+      }
+    }
+    if(player){
+      const dp = dist(player, bomb);
+      if(dp <= radius + player.r){
+        player.applyImpulse(player.x - bomb.x, player.y - bomb.y, CONFIG.bomb.knock);
+        player.hurt(CONFIG.bomb.playerDamage);
+      }
+    }
+    for(const obs of room.obstacles){
+      if(obs.destroyed) continue;
+      if(circleRectOverlap(circle, obs)){ obs.destroyed = true; }
+    }
+    for(const proj of enemyProjectiles){
+      if(!proj.alive) continue;
+      if(dist(proj, bomb) <= radius){ proj.alive=false; }
     }
   }
 
@@ -521,6 +947,7 @@
       else { this.x += to.x * this.speed * dt; this.y += to.y * this.speed * dt; }
       // 碰撞到玩家
       if(dist(this, player) < this.r + player.r){ player.hurt(1); this.knock = 0.2; }
+      resolveEntityObstacles(this);
     }
     draw(){ drawBlob(this.x,this.y,this.r,'#ff9aa2','#ff6b6b'); }
     damage(d){ this.hp-=d; this.knock=0.15; if(this.hp<=0){ this.dead=true; return true; } return false; }
@@ -536,6 +963,7 @@
       const dx = player.x - this.base.x; const dy = player.y - this.base.y;
       const l = Math.hypot(dx,dy)||1; this.base.x += (dx/l)*this.speed*dt*0.6; this.base.y += (dy/l)*this.speed*dt*0.6;
       if(dist(this, player) < this.r + player.r) player.hurt(1);
+      resolveEntityObstacles(this);
     }
     draw(){ drawBlob(this.x,this.y,this.r,'#b4c7ff','#7aa2ff'); }
     damage(d){ this.hp-=d; if(this.hp<=0){ this.dead=true; return true; } return false; }
@@ -571,6 +999,7 @@
       this.x = clamp(this.x, 90, CONFIG.roomW-90);
       this.y = clamp(this.y, 110, CONFIG.roomH-110);
       if(dist(this, player) < this.r + player.r - 2){ player.hurt(1); }
+      resolveEntityObstacles(this);
 
       if(this.hitFlash>0) this.hitFlash -= dt;
       if(!this.enraged && this.hp <= this.maxHp*0.55){ this.enraged=true; this.attackTimer = Math.min(this.attackTimer, 1.1); }
@@ -700,28 +1129,45 @@
       const nj = r.j + (d.dir==='right') - (d.dir==='left');
       const nr = dungeon.rooms[ni]?.[nj];
       if(!nr) continue;
-      const doorUnlocked = r.cleared || r.isBoss || nr.isBoss;
-      if(!doorUnlocked) continue;
-      if(rectCircleOverlap(d.x,d.y,d.w,d.h, player.x,player.y,player.r)){
-        dungeon.current = nr;
-        if(!nr.visited){ dungeon.depth++; }
-        nr.visited = true;
-        dungeon.revealRoom(nr);
-        // 入口位置
-        if(d.dir==='up'){ player.x=CONFIG.roomW/2; player.y=CONFIG.roomH-60; }
-        if(d.dir==='down'){ player.x=CONFIG.roomW/2; player.y=60; }
-        if(d.dir==='left'){ player.x=CONFIG.roomW-60; player.y=CONFIG.roomH/2; }
-        if(d.dir==='right'){ player.x=60; player.y=CONFIG.roomH/2; }
-        bullets.length=0; enemyProjectiles.length=0;
-        if(nr.isBoss && !nr.introPlayed){
-          bossIntroText = nr.bossName;
-          bossIntroTimer = 3.2;
-          nr.introPlayed = true;
+      const requiresClear = r.cleared || r.isBoss || nr.isBoss;
+      if(!requiresClear) continue;
+      if(!rectCircleOverlap(d.x,d.y,d.w,d.h, player.x,player.y,player.r)) continue;
+      if(nr.locked){
+        if(player.keys>0){
+          player.keys -= 1;
+          player.recalculateDamage();
+          nr.locked = false;
+          if(itemPickupTimer<=0){
+            itemPickupName = '钥匙已消耗';
+            itemPickupDesc = nr.isShop ? '商店开启' : '门锁打开';
+            itemPickupTimer = 1.4;
+          }
+        } else if(itemPickupTimer<=0){
+          itemPickupName = '需要钥匙';
+          itemPickupDesc = '无法开启这扇门';
+          itemPickupTimer = 1.2;
         }
-        if(nr.isItemRoom){ nr.ensureItem(); }
-        if(!nr.cleared || nr.isBoss){ nr.spawnEnemies(dungeon.depth); }
-        break;
+        continue;
       }
+      dungeon.current = nr;
+      if(!nr.visited){ dungeon.depth++; }
+      nr.visited = true;
+      dungeon.revealRoom(nr);
+      // 入口位置
+      if(d.dir==='up'){ player.x=CONFIG.roomW/2; player.y=CONFIG.roomH-60; }
+      if(d.dir==='down'){ player.x=CONFIG.roomW/2; player.y=60; }
+      if(d.dir==='left'){ player.x=CONFIG.roomW-60; player.y=CONFIG.roomH/2; }
+      if(d.dir==='right'){ player.x=60; player.y=CONFIG.roomH/2; }
+      bullets.length=0; enemyProjectiles.length=0;
+      if(nr.isBoss && !nr.introPlayed){
+        bossIntroText = nr.bossName;
+        bossIntroTimer = 3.2;
+        nr.introPlayed = true;
+      }
+      if(nr.isItemRoom){ nr.ensureItem(); }
+      if(nr.isShop){ nr.prepareShop(); }
+      if(!nr.cleared || nr.isBoss){ nr.spawnEnemies(dungeon.depth); }
+      break;
     }
   }
   function rectCircleOverlap(rx,ry,rw,rh, cx,cy,cr){
@@ -729,6 +1175,36 @@
     const ny = clamp(cy, ry, ry+rh);
     const dx = cx - nx, dy = cy - ny;
     return dx*dx + dy*dy <= cr*cr;
+  }
+  function circleRectOverlap(circle, rect){
+    return rectCircleOverlap(rect.x, rect.y, rect.w, rect.h, circle.x, circle.y, circle.r);
+  }
+  function resolveEntityObstacles(entity){
+    if(!dungeon?.current) return;
+    if(entity===player && player.flying) return;
+    for(const obs of dungeon.current.obstacles){
+      if(obs.destroyed) continue;
+      const push = circleRectResolve(entity, obs);
+      if(push){
+        entity.x += push.x;
+        entity.y += push.y;
+        if(entity.knockVel){ entity.knockVel.x *= 0.5; entity.knockVel.y *= 0.5; }
+      }
+    }
+  }
+  function circleRectResolve(circle, rect){
+    const nx = clamp(circle.x, rect.x, rect.x+rect.w);
+    const ny = clamp(circle.y, rect.y, rect.y+rect.h);
+    const dx = circle.x - nx;
+    const dy = circle.y - ny;
+    const distSq = dx*dx + dy*dy;
+    const r = circle.r;
+    if(distSq >= r*r) return null;
+    const dist = Math.sqrt(distSq) || 0.0001;
+    const overlap = r - dist;
+    const ox = dist ? (dx/dist) * overlap : 0;
+    const oy = dist ? (dy/dist) * overlap : -overlap;
+    return {x:ox, y:oy};
   }
 
   // ======= 主循环 =======
@@ -744,6 +1220,13 @@
 
   function update(dt){
     player.update(dt);
+
+    const bombs = dungeon.current.bombs;
+    for(let i=bombs.length-1;i>=0;i--){
+      const b = bombs[i];
+      b.update(dt);
+      if(b.done){ bombs.splice(i,1); }
+    }
 
     // 子弹
     for(const b of bullets) b.update(dt);
@@ -782,6 +1265,11 @@
       if(rand()<CONFIG.drops.heartRoomClear){
         dungeon.current.pickups.push(makeHeartPickup(randRange(120,CONFIG.roomW-120), randRange(120,CONFIG.roomH-120), 1));
       }
+      if(rand()<CONFIG.drops.roomClearResource){
+        const resType = CONFIG.drops.resourceTypes[Math.floor(rand()*CONFIG.drops.resourceTypes.length)];
+        const amount = resType==='coin'?4:1;
+        dungeon.current.pickups.push(makeResourcePickup(resType, randRange(120,CONFIG.roomW-120), randRange(120,CONFIG.roomH-120), amount));
+      }
     }
 
     // 拾取
@@ -794,6 +1282,9 @@
           picks.splice(i,1);
         } else if(p.type==='item'){
           pickupItem(p);
+          picks.splice(i,1);
+        } else if(p.type==='bomb' || p.type==='key' || p.type==='coin'){
+          grantResource(p.type, p.amount || 1);
           picks.splice(i,1);
         }
       }
@@ -811,7 +1302,7 @@
 
   function renderHUD(){
     const hearts = '❤'.repeat(Math.max(0,player.hp)) + '·'.repeat(Math.max(0, player.maxHp - player.hp));
-    HUDL.innerHTML = `生命：<span style="letter-spacing:1px">${hearts}</span>`;
+    HUDL.innerHTML = `生命：<span style="letter-spacing:1px">${hearts}</span><span class="kbd">💣 ${player.bombs}</span><span class="kbd">🔑 ${player.keys}</span><span class="kbd">🪙 ${player.coins}</span>`;
     const fireRate = player.fireInterval>0 ? (1000/player.fireInterval).toFixed(2) : '∞';
     const damage = Number.isInteger(player.damage) ? player.damage : player.damage.toFixed(1);
     const moveSpeed = Math.round(player.speed);
@@ -842,9 +1333,12 @@
     ctx.clearRect(0,0,CONFIG.roomW, CONFIG.roomH);
     drawRoomBackdrop();
     drawDoors();
+    drawObstacles();
 
     // 拾取
     for(const p of dungeon.current.pickups){ drawPickup(p); }
+
+    for(const bomb of dungeon.current.bombs){ bomb.draw(); }
 
     // 敌人
     for(const e of dungeon.current.enemies){ e.draw(); }
@@ -894,7 +1388,9 @@
       const nr = dungeon.rooms[ni]?.[nj];
       const leadsBoss = !!(nr && nr.isBoss && !nr.bossDefeated);
       const leadsItem = !!(nr && nr.isItemRoom && !nr.itemClaimed);
-      const doorUnlocked = r.cleared || r.isBoss || (nr && nr.isBoss);
+      const locked = !!(nr && nr.locked);
+      const doorReady = r.cleared || r.isBoss || (nr && nr.isBoss);
+      const doorUnlocked = doorReady && !locked;
       let frame = '#2a3142';
       let fill = '#1e2330';
       if(leadsBoss){
@@ -903,9 +1399,16 @@
       } else if(leadsItem){
         frame = doorUnlocked ? '#facc1555' : '#3a3318';
         fill = doorUnlocked ? '#facc15' : '#3b3414';
+      } else if(nr?.isShop){
+        frame = doorUnlocked ? '#fbbf2455' : '#3a2f1a';
+        fill = doorUnlocked ? '#fbbf24' : '#3b2f18';
       } else if(doorUnlocked){
         frame = '#6ee7ff55';
         fill = '#6ee7ff';
+      }
+      if(locked){
+        frame = '#b4530955';
+        fill = '#7c2d12';
       }
       ctx.save();
       // 门框
@@ -917,78 +1420,248 @@
       ctx.restore();
     }
   }
+  function drawObstacles(){
+    const room = dungeon.current;
+    ctx.save();
+    for(const obs of room.obstacles){
+      if(obs.destroyed) continue;
+      const g = ctx.createLinearGradient(obs.x, obs.y, obs.x, obs.y+obs.h);
+      g.addColorStop(0,'#2b2f3f');
+      g.addColorStop(1,'#1b1f2b');
+      ctx.fillStyle = g;
+      ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+      ctx.strokeStyle = '#0005';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
+      ctx.fillStyle = '#fff1';
+      ctx.fillRect(obs.x+4, obs.y+4, obs.w-8, 2);
+    }
+    ctx.restore();
+  }
   function drawPickup(p){
     if(p.type==='heart'){
-      const t = (performance.now()/300)%Math.PI;
-      const r = p.r + Math.sin(t)*1.2;
-      ctx.save();
-      ctx.translate(p.x,p.y);
-      ctx.fillStyle = p.heal>1 ? '#ff98a8' : '#ff7787';
-      ctx.strokeStyle = '#fff3'; ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(0, r*0.6);
-      ctx.bezierCurveTo(r, -r*0.6, r*1.2, r*0.6, 0, r);
-      ctx.bezierCurveTo(-r*1.2, r*0.6, -r, -r*0.6, 0, r*0.6);
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
+      drawHeartPickup(p);
+    } else if((p.type==='bomb' || p.type==='key' || p.type==='coin') && !p.entry){
+      drawResourcePickup(p);
     } else if(p.type==='item' && p.item){
-      const bob = Math.sin(performance.now()/480)*4;
+      drawItemPickup(p);
+    } else if(p.type==='shop'){
+      drawShopPickup(p);
+    }
+  }
+
+  function drawHeartPickup(p){
+    const t = (performance.now()/300)%Math.PI;
+    const r = p.r + Math.sin(t)*1.2;
+    ctx.save();
+    ctx.translate(p.x,p.y);
+    ctx.fillStyle = p.heal>1 ? '#ff98a8' : '#ff7787';
+    ctx.strokeStyle = '#fff3'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, r*0.6);
+    ctx.bezierCurveTo(r, -r*0.6, r*1.2, r*0.6, 0, r);
+    ctx.bezierCurveTo(-r*1.2, r*0.6, -r, -r*0.6, 0, r*0.6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawResourcePickup(p){
+    const bob = Math.sin(performance.now()/480)*4;
+    ctx.save();
+    ctx.translate(p.x, p.y + bob);
+    drawResourceIcon(p.type, p.r);
+    ctx.restore();
+    if(p.amount>1){
       ctx.save();
-      ctx.translate(p.x,p.y);
-      ctx.fillStyle = '#2a3146';
-      ctx.fillRect(-18,12,36,9);
-      ctx.fillStyle = '#39415c';
-      ctx.fillRect(-14,6,28,8);
-      ctx.translate(0, bob-6);
-      const id = p.item.id;
-      if(id==='onion'){
-        ctx.fillStyle = '#facc15';
-        ctx.strokeStyle = '#fff5';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(0,-p.r*0.7);
-        ctx.bezierCurveTo(p.r*0.75,-p.r*0.3, p.r*0.55, p.r*0.45, 0, p.r*0.85);
-        ctx.bezierCurveTo(-p.r*0.55, p.r*0.45, -p.r*0.75, -p.r*0.3, 0, -p.r*0.7);
-        ctx.fill();
-        ctx.stroke();
-        ctx.strokeStyle = '#7c5b0f';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(0,-p.r*0.9);
-        ctx.lineTo(0,-p.r*1.2);
-        ctx.stroke();
-      } else if(id==='tar'){
-        const grad = ctx.createRadialGradient(0,-2,2,0,0,p.r*0.75);
-        grad.addColorStop(0,'#5f6cff');
-        grad.addColorStop(1,'#2d2f59');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.ellipse(0,0,p.r*0.9,p.r*0.7,0,0,Math.PI*2);
-        ctx.fill();
-      } else if(id==='sneaker'){
-        ctx.fillStyle = '#9ae6b4';
-        ctx.beginPath();
-        ctx.moveTo(-p.r*0.8, p.r*0.2);
-        ctx.quadraticCurveTo(-p.r*0.2, -p.r*0.7, p.r*0.8, -p.r*0.1);
-        ctx.lineTo(p.r*0.5, p.r*0.5);
-        ctx.quadraticCurveTo(-p.r*0.1, p.r*0.3, -p.r*0.8, p.r*0.2);
-        ctx.fill();
-        ctx.fillStyle='#2f855a';
-        ctx.fillRect(-p.r*0.2, -p.r*0.1, p.r*0.8, p.r*0.15);
-      } else {
-        ctx.fillStyle = '#b0c9ff';
-        ctx.beginPath();
-        ctx.arc(0,0,p.r*0.8,0,Math.PI*2);
-        ctx.fill();
-      }
-      ctx.restore();
-      ctx.save();
-      ctx.fillStyle = '#dde3ff';
+      ctx.fillStyle = '#dbeafe';
       ctx.font = '12px "HYWenHei", "PingFang SC", sans-serif';
       ctx.textAlign='center';
-      ctx.fillText(p.item.name, p.x, p.y - 30);
+      ctx.fillText(`x${p.amount}`, p.x, p.y + 28);
       ctx.restore();
+    }
+  }
+
+  function drawItemPickup(p){
+    const bob = Math.sin(performance.now()/480)*4;
+    ctx.save();
+    ctx.translate(p.x,p.y);
+    ctx.fillStyle = '#2a3146';
+    ctx.fillRect(-18,12,36,9);
+    ctx.fillStyle = '#39415c';
+    ctx.fillRect(-14,6,28,8);
+    ctx.translate(0, bob-6);
+    drawItemIcon(p.item.id, p.r);
+    ctx.restore();
+    ctx.save();
+    ctx.fillStyle = '#dde3ff';
+    ctx.font = '12px "HYWenHei", "PingFang SC", sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText(p.item.name, p.x, p.y - 30);
+    ctx.restore();
+  }
+
+  function drawShopPickup(p){
+    const bob = Math.sin(performance.now()/520)*4;
+    const near = player ? dist(p, player) < p.r + player.r + 16 : false;
+    ctx.save();
+    ctx.translate(p.x,p.y);
+    ctx.fillStyle = near ? '#303854' : '#2a3146';
+    ctx.fillRect(-20,14,40,10);
+    ctx.fillStyle = near ? '#4b5774' : '#39415c';
+    ctx.fillRect(-16,7,32,9);
+    ctx.translate(0,bob-6);
+    if(p.entry.type==='item'){
+      drawItemIcon(p.entry.item.id, p.r*0.9);
+    } else {
+      drawResourceIcon(p.entry.resource, p.r*0.9);
+    }
+    ctx.restore();
+    const title = p.entry.type==='item' ? p.entry.item.name : `${RESOURCE_LABELS[p.entry.resource]} x${p.entry.amount}`;
+    ctx.save();
+    ctx.fillStyle = '#d6dcff';
+    ctx.font = '12px "HYWenHei", "PingFang SC", sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText(title, p.x, p.y - 32);
+    ctx.fillStyle = near ? '#facc15' : '#cbd5f5';
+    ctx.fillText(`${p.price}🪙`, p.x, p.y - 16);
+    ctx.restore();
+  }
+
+  function drawItemIcon(id, radius){
+    const r = radius;
+    if(id==='onion'){
+      ctx.fillStyle = '#facc15';
+      ctx.strokeStyle = '#fff5';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0,-r*0.7);
+      ctx.bezierCurveTo(r*0.75,-r*0.3, r*0.55, r*0.45, 0, r*0.85);
+      ctx.bezierCurveTo(-r*0.55, r*0.45, -r*0.75, -r*0.3, 0, -r*0.7);
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = '#7c5b0f';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0,-r*0.9);
+      ctx.lineTo(0,-r*1.2);
+      ctx.stroke();
+    } else if(id==='tar'){
+      const grad = ctx.createRadialGradient(0,-2,2,0,0,r*0.75);
+      grad.addColorStop(0,'#5f6cff');
+      grad.addColorStop(1,'#2d2f59');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(0,0,r*0.9,r*0.7,0,0,Math.PI*2);
+      ctx.fill();
+    } else if(id==='sneaker'){
+      ctx.fillStyle = '#9ae6b4';
+      ctx.beginPath();
+      ctx.moveTo(-r*0.8, r*0.2);
+      ctx.quadraticCurveTo(-r*0.2, -r*0.7, r*0.8, -r*0.1);
+      ctx.lineTo(r*0.5, r*0.5);
+      ctx.quadraticCurveTo(-r*0.1, r*0.3, -r*0.8, r*0.2);
+      ctx.fill();
+      ctx.fillStyle='#2f855a';
+      ctx.fillRect(-r*0.2, -r*0.1, r*0.8, r*0.15);
+    } else if(id==='pepper-steak'){
+      ctx.fillStyle = '#b45309';
+      ctx.beginPath(); ctx.ellipse(0,0,r*0.95,r*0.65,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath(); ctx.ellipse(0,0,r*0.6,r*0.35,0,0,Math.PI*2); ctx.fill();
+    } else if(id==='rope'){
+      ctx.strokeStyle = '#fde68a';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(-r*0.6, -r*0.8);
+      ctx.quadraticCurveTo(0, r*0.4, r*0.6, -r*0.8);
+      ctx.stroke();
+    } else if(id==='spirit-date'){
+      ctx.fillStyle = '#92400e';
+      ctx.beginPath(); ctx.ellipse(0,0,r*0.6,r*0.85,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#f97316';
+      ctx.beginPath(); ctx.arc(0,-r*0.25,r*0.25,0,Math.PI*2); ctx.fill();
+    } else if(id==='betrayal-hound'){
+      ctx.fillStyle='#4c1d95';
+      ctx.beginPath(); ctx.arc(-r*0.3,-r*0.2,r*0.3,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(r*0.3,-r*0.2,r*0.3,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#a855f7';
+      ctx.beginPath(); ctx.arc(0,r*0.2,r*0.5,0,Math.PI*2); ctx.fill();
+    } else if(id==='despair-shout'){
+      ctx.fillStyle='#cbd5f5';
+      ctx.beginPath(); ctx.arc(0,0,r*0.85,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#7c3aed';
+      ctx.beginPath(); ctx.arc(0,0,r*0.55,0,Math.PI*2); ctx.fill();
+    } else if(id==='bad-thing'){
+      ctx.fillStyle='#1f2937';
+      ctx.beginPath(); ctx.arc(0,0,r*0.9,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#f97316'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(0,0,r*0.6,0,Math.PI*2); ctx.stroke();
+    } else if(id==='good-thing'){
+      ctx.fillStyle='#fbcfe8';
+      ctx.beginPath(); ctx.arc(0,0,r*0.9,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#f472b6'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(0,0,r*0.55,0,Math.PI*2); ctx.stroke();
+    } else if(id==='blood-power'){
+      ctx.fillStyle='#ef4444';
+      ctx.beginPath(); ctx.arc(0,0,r*0.85,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#fee2e2';
+      ctx.beginPath(); ctx.arc(0,0,r*0.4,0,Math.PI*2); ctx.fill();
+    } else if(id==='money-power'){
+      ctx.fillStyle='#fbbf24';
+      ctx.beginPath(); ctx.arc(0,0,r*0.85,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#fde68a';
+      ctx.beginPath(); ctx.arc(0,0,r*0.4,0,Math.PI*2); ctx.fill();
+    } else if(id==='despair-power'){
+      ctx.fillStyle='#1f2937';
+      ctx.beginPath(); ctx.arc(0,0,r*0.9,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#f9a8d4';
+      ctx.beginPath(); ctx.arc(0,0,r*0.35,0,Math.PI*2); ctx.fill();
+    } else if(id==='dog-food'){
+      ctx.fillStyle='#92400e';
+      ctx.fillRect(-r*0.7,-r*0.5,r*1.4,r*0.9);
+      ctx.fillStyle='#fde68a';
+      ctx.fillRect(-r*0.7,-r*0.9,r*1.4,r*0.4);
+    } else if(id==='ending-note'){
+      ctx.fillStyle='#f8fafc';
+      ctx.fillRect(-r*0.5,-r*0.8,r,r*1.4);
+      ctx.fillStyle='#6366f1';
+      ctx.fillRect(-r*0.5,-r*0.2,r,r*0.12);
+    } else if(id==='kettle'){
+      ctx.fillStyle='#94a3b8';
+      ctx.beginPath(); ctx.arc(0,0,r*0.75,0,Math.PI*2); ctx.fill();
+      ctx.fillRect(-r*0.2,-r*0.95,r*0.4,r*0.4);
+    } else {
+      ctx.fillStyle = '#b0c9ff';
+      ctx.beginPath();
+      ctx.arc(0,0,r*0.8,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  function drawResourceIcon(type, radius){
+    const r = radius;
+    if(type==='bomb'){
+      ctx.fillStyle = '#2f3345';
+      ctx.beginPath(); ctx.arc(0,0,r*0.9,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#ff6b6b';
+      ctx.beginPath(); ctx.arc(0,0,r*0.6,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#2f3345';
+      ctx.fillRect(-2,-r*1.1,4,r*0.6);
+    } else if(type==='key'){
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath(); ctx.arc(-r*0.3,0,r*0.55,0,Math.PI*2); ctx.fill();
+      ctx.fillRect(-r*0.3, -r*0.15, r*1.3, r*0.3);
+      ctx.fillStyle = '#1f2937';
+      ctx.fillRect(r*0.35, -r*0.05, r*0.3, r*0.2);
+    } else if(type==='coin'){
+      const grad = ctx.createRadialGradient(-2,-2,2,0,0,r*0.9);
+      grad.addColorStop(0,'#fff5ba');
+      grad.addColorStop(1,'#facc15');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(0,0,r*0.9,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#d97706';
+      ctx.fillRect(-r*0.2,-r*0.75,r*0.4,r*1.5);
     }
   }
   function drawPlayer(){
@@ -1020,6 +1693,7 @@
       if(r===dungeon.current){ ctx.fillStyle='#6ee7ff'; }
       else if(r.isBoss && !r.bossDefeated){ ctx.fillStyle='#ff6b6b'; }
       else if(r.isItemRoom && !r.itemClaimed){ ctx.fillStyle='#facc15'; }
+      else if(r.isShop){ ctx.fillStyle='#fbbf24'; }
       else { ctx.fillStyle='#2c3a54'; }
       ctx.fillRect(x,y,cell-1,cell-1);
     }
@@ -1115,6 +1789,12 @@
       this.life -= dt;
       if(this.life<=0) this.alive=false;
       if(this.x<20||this.x>CONFIG.roomW-20||this.y<20||this.y>CONFIG.roomH-20) this.alive=false;
+      if(this.alive){
+        for(const obs of dungeon.current.obstacles){
+          if(obs.destroyed) continue;
+          if(circleRectOverlap(this, obs)){ this.alive=false; break; }
+        }
+      }
     }
     checkHit(target){
       if(!this.alive) return false;
@@ -1146,11 +1826,16 @@
     if(enemy instanceof EnemyBoss){
       room.bossDefeated = true;
       room.cleared = true;
-      spawnHeartBundle(room, enemy.x, enemy.y);
+      spawnBossRewards(room, enemy.x, enemy.y);
     } else {
       if(rand() < CONFIG.drops.heartPerEnemy){
         const heal = rand() < CONFIG.drops.doubleHeartChance ? 2 : 1;
         room.pickups.push(makeHeartPickup(enemy.x + randRange(-12,12), enemy.y + randRange(-12,12), heal));
+      }
+      if(rand() < CONFIG.drops.resourcePerEnemy){
+        const resType = CONFIG.drops.resourceTypes[Math.floor(rand()*CONFIG.drops.resourceTypes.length)];
+        const amount = resType==='coin'?3:1;
+        room.pickups.push(makeResourcePickup(resType, enemy.x + randRange(-18,18), enemy.y + randRange(-18,18), amount));
       }
     }
   }
@@ -1161,11 +1846,67 @@
     room.pickups.push(makeHeartPickup(x+randRange(-24,24), y+randRange(-20,20), 1));
   }
 
+  function spawnBossRewards(room,x,y){
+    spawnHeartBundle(room,x,y);
+    const item = rollBossItem();
+    room.pickups.push({type:'item', x:clamp(x,90,CONFIG.roomW-90), y:clamp(y-40,120,CONFIG.roomH-120), r:18, item});
+  }
+
   function makeHeartPickup(x,y,heal){
     return {type:'heart', x:clamp(x,60,CONFIG.roomW-60), y:clamp(y,60,CONFIG.roomH-60), r: heal>1?14:10, heal};
   }
 
   function queueEnemySpawn(enemy){ pendingEnemySpawns.push(enemy); }
+
+  function placeBomb(){
+    if(!player || !dungeon?.current) return;
+    if(player.bombs<=0 || player.bombCooldown>0) return;
+    const bomb = new Bomb(player.x, player.y);
+    dungeon.current.bombs.push(bomb);
+    player.bombs = Math.max(0, player.bombs-1);
+    player.bombCooldown = 0.3;
+  }
+
+  function attemptPurchase(){
+    const room = dungeon?.current;
+    if(!player || !room) return;
+    let targetIndex=-1;
+    let nearest=Infinity;
+    for(let i=0;i<room.pickups.length;i++){
+      const p = room.pickups[i];
+      if(p.type!=='shop' || p.purchased) continue;
+      const d = dist(p, player);
+      if(d < p.r + player.r + 16 && d < nearest){ nearest=d; targetIndex=i; }
+    }
+    if(targetIndex===-1) return;
+    const pickup = room.pickups[targetIndex];
+    if(player.coins < pickup.price){
+      if(itemPickupTimer<=0){
+        itemPickupName = '金币不足';
+        itemPickupDesc = `需要 ${pickup.price} 枚金币`;
+        itemPickupTimer = 1.2;
+      }
+      return;
+    }
+    player.coins -= pickup.price;
+    player.recalculateDamage();
+    pickup.purchased = true;
+    room.pickups.splice(targetIndex,1);
+    if(pickup.entry.type==='item'){
+      const item = pickup.entry.item;
+      if(typeof item.apply === 'function'){ item.apply(player); }
+      if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
+      itemPickupName = item.name;
+      itemPickupDesc = item.description || '';
+      itemPickupTimer = 2.4;
+    } else if(pickup.entry.type==='resource'){
+      grantResource(pickup.entry.resource, pickup.entry.amount);
+      const label = RESOURCE_LABELS[pickup.entry.resource] || '资源';
+      itemPickupName = `${label} +${pickup.entry.amount}`;
+      itemPickupDesc = '来自商店';
+      itemPickupTimer = 1.5;
+    }
+  }
 
   // ======= 入口 =======
   function showStart(){ showMenu(); lastTime = performance.now(); }
