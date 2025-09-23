@@ -1,132 +1,207 @@
-项目概览 · Project Overview
+# 地窖速通实验室 · Basement Speedrun Lab
 
-这是一个受 《以撒的结合》 启发的 HTML5 Canvas 单页游戏。
-涵盖自适应界面、键位提示与集成控制面板，支持浏览器直接游玩，呈现 “地窖速通实验室” 的俯视角射击体验。
+[![Progress](https://img.shields.io/badge/Progress-92%25-blue)](#) [![HTML5 Canvas](https://img.shields.io/badge/Engine-HTML5%20Canvas-orange)](#) [![Single-file](https://img.shields.io/badge/Build-Single--file-green)](#) [![Zero Deps](https://img.shields.io/badge/Deps-0-lightgrey)](#)
 
-It is a single-file HTML5 Canvas experiment inspired by The Binding of Isaac, bundling adaptive layout, on-screen guidance, and integrated control panels to deliver a “Basement Speedrun Lab” top-down shooter entirely in the browser.
+> 纯前端、**单文件** 的地牢速通实验室：顶视角射击、覆盖式引导、道具图鉴与进度可视化，开箱即玩。  
+> A **single-file** HTML5 Canvas prototype: snappy top-down combat, contextual overlays, and a live item codex—zero dependencies.
 
-快速上手 · Quick Start
+---
 
-控制 / Controls
+## 目录 · Table of Contents
+- [概览 · Overview](#概览--overview)
+- [快速上手 · Quick Start](#快速上手--quick-start)
+- [核心特性 · Core Features](#核心特性--core-features)
+- [地下城生成 · Procedural Basement](#地下城生成--procedural-basement)
+- [战斗循环 · Combat Loop](#战斗循环--combat-loop)
+- [资源与掉落 · Resources & Drops](#资源与掉落--resources--drops)
+- [进度呈现 · Progress Visibility](#进度呈现--progress-visibility)
+- [道具图鉴 · Item Codex](#道具图鉴--item-codex)
+- [卡牌一览 · Card Deck](#卡牌一览--card-deck)
+- [怪物图鉴 · Monster Bestiary](#怪物图鉴--monster-bestiary)
+- [Boss 图鉴 · Boss Gallery](#boss-图鉴--boss-gallery)
+- [无障碍与技术注记 · A11y & Tech Notes](#无障碍与技术注记--a11y--tech-notes)
+- [运行与部署 · Run & Deploy](#运行与部署--run--deploy)
+- [版权 · License](#版权--license)
 
-WASD：移动 (move)
+---
 
-方向键：射击 (shoot)
+## 概览 · Overview
 
-E：放置炸弹 (drop bombs)
+**当前进度 Progress:** 92%（作者自述）  
+This is a single-file HTML5 Canvas **Basement Speedrun Lab**. It ships a top-down shooter, contextual overlays, and a live item codex—**no external assets** needed.
 
-F：购买 (purchase)
+---
 
-Enter：开始或回主菜单 (start/menu)
+## 快速上手 · Quick Start
 
-P：暂停 (pause)
+- **移动/射击**: WASD / 方向键 · *Use WASD/arrow keys for movement & shooting*  
+- **放置炸弹**: `E` · *Drop bombs*  
+- **购物**: `F` · *Shop*  
+- **释放卡牌**: `Q` · *Play cards*  
+- **开始/菜单**: `Enter` · *Start / Menu*  
+- **暂停**: `P` · *Pause*  
+- **重开**: `R` · *Restart*
 
-R：重开 (restart)
+开局、暂停与阵亡会弹出覆盖提示；点击 **“我要出发！”** 即刻回到战斗。  
+Contextual overlays at start, pause, and game over; hit **“我要出发！”** to dive back in.
 
-开局提示、暂停信息和死亡提示通过覆盖层呈现，点击 “我要出发！” 即可立即开跑。
-Overlays brief you at start, pause, and game over; click “我要出发！” to dive in.
+---
 
-界面与可访问性 · UI & Accessibility
+## 核心特性 · Core Features
 
-自适应深色界面：HUD 与面板适配桌面与移动端
+- **自适应界面 · Adaptive Interface**  
+  响应式 HUD 展示生命、资源、主被动充能与核心数值，适配桌面与移动端。  
+  *Responsive HUD across form factors.*
 
-虚拟按键：支持长按/点按，映射物理键码
+- **辅助工具 · Utilities**  
+  可折叠**作弊面板**（生命/伤害/移动/资源修改，支持道具编号召唤）、带 **ARIA** 的屏幕键盘、随解锁进度生成缩略图的**道具图鉴**。  
+  *Collapsible cheat console, ARIA-aware on-screen keyboard, auto-rendered item codex.*
 
-作弊面板：可直接修改生命、伤害、移速、资源与道具，字段同步玩家状态并具备 ARIA 属性
+- **小地图与事件可视化 · Readable Flow**  
+  小地图颜色区分：当前房间 / Boss / 道具房 / 商店；另有 **Boss 血条、开场介绍与拾取横幅**。  
+  *Minimap color-codes key rooms; boss bars and pickup banners spotlight beats.*
 
-道具图鉴：实时累计已获得道具，绘制像素化小图并统计进度，鼓励继续探索
+---
 
-核心系统 · Core Systems
-地下城生成 · Dungeon Generation
+## 地下城生成 · Procedural Basement
 
-9×9 网格随机游走生成主线房间
+基于 **9×9 潜在网格的随机游走**：自动铺设主线、Boss、道具房与商店；保证房门连通、障碍簇分布与隐藏房间掉落的合理性。  
+*9×9 lattice random walk places paths, bosses, treasure, and shops with door connectivity and secret-room rewards.*
 
-自动追加 Boss 房、道具房与商店
+---
 
-确保房门连通与可达性
+## 战斗循环 · Combat Loop
 
-房间逻辑
+- **移动**：带加速/减速惯性，上限速度可被道具突破。  
+- **射击**：独立冷却；实时重算伤害、半径、穿透、追踪。  
+- **炸弹**：击退、连锁与震屏；可摧毁障碍或引出隐藏掉落。  
+*Movement uses acceleration/drift; tears recalc stats; bombs shove/chain/shake and reveal secrets.*
 
-不同类型决定敌人、障碍、掉落与锁门
+---
 
-Boss 房注入特定首领
+## 资源与掉落 · Resources & Drops
 
-安全房直接标记清理完成
+房间结算、障碍破坏与宝箱会产出 **心/钥匙/炸弹/金币**，并有概率掉落**单次卡牌**。拾取道具会触发横幅与卡牌判定，金币/生命系道具会**重算伤害收益**。  
+*Rooms, rubble, and chests spawn core resources; pickups broadcast banners and may spill cards; gold/HP-scaling perks recalc damage.*
 
-障碍系统
+---
 
-包含隐藏/镂空结构
+## 进度呈现 · Progress Visibility
 
-炸毁后有概率掉落物
+小地图颜色区分房型；**Boss 血条**、**开场介绍**与**拾取横幅**让关键事件清晰可见。  
+*Minimap color-codes rooms; boss bars, intro slates, and banners highlight moments.*
 
-密室宝箱可能刷新隐藏道具
+---
 
-玩家与战斗 · Player & Combat
+## 道具图鉴 · Item Codex
 
-移动/射击方向分离，含冲刺与射击惯性
+> 说明：中文为主，斜体为英文补充。效果以游戏内实现为准。
 
-泪滴：射速、寿命影响 DPS
+| ID | 道具 · Item | 效果 · Effect |
+|---:|:--|:--|
+| 01 | 洋葱 *Onion* | 射速 **+0.75 次/秒** · *+0.75 shots/sec* |
+| 02 | 焦油抹布 *Tar Rag* | 伤害 **+0.5**，泪滴更厚重 · *+0.5 dmg, heavier tears* |
+| 03 | 小短跑鞋 *Sprinter Shoes* | 移动速度 **+35** · *+35 move speed* |
+| 04 | 胡椒牛排 *Pepper Steak* | 伤害 **+1**，射速 **+1**，射程 **×1.5**，上限 **+1** 并治疗 · *+1 dmg, +1 rps, ×1.5 range, +1 max HP w/ heal* |
+| 05 | 绳子 *Rope* | 获得**飞行** · *Grants flight* |
+| 06 | 酒枣 *Spirit Date* | 射程 **×1.5**，泪滴**穿透障碍** · *×1.5 range, piercing* |
+| 07 | 伙伴倒戈犬 *Betrayal Hound* | 伤害 **×2 +1.5**，射速 **−0.25** 次/秒 |
+| 08 | 绝望呐喊 *Cry of Despair* | 射程/寿命 **×5** |
+| 09 | 坏东西 *Bad Thing* | 子弹速度 **×1.1** |
+| 10 | 好东西 *Good Thing* | 子弹速度 **×0.75**，射速 **+0.75**，射程 **×1.25** |
+| 11 | 透视雷达 *Seer Map* | 当前与未来楼层**地图全显** |
+| 12 | 户外腰包 *Outdoor Pouch* | **主动·5 充能**：钥匙×1、炸弹×1、金币×3 |
+| 13 | 肾上腺素 *Adrenaline* | **主动·3 充能**：本房间 **伤害+2/射速+2/射程×5/弹速×2**，生命 **−1** |
+| 14 | 炸弹表舅 *Bomb Cousin* | 炸弹 **+5**，爆炸范围 **×2**，伤害 **×2** |
+| 15 | 炸弹舅爷 *Bomb Uncle* | 炸弹 **+99**，范围 **×5**，伤害 **×5**，触发**震动** |
+| 16 | 炸弹爷爷 *Bomb Grandpa* | **免疫炸弹伤害**，爆炸**治疗** |
+| 17 | 魔术子弹 *Magic Bullet* | 射程 **×3**，泪滴**追踪最近敌人** |
+| 18 | 血之力 *Blood Power* | **生命越多伤害越高** |
+| 19 | 钱之力 *Money Power* | **金币转化为伤害** |
+| 20 | 绝望之力 *Despair Power* | **血越少越凶猛** |
+| 21 | 狗粮 *Dog Food* | **上限 +1 并立即恢复** |
+| 22 | 结束纸条 *Ending Note* | **射速 +0.75**，**射程 ×1.1** |
+| 23 | 热水壶 *Kettle* | **伤害 +1** |
 
-伤害：基础值 + 乘区 + 特效实时重算
+---
 
-炸弹：导火、击退、爆炸半径，能炸障碍、推掉落、波及敌我
+## 卡牌一览 · Card Deck
 
-资源与掉落 · Resources & Drops
+- **通透牌 · Seer Card**：当前楼层**地图全显** · *Reveal whole floor*  
+- **伤害牌 · Rage Card**：本房间 **伤害 +2** · *+2 dmg this room*  
+- **追踪牌 · Homing Card**：本房间 **泪滴追踪** · *Homing tears this room*  
+- **杂耍牌 · Juggle Card**：**钥匙/炸弹/生命 各 1**  
+- **无敌牌 · Invincible Card**：**3 秒无敌**  
+- **血牌 · Blood Card**：**生命回满**  
+- **穿透牌 · Pierce Card**：本房间**子弹穿透障碍**  
+- **玩家牌 · Player Card**：**随机被动道具**
 
-配置表定义掉落几率（心、钥匙、金币等）
+---
 
-拾取物具备惯性、边界约束与爆炸连锁
+## 怪物图鉴 · Monster Bestiary
 
-道具与商店 · Items & Shops
+| 敌人 · Enemy | 行为 · Behavior（简述） |
+|:--|:--|
+| 追击者 · *Chaser* | 直线猛冲；受击短暂后退。*Charges straight; recoils on hit.* |
+| 轨道蛆 · *Orbiter* | 绕行锚点缓慢逼近。*Orbits a drifting anchor.* |
+| 气囊怪 · *Gasbag* | 近身点燃自爆，弹出小飞虫。*Explodes into Tiny Flies.* |
+| 分裂体 · *Splitter* | 死亡分裂再集结。*Splits into smaller clones.* |
+| 易爆蛞蝓 · *Volatile* | 触发引线，蓄满即爆。*Fuse → wide blast.* |
+| 小飞虫 · *Tiny Fly* | 贴脸骚扰，弹飞再冲刺。*Buzz, bounce, re-engage.* |
+| 老飞虫 · *Elder Fly* | 保持距离绕行并读条射击。*Circles, telegraphed volleys.* |
+| 哨卫 · *Sentry* | 原地锁定，三向弹幕。*Locks on, triple burst.* |
+| 冲刺鬼 · *Dashling* | 预兆→高速冲刺→疲劳循环。*Telegraph → lunge → recover.* |
+| 潜伏者 · *Burrower* | 潜地追踪，出土直刺。*Burrow and erupt lunge.* |
+| 火花灵 · *Spark* | 小半径轨道，环形电弧弹。*Radial spark bursts.* |
+| 育母虫 · *Brood* | 中距离孵化小飞虫。*Spawns minions in radius.* |
+| 蜘蛛跃者 · *Spider Leaper* | 读条弹跳落地冲击，狂暴加速。*Telegraphed acrobatics.* |
 
-三大道具池：基础 / 商店 / Boss（加权抽取，唯一编号）
+---
 
-商店：15/5 金币定价，购买后刷新
+## Boss 图鉴 · Boss Gallery
 
-拾取道具触发提示、登记图鉴、即时应用
+- **哭泣塑像 · Idol**  
+  随机使用喷射弹幕 / 召唤援兵 / 冲刺；低血狂暴。  
+  *Sprays, summons, and charges; enrages at low HP.*
 
-道具图鉴 · Item Codex
-ID	中文名	English Name	效果 Effect
-01	洋葱	Onion	射速 +0.75 次/秒 · Fire rate +0.75 shots/sec
-02	焦油抹布	Tar Rag	伤害 +0.5，泪滴更厚重 · +0.5 dmg, heavier tears
-03	小短跑鞋	Sprinter Shoes	移速 +35 · Move speed +35
-04	胡椒牛排	Pepper Steak	伤害 +1，射速 +1，射程 ×1.5，血上限 +1
-05	绳子	Rope	赋予飞行 · Grants flight
-06	酒枣	Spirit Date	射程 ×1.5，泪滴穿透障碍
-07	伙伴倒戈犬	Betrayal Hound	伤害 ×2+1.5，射速 -0.25
-08	绝望呐喊	Cry of Despair	射程 ×5
-09	坏东西	Bad Thing	子弹速度 ×1.1
-10	好东西	Good Thing	子弹速度 ×0.75，射速 +0.75，射程 ×1.25
-11	血之力	Blood Power	血越厚，伤害越高
-12	钱之力	Money Power	金币转化为伤害
-13	绝望之力	Despair Power	血越少，伤害越高
-14	狗粮	Dog Food	血量上限 +1，拾取即治疗
-15	结束纸条	Ending Note	射速 +0.75，射程 ×1.1
-16	热水壶	Kettle	伤害 +1
-敌人图鉴 · Enemy Bestiary
+- **余烬教官 · Master**  
+  跳斩、地震冲击波、扇形弹幕；狂暴后频率更高并召唤蜘蛛。  
+  *Leaps, flame waves, spider calls—shorter cooldowns when enraged.*
 
-追击者 · Chaser：冲向玩家，被击中短暂击退
+- **炽耀九头蛇 · Hydra**  
+  椭圆轨道盘旋；扇面/螺旋/灵魂球三套远程压场；可切换旋向与延迟爆裂。  
+  *Orbiting arena control with fans, spirals, orbs; flips spin; timed bursts.*
 
-轨道蛆 · Orbiter：围绕基点旋转缓慢逼近，贴身伤害
+- **占兆之眼 · Seer**  
+  隐身跃迁至预设节点；释放光矛、镜像符阵或流星雨；符阵逐个爆裂成追踪针弹。  
+  *Blinks to nodes, channels lances/sigils/meteors; runes detonate to tracking bolts.*
 
-气囊怪 · Gasbag：靠近时自爆，召唤小飞虫
+- **地窖泰坦 · Titan**  
+  缓步压境、连跳、地裂与碎片风暴；怒火提升后叠加延迟事件与更密弹幕。  
+  *Stalks, chains leaps, shockwaves, shard storms; stacks timed events when enraged.*
 
-小飞虫 · Tiny Fly：高速贴脸，受击弹开
+---
 
-老飞虫 · Elder Fly：维持距离后发射泪弹
+## 无障碍与技术注记 · A11y & Tech Notes
 
-蜘蛛跃者 · Spider Leaper：读条后跃向玩家，落地伤害
+- **单文件架构**：`index.html` 内联 CSS/JS，**零依赖**，可直接部署任意静态托管。  
+- **屏幕键盘/作弊台**：使用 `aria-hidden`、`aria-expanded` 等可访问属性；支持**指针捕获**，触屏/手柄友好。  
+- **高分屏绘制**：自动按设备像素比（DPR）重采样，逻辑坐标为 **800×600**，在高 DPI 下保持清晰。  
+- **图鉴渲染**：拾取即登记集合；刷新时按 **ID** 排序并**异步绘制**像素缩略图，实现轻量图鉴。
 
-Boss 图鉴 · Boss Gallery
+---
 
-哭泣塑像 · 社畜蛹 (Idol)
+## 运行与部署 · Run & Deploy
 
-冲刺、激光雨、狂暴阶段
+1. 克隆或下载仓库后，直接双击 `index.html` 用现代浏览器打开即可。  
+   *Open `index.html` directly in a modern browser.*
+2. 推荐环境：Chromium/Firefox 最新版，启用硬件加速。  
+3. 可选：使用任意静态托管（GitHub Pages、Vercel、Netlify、本地 `python -m http.server`）一键上线。  
+4. 移动端建议横屏游玩；若触控设备 DPI 过高，可在设置中开启“像素适配”选项（若已实现）。
 
-血量下降后攻速/弹幕密度上升
+---
 
-余烬教官 · Master
+## 版权 · License
 
-徘徊、读条、跳斩、震地与火焰波
-
-半血后进入愤怒形态，频率提升
+© Authors. 保留所有权利 / All rights reserved.  
+（如需开源协议，请在此替换为 MIT/Apache-2.0 等声明。）
