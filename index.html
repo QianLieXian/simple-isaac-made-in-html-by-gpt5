@@ -7485,8 +7485,11 @@
         baseColor = '#f87171';
         edgeColor = '#b91c1c';
       } else if(player.brimstoneCharged){
-        baseColor = '#fca5a5';
-        edgeColor = '#dc2626';
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const wave = (Math.sin(now / 90) + 1) / 2; // 0~1 红色闪动节奏
+        const eased = Math.pow(wave, 1.2);
+        baseColor = mixHexColor('#fca5a5', '#f87171', eased);
+        edgeColor = mixHexColor('#dc2626', '#7f1d1d', eased);
       } else if(ratio>0){
         baseColor = mixHexColor('#e1e7ff', '#fca5a5', ratio);
         edgeColor = mixHexColor('#a78bfa', '#ef4444', ratio);
@@ -7499,6 +7502,24 @@
       ctx.globalAlpha *= alpha;
     }
     drawBlob(player.x, player.y, player.r, baseColor, edgeColor);
+    if(player.attackMode === 'brimstone' && player.brimstoneCharged && !player.brimstoneBeam && !player.brimstoneFiring){
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      const wave = (Math.sin(now / 90) + 1) / 2;
+      const flashAlpha = 0.3 + wave * 0.5;
+      const flashRadius = player.r * (1.15 + wave * 0.4);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha *= flashAlpha;
+      const flash = ctx.createRadialGradient(player.x, player.y, flashRadius * 0.25, player.x, player.y, flashRadius);
+      flash.addColorStop(0, colorWithAlpha('#fca5a5', 0.95));
+      flash.addColorStop(0.6, colorWithAlpha('#f97316', 0.35));
+      flash.addColorStop(1, colorWithAlpha('#7f1d1d', 0));
+      ctx.fillStyle = flash;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, flashRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
     if(player.attackMode === 'brimstone' && (player.brimstoneBeam || player.brimstoneCharged)){
       const pulse = player.brimstoneBeam ? 1 : clamp(player.getBrimstoneChargeRatio?.() ?? 0, 0, 1);
       const radius = player.r * (1.25 + pulse * 0.35);
