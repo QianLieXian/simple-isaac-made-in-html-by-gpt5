@@ -258,6 +258,7 @@
       beamDuration: 2,
       damageScale: 0.7,
       widthGrowth: 1.5,
+      chargeScale: 2.25,
     },
     progression: {
       enemyHp: 1.2,
@@ -2583,7 +2584,8 @@
       this.brimstoneCharging = false;
       this.brimstoneCharged = false;
       this.brimstoneCharge = 0;
-      this.brimstoneChargeTime = Math.max(0.2, (this.fireInterval || CONFIG.player.fireCd)/1000);
+      const brimstoneChargeScale = CONFIG?.brimstone?.chargeScale ?? 2.25;
+      this.brimstoneChargeTime = Math.max(0.2, ((this.fireInterval || CONFIG.player.fireCd)/1000) * brimstoneChargeScale);
       this.brimstoneAim = {x:0, y:-1};
       this.brimstoneBeam = null;
       this.brimstoneFiring = false;
@@ -2814,7 +2816,8 @@
     }
     updateBrimstoneChargeMetrics(){
       const interval = Number.isFinite(this.fireInterval) ? this.fireInterval : (CONFIG.player.fireCd || 360);
-      this.brimstoneChargeTime = Math.max(0.15, interval / 1000);
+      const brimstoneChargeScale = CONFIG?.brimstone?.chargeScale ?? 2.25;
+      this.brimstoneChargeTime = Math.max(0.15, (interval / 1000) * brimstoneChargeScale);
     }
     ensureBrimstoneMode(){
       if(this.attackMode !== 'brimstone'){
