@@ -386,8 +386,103 @@
       weight:20,
       description:'越看越顺眼，子弹速度 x0.75，射速 +0.75，射程 x1.25',
       apply(player){ player.tearSpeed*=0.75; adjustFireRate(player,0.75); player.tearLife*=1.25; }
+    },
+    {
+      slug:'outdoor-pouch',
+      name:'户外腰包',
+      weight:6,
+      description:'主动道具 · 5 充能。翻找出 1 把钥匙、1 颗炸弹与 3 枚金币。',
+      apply(player){
+        const active = {
+          slug:'outdoor-pouch',
+          name:'户外腰包',
+          description:'翻找出 1 把钥匙、1 颗炸弹与 3 枚金币。',
+          maxCharge:5,
+          startCharge:0,
+          use(p){
+            const keyGain = grantResource('key',1);
+            const bombGain = grantResource('bomb',1);
+            const coinGain = grantResource('coin',3);
+            const detail = `钥匙 +${keyGain}，炸弹 +${bombGain}，金币 +${coinGain}`;
+            return {message:'户外腰包翻找完毕', detail};
+          }
+        };
+        player.setActiveItem(active);
+      }
+    },
+    {
+      slug:'adrenaline',
+      name:'肾上腺素',
+      weight:6,
+      description:'主动道具 · 3 充能。本房间内：伤害 +2，射速 +2，射程 x5，弹速 x2，生命 -1。',
+      apply(player){
+        const active = {
+          slug:'adrenaline',
+          name:'肾上腺素',
+          description:'当前房间爆发强化，生命 -1。',
+          maxCharge:3,
+          startCharge:0,
+          use(p, context){
+            const room = context?.dungeon?.current;
+            if(!room){
+              return {consume:0, message:'肾上腺素无从发挥', detail:'需要在房间内使用。'};
+            }
+            if(p.hp<=0){
+              return {consume:0, message:'肾上腺素无法启动', detail:'至少需要 1 点生命。'};
+            }
+            const roomKey = `${room.i},${room.j}`;
+            p.applyRoomBuff({
+              type:'adrenaline',
+              roomKey,
+              damageBonus:2,
+              fireRateBonus:2,
+              rangeMultiplier:5,
+              speedMultiplier:2,
+            });
+            p.hp = Math.max(0, p.hp - 1);
+            if(p.hp<=0){ gameOver(); }
+            else { p.recalculateDamage(); }
+            return {message:'肾上腺素·爆发', detail:'当前房间属性飙升，生命 -1。'};
+          }
+        };
+        player.setActiveItem(active);
+      }
+    },
+    {
+      slug:'bomb-cousin',
+      name:'炸弹表舅',
+      weight:18,
+      description:'炸弹 +5，爆炸范围 x2，伤害 x2。',
+      apply(player){ grantResource('bomb',5); player.bombRadiusMultiplier*=2; player.bombDamageMultiplier*=2; }
+    },
+    {
+      slug:'bomb-uncle',
+      name:'炸弹舅爷',
+      weight:6,
+      description:'炸弹 +99，爆炸范围 x5，伤害 x5，爆炸伴随震动。',
+      apply(player){ grantResource('bomb',99); player.bombRadiusMultiplier*=5; player.bombDamageMultiplier*=5; player.bombShakeStrength = Math.max(player.bombShakeStrength||0, 14); }
+    },
+    {
+      slug:'bomb-grandpa',
+      name:'炸弹爷爷',
+      weight:6,
+      description:'免疫炸弹伤害，受到爆炸时反而恢复生命。',
+      apply(player){ player.bombImmunity = true; player.explosionHealAmount = Math.max(player.explosionHealAmount||0, 1); }
+    },
+    {
+      slug:'magic-bullet',
+      name:'魔术子弹',
+      weight:20,
+      description:'射程 x3，泪滴追踪最近的敌人。',
+      apply(player){ player.tearLife*=3; player.homingTears = true; player.homingStrength = Math.max(player.homingStrength||0, 8); }
     }
   ];
+  const ITEM_REF_OUTDOOR_POUCH = ITEM_POOL.find(item=>item.slug==='outdoor-pouch');
+  const ITEM_REF_ADRENALINE = ITEM_POOL.find(item=>item.slug==='adrenaline');
+  const ITEM_REF_BOMB_COUSIN = ITEM_POOL.find(item=>item.slug==='bomb-cousin');
+  const ITEM_REF_BOMB_UNCLE = ITEM_POOL.find(item=>item.slug==='bomb-uncle');
+  const ITEM_REF_BOMB_GRANDPA = ITEM_POOL.find(item=>item.slug==='bomb-grandpa');
+  const ITEM_REF_MAGIC_BULLET = ITEM_POOL.find(item=>item.slug==='magic-bullet');
   const SHOP_ITEM_POOL = [
     {
       slug:'blood-power',
@@ -409,6 +504,27 @@
       weight:20,
       description:'血越少，越要反击',
       apply(player){ player.effects.despairPower = true; player.recalculateDamage(); }
+    },
+    {
+      slug:'bomb-cousin',
+      name: ITEM_REF_BOMB_COUSIN?.name || '炸弹表舅',
+      weight:18,
+      description: ITEM_REF_BOMB_COUSIN?.description || '炸弹 +5，爆炸范围 x2，伤害 x2。',
+      apply(player){ ITEM_REF_BOMB_COUSIN?.apply?.(player); }
+    },
+    {
+      slug:'bomb-uncle',
+      name: ITEM_REF_BOMB_UNCLE?.name || '炸弹舅爷',
+      weight:6,
+      description: ITEM_REF_BOMB_UNCLE?.description || '炸弹 +99，爆炸范围 x5，伤害 x5，爆炸伴随震动。',
+      apply(player){ ITEM_REF_BOMB_UNCLE?.apply?.(player); }
+    },
+    {
+      slug:'bomb-grandpa',
+      name: ITEM_REF_BOMB_GRANDPA?.name || '炸弹爷爷',
+      weight:6,
+      description: ITEM_REF_BOMB_GRANDPA?.description || '免疫炸弹伤害，受到爆炸时反而恢复生命。',
+      apply(player){ ITEM_REF_BOMB_GRANDPA?.apply?.(player); }
     }
   ];
   const BOSS_ITEM_POOL = [
@@ -432,6 +548,34 @@
       weight:50,
       description:'伤害 +1',
       apply(player){ player.addDamage(1); }
+    },
+    {
+      slug:'outdoor-pouch',
+      name: ITEM_REF_OUTDOOR_POUCH?.name || '户外腰包',
+      weight:6,
+      description: ITEM_REF_OUTDOOR_POUCH?.description || '主动道具 · 5 充能。翻找出 1 把钥匙、1 颗炸弹与 3 枚金币。',
+      apply(player){ ITEM_REF_OUTDOOR_POUCH?.apply?.(player); }
+    },
+    {
+      slug:'adrenaline',
+      name: ITEM_REF_ADRENALINE?.name || '肾上腺素',
+      weight:6,
+      description: ITEM_REF_ADRENALINE?.description || '主动道具 · 3 充能。本房间内强化并消耗 1 点生命。',
+      apply(player){ ITEM_REF_ADRENALINE?.apply?.(player); }
+    },
+    {
+      slug:'bomb-grandpa',
+      name: ITEM_REF_BOMB_GRANDPA?.name || '炸弹爷爷',
+      weight:6,
+      description: ITEM_REF_BOMB_GRANDPA?.description || '免疫炸弹伤害，受到爆炸时反而恢复生命。',
+      apply(player){ ITEM_REF_BOMB_GRANDPA?.apply?.(player); }
+    },
+    {
+      slug:'magic-bullet',
+      name: ITEM_REF_MAGIC_BULLET?.name || '魔术子弹',
+      weight:20,
+      description: ITEM_REF_MAGIC_BULLET?.description || '射程 x3，泪滴追踪最近的敌人。',
+      apply(player){ ITEM_REF_MAGIC_BULLET?.apply?.(player); }
     }
   ];
   const ITEM_ID_REGISTRY = (()=>{
@@ -1735,6 +1879,14 @@
       this.activeItem = null;
       this.activeCharge = 0;
       this.activeMaxCharge = this.baseActiveMaxCharge;
+      this.bombRadiusMultiplier = 1;
+      this.bombDamageMultiplier = 1;
+      this.bombShakeStrength = 0;
+      this.bombImmunity = false;
+      this.explosionHealAmount = 0;
+      this.homingTears = false;
+      this.homingStrength = 6;
+      this.roomBuff = null;
       this.moveDir = {x:0,y:0};
       this.lastDisplacement = {x:0,y:0};
       this.lastVelocity = {x:0,y:0};
@@ -1904,15 +2056,36 @@
           vx += lvx * carry;
           vy += lvy * carry;
         }
-        runtime.bullets.push(new Bullet(this.x, this.y, vx, vy, this.tearLife, this.damage, this.canPierceObstacles));
+        runtime.bullets.push(new Bullet(this.x, this.y, vx, vy, this.tearLife, this.damage, {
+          pierce: this.canPierceObstacles,
+          homing: this.homingTears,
+          homingStrength: this.homingStrength
+        }));
       }
       this.recalculateDamage();
     }
-    hurt(dmg){
-      if(this.ifr>0) return;
-      this.hp = Math.max(0, this.hp - dmg);
-      this.ifr = 1.0;
-      if(this.hp<=0) gameOver();
+    hurt(dmg, options={}){
+      const amount = Math.max(0, Number(dmg)||0);
+      if(amount<=0) return;
+      const cause = options.cause || null;
+      if(cause==='explosion' && this.bombImmunity){
+        if(this.explosionHealAmount>0){
+          const prev = this.hp;
+          this.hp = Math.min(this.maxHp, this.hp + this.explosionHealAmount);
+          if(this.hp!==prev){ this.recalculateDamage(); }
+        }
+        return;
+      }
+      if(this.ifr>0 && !options.bypassIFrames) return;
+      this.hp = Math.max(0, this.hp - amount);
+      const ifrDuration = Number.isFinite(options.ifr) ? Math.max(0, options.ifr) : 1.0;
+      this.ifr = Math.max(this.ifr, ifrDuration);
+      if(this.hp<=0){ gameOver(); return; }
+      if(cause==='explosion' && this.explosionHealAmount>0){
+        const prevHp = this.hp;
+        this.hp = Math.min(this.maxHp, this.hp + this.explosionHealAmount);
+        if(this.hp!==prevHp){ this.recalculateDamage(); return; }
+      }
       this.recalculateDamage();
     }
     addDamage(amount){
@@ -1937,6 +2110,54 @@
       this.knockVel.x += (dx/len) * power;
       this.knockVel.y += (dy/len) * power;
       this.knockTimer = 0.25;
+    }
+    clearRoomBuff(){
+      if(!this.roomBuff) return;
+      const snapshot = this.roomBuff.snapshot || null;
+      if(snapshot){
+        if(typeof snapshot.baseDamage === 'number'){ this.baseDamage = snapshot.baseDamage; }
+        if(typeof snapshot.fireInterval === 'number'){ this.fireInterval = snapshot.fireInterval; }
+        if(typeof snapshot.fireCd === 'number'){ this.fireCd = Math.min(snapshot.fireCd, this.fireInterval); }
+        if(typeof snapshot.tearLife === 'number'){ this.tearLife = snapshot.tearLife; }
+        if(typeof snapshot.tearSpeed === 'number'){ this.tearSpeed = snapshot.tearSpeed; }
+      }
+      this.roomBuff = null;
+      this.recalculateDamage();
+    }
+    applyRoomBuff(buff){
+      if(!buff) return;
+      this.clearRoomBuff();
+      const roomKey = buff.roomKey ?? null;
+      const snapshot = {
+        baseDamage: this.baseDamage,
+        fireInterval: this.fireInterval,
+        fireCd: this.fireCd,
+        tearLife: this.tearLife,
+        tearSpeed: this.tearSpeed,
+      };
+      if(Number.isFinite(buff.damageBonus) && buff.damageBonus!==0){
+        this.baseDamage = +(this.baseDamage + buff.damageBonus);
+      }
+      if(Number.isFinite(buff.fireRateBonus) && buff.fireRateBonus!==0){
+        adjustFireRate(this, buff.fireRateBonus);
+      }
+      if(Number.isFinite(buff.rangeMultiplier) && buff.rangeMultiplier>0){
+        this.tearLife *= buff.rangeMultiplier;
+      }
+      if(Number.isFinite(buff.speedMultiplier) && buff.speedMultiplier>0){
+        this.tearSpeed *= buff.speedMultiplier;
+      }
+      this.roomBuff = {type: buff.type || 'room-buff', roomKey, snapshot};
+      this.recalculateDamage();
+    }
+    handleRoomChange(room){
+      if(!room){ this.clearRoomBuff(); return; }
+      const key = `${room.i},${room.j}`;
+      if(this.roomBuff && this.roomBuff.roomKey && this.roomBuff.roomKey !== key){
+        this.clearRoomBuff();
+      } else if(this.roomBuff && !this.roomBuff.roomKey){
+        this.clearRoomBuff();
+      }
     }
     setActiveItem(item){
       if(!item){
@@ -2004,7 +2225,7 @@
   }
 
   class Bullet{
-    constructor(x,y,vx,vy,life,damage=1,pierce=false){
+    constructor(x,y,vx,vy,life,damage=1,options={}){
       this.x=x;
       this.y=y;
       this.vx=vx;
@@ -2013,9 +2234,41 @@
       this.damage=damage;
       this.alive=true;
       this.r=calcTearRadius(damage);
-      this.pierceObstacles = pierce;
+      this.pierceObstacles = !!options.pierce;
+      this.homing = !!options.homing;
+      this.homingStrength = Number.isFinite(options.homingStrength) ? Math.max(0, options.homingStrength) : 6;
     }
     update(dt){
+      if(this.homing){
+        const room = dungeon?.current;
+        if(room){
+          let target=null;
+          let best=Infinity;
+          for(const enemy of room.enemies){
+            if(enemy.dead) continue;
+            const d = dist(this, enemy);
+            if(d < best){ best = d; target = enemy; }
+          }
+          if(target){
+            const speed = Math.hypot(this.vx, this.vy);
+            if(speed>1e-3){
+              const toX = target.x - this.x;
+              const toY = target.y - this.y;
+              const len = Math.hypot(toX,toY) || 1;
+              const nx = toX / len;
+              const ny = toY / len;
+              const curX = this.vx / speed;
+              const curY = this.vy / speed;
+              const turn = clamp(this.homingStrength * dt, 0, 1);
+              const mixX = curX*(1-turn) + nx*turn;
+              const mixY = curY*(1-turn) + ny*turn;
+              const mixLen = Math.hypot(mixX, mixY) || 1;
+              this.vx = (mixX/mixLen) * speed;
+              this.vy = (mixY/mixLen) * speed;
+            }
+          }
+        }
+      }
       this.x += this.vx*dt;
       this.y += this.vy*dt;
       this.life -= dt;
@@ -2048,6 +2301,10 @@
       this.vx=0;
       this.vy=0;
       this.spawnGrace = CONFIG.bomb.spawnGrace ?? CONFIG.pickupSpawnGrace ?? 0;
+      this.radiusMultiplier = player?.bombRadiusMultiplier ?? 1;
+      this.damageMultiplier = player?.bombDamageMultiplier ?? 1;
+      this.shakeStrength = player?.bombShakeStrength ?? 0;
+      this.explosionRadius = CONFIG.bomb.radius * this.radiusMultiplier;
     }
     update(dt){
       if(this.done) return;
@@ -2099,7 +2356,8 @@
     draw(){
       if(this.exploded){
         const ratio = this.explosionTimer / 0.4;
-        const radius = CONFIG.bomb.radius * (1 + (1-ratio)*0.2);
+        const baseRadius = this.explosionRadius || (CONFIG.bomb.radius * (this.radiusMultiplier || 1));
+        const radius = baseRadius * (1 + (1-ratio)*0.2);
         ctx.save();
         ctx.globalAlpha = Math.max(0, ratio*0.7);
         const g = ctx.createRadialGradient(this.x,this.y,radius*0.15,this.x,this.y,radius);
@@ -2151,14 +2409,15 @@
 
   function handleBombExplosion(room, bomb){
     if(!room) return;
-    const radius = CONFIG.bomb.radius;
+    const radius = bomb?.explosionRadius || (CONFIG.bomb.radius * (bomb?.radiusMultiplier ?? 1));
     const circle = {x:bomb.x, y:bomb.y, r:radius};
+    const damage = CONFIG.bomb.damage * (bomb?.damageMultiplier ?? 1);
     for(const enemy of room.enemies){
       if(enemy.dead) continue;
       const d = dist(bomb, enemy);
       if(d <= radius + enemy.r){
         if(typeof enemy.damage === 'function'){
-          if(enemy.damage(CONFIG.bomb.damage)){ handleEnemyDeath(enemy, room); }
+          if(enemy.damage(damage)){ handleEnemyDeath(enemy, room); }
         }
         const len = Math.max(1, d);
         const push = (radius - Math.min(radius, d)) * 0.6;
@@ -2179,7 +2438,7 @@
       const dp = dist(player, bomb);
       if(dp <= radius + player.r){
         player.applyImpulse(player.x - bomb.x, player.y - bomb.y, CONFIG.bomb.knock);
-        player.hurt(CONFIG.bomb.playerDamage);
+        player.hurt(CONFIG.bomb.playerDamage, {cause:'explosion'});
       }
     }
     for(const obs of room.obstacles){
@@ -2210,6 +2469,9 @@
     for(const proj of runtime.enemyProjectiles){
       if(!proj.alive) continue;
       if(dist(proj, bomb) <= radius){ proj.alive=false; }
+    }
+    if(bomb?.shakeStrength){
+      addScreenShake(bomb.shakeStrength, 0.32);
     }
   }
 
@@ -2356,7 +2618,7 @@
       this.dead = true;
       const cfg = CONFIG.enemy.gasbag;
       if(player && dist(this, player) < this.r + cfg.explosionRadius){
-        player.hurt(1);
+        player.hurt(1, {cause:'explosion'});
         player.applyImpulse(player.x - this.x, player.y - this.y, 180);
       }
       const room = dungeon?.current;
@@ -2622,7 +2884,7 @@
       if(player){
         const d = dist(this, player);
         if(d <= this.explosionRadius + player.r){
-          player.hurt(this.damageAmount);
+          player.hurt(this.damageAmount, {cause:'explosion'});
           player.applyImpulse(player.x - this.x, player.y - this.y, 220);
         }
       }
@@ -3452,7 +3714,46 @@
     itemPickupDesc: '',
     floor: currentFloor,
     effects: [],
+    screenShake: {intensity:0, duration:0, offsetX:0, offsetY:0},
   };
+  function resetScreenShake(){
+    if(!runtime.screenShake) runtime.screenShake = {intensity:0, duration:0, offsetX:0, offsetY:0};
+    else {
+      runtime.screenShake.intensity = 0;
+      runtime.screenShake.duration = 0;
+      runtime.screenShake.offsetX = 0;
+      runtime.screenShake.offsetY = 0;
+    }
+  }
+  function addScreenShake(power=4, duration=0.3){
+    if(!runtime.screenShake) resetScreenShake();
+    const shake = runtime.screenShake;
+    shake.intensity = Math.max(shake.intensity, Math.max(0, power));
+    shake.duration = Math.max(shake.duration, Math.max(0, duration));
+  }
+  function updateScreenShake(dt){
+    const shake = runtime.screenShake;
+    if(!shake) return;
+    if(shake.duration>0){
+      shake.duration = Math.max(0, shake.duration - dt);
+      const decay = Math.exp(-dt*8);
+      shake.intensity *= decay;
+      if(shake.intensity < 0.05 || shake.duration<=0){
+        shake.intensity = 0;
+        shake.offsetX = 0;
+        shake.offsetY = 0;
+        return;
+      }
+      const angle = Math.random()*Math.PI*2;
+      const magnitude = shake.intensity;
+      shake.offsetX = Math.cos(angle) * magnitude;
+      shake.offsetY = Math.sin(angle) * magnitude;
+    } else {
+      shake.intensity = 0;
+      shake.offsetX = 0;
+      shake.offsetY = 0;
+    }
+  }
   let dungeon, player;
 
   function startGame(){
@@ -3478,6 +3779,8 @@
     runtime.itemPickupName = '';
     runtime.itemPickupDesc = '';
     runtime.effects.length = 0;
+    resetScreenShake();
+    player.handleRoomChange(dungeon.current);
     syncCheatPanel();
   }
 
@@ -3494,6 +3797,7 @@
     dungeon.current.visited = true;
     dungeon.revealRoom(dungeon.current);
     dungeon.current.spawnEnemies(dungeon.depth);
+    player.handleRoomChange(dungeon.current);
     player.x = CONFIG.roomW/2;
     player.y = CONFIG.roomH/2;
     player.knockVel.x = 0;
@@ -3515,6 +3819,7 @@
     runtime.itemPickupDesc = '敌人变得更加愤怒。';
     runtime.itemPickupTimer = 2.6;
     runtime.effects.length = 0;
+    resetScreenShake();
     keys.clear();
     for(const code of preservedKeys){ keys.add(code); }
     syncCheatPanel();
@@ -3563,6 +3868,7 @@
       if(!nr.visited){ dungeon.depth++; }
       nr.visited = true;
       dungeon.revealRoom(nr);
+      player.handleRoomChange(nr);
       // 入口位置
       if(d.dir==='up'){ player.x=CONFIG.roomW/2; player.y=CONFIG.roomH-60; }
       if(d.dir==='down'){ player.x=CONFIG.roomW/2; player.y=60; }
@@ -3633,6 +3939,7 @@
   requestAnimationFrame(loop);
 
   function update(dt){
+    updateScreenShake(dt);
     player.update(dt);
 
     const bombs = dungeon.current.bombs;
@@ -3807,38 +4114,35 @@
 
   // ======= 渲染 =======
   function draw(){
-    // 背景
     ctx.clearRect(0,0,CONFIG.roomW, CONFIG.roomH);
+    ctx.save();
+    const shake = runtime.screenShake;
+    if(shake && (Math.abs(shake.offsetX)>1e-3 || Math.abs(shake.offsetY)>1e-3)){
+      ctx.translate(shake.offsetX, shake.offsetY);
+    }
     drawRoomBackdrop();
     drawDoors();
     drawObstacles();
 
-    // 拾取
     for(const p of dungeon.current.pickups){ drawPickup(p); }
 
     if(dungeon.current.portal){ drawPortal(dungeon.current.portal); }
 
     for(const bomb of dungeon.current.bombs){ bomb.draw(); }
 
-    // 敌人
     for(const e of dungeon.current.enemies){ e.draw(); }
 
     drawEffects();
 
-    // 敌弹
     for(const eb of runtime.enemyProjectiles){ eb.draw(); }
 
-    // 子弹
     for(const b of runtime.bullets){ b.draw(); }
 
-    // 玩家
     drawPlayer();
+    ctx.restore();
 
     drawBossHealth();
-
-    // 小地图
     drawMiniMap();
-
     drawItemPickupBanner();
 
   }
@@ -4098,6 +4402,81 @@
       g.beginPath(); g.arc(0,0,r*0.9,0,Math.PI*2); g.fill();
       g.fillStyle='#f9a8d4';
       g.beginPath(); g.arc(0,0,r*0.35,0,Math.PI*2); g.fill();
+    } else if(id==='outdoor-pouch'){
+      g.fillStyle='#4b5563';
+      g.beginPath(); g.roundRect?.(-r*0.7,-r*0.5,r*1.4,r*1.0,r*0.25);
+      if(!g.roundRect){ g.fillRect(-r*0.7,-r*0.5,r*1.4,r*1.0); }
+      else { g.fill(); }
+      if(!g.roundRect){ g.fillStyle='#6b7280'; g.fillRect(-r*0.7,-r*0.1,r*1.4,r*0.25); }
+      else {
+        g.fillStyle='#6b7280';
+        g.beginPath(); g.roundRect(-r*0.7,-r*0.1,r*1.4,r*0.25,r*0.12); g.fill();
+      }
+      g.strokeStyle='#9ca3af';
+      g.lineWidth=2;
+      g.beginPath(); g.arc(0,-r*0.65,r*0.55,Math.PI,0); g.stroke();
+      g.fillStyle='#facc15';
+      g.beginPath(); g.arc(-r*0.3,0,r*0.18,0,Math.PI*2); g.fill();
+      g.fillStyle='#f97316';
+      g.beginPath(); g.arc(r*0.25,0,r*0.2,0,Math.PI*2); g.fill();
+    } else if(id==='adrenaline'){
+      g.save();
+      g.rotate(-Math.PI/6);
+      g.fillStyle='#f87171';
+      g.fillRect(-r*0.4,-r*0.1,r*0.8,r*0.2);
+      g.fillStyle='#fef3c7';
+      g.fillRect(-r*0.4,-r*0.38,r*0.8,r*0.28);
+      g.fillStyle='#ef4444';
+      g.fillRect(r*0.1,-r*0.1,r*0.28,r*0.2);
+      g.restore();
+      g.fillStyle='#f97316';
+      g.beginPath(); g.arc(0,r*0.35,r*0.22,0,Math.PI*2); g.fill();
+    } else if(id==='bomb-cousin'){
+      g.fillStyle='#1f2937';
+      g.beginPath(); g.arc(0,0,r*0.75,0,Math.PI*2); g.fill();
+      g.fillStyle='#f87171';
+      g.beginPath(); g.arc(0,0,r*0.45,0,Math.PI*2); g.fill();
+      g.strokeStyle='#fde68a';
+      g.lineWidth=2;
+      g.beginPath(); g.moveTo(-r*0.3,-r*0.3); g.lineTo(-r*0.1,-r*0.5); g.lineTo(r*0.3,-r*0.3); g.stroke();
+      g.fillStyle='#fde68a';
+      g.font = `${Math.round(r*0.7)}px sans-serif`;
+      g.textAlign='center';
+      g.fillText('+',0,r*0.3);
+    } else if(id==='bomb-uncle'){
+      g.fillStyle='#111827';
+      g.beginPath(); g.arc(0,0,r*0.85,0,Math.PI*2); g.fill();
+      g.fillStyle='#ef4444';
+      g.beginPath(); g.arc(0,0,r*0.55,0,Math.PI*2); g.fill();
+      g.strokeStyle='#facc15';
+      g.lineWidth=3;
+      g.beginPath(); g.arc(0,0,r*0.95,0,Math.PI*2); g.stroke();
+      g.globalAlpha=0.7;
+      g.strokeStyle='#fde68a';
+      g.lineWidth=2;
+      g.beginPath(); g.arc(0,0,r*1.15,0,Math.PI*2); g.stroke();
+      g.globalAlpha=1;
+    } else if(id==='bomb-grandpa'){
+      g.fillStyle='#1f2937';
+      g.beginPath(); g.arc(0,0,r*0.6,0,Math.PI*2); g.fill();
+      g.strokeStyle='#34d399';
+      g.lineWidth=3;
+      g.beginPath(); g.arc(0,0,r*0.85,0,Math.PI*2); g.stroke();
+      g.strokeStyle='#bbf7d0';
+      g.lineWidth=1.5;
+      g.beginPath(); g.arc(0,0,r*0.95,0,Math.PI*2); g.stroke();
+      g.fillStyle='#34d399';
+      g.beginPath(); g.arc(0,r*0.05,r*0.18,0,Math.PI*2); g.fill();
+    } else if(id==='magic-bullet'){
+      g.fillStyle='#a855f7';
+      g.beginPath(); g.arc(0,0,r*0.75,0,Math.PI*2); g.fill();
+      g.fillStyle='#c4b5fd';
+      g.beginPath(); g.arc(-r*0.15,-r*0.1,r*0.3,0,Math.PI*2); g.fill();
+      g.strokeStyle='#f9a8d4';
+      g.lineWidth=2;
+      g.beginPath(); g.arc(0,0,r*0.9,Math.PI*0.2,Math.PI*1.6); g.stroke();
+      g.strokeStyle='#f472b6';
+      g.beginPath(); g.moveTo(r*0.4,0); g.quadraticCurveTo(r*0.7,r*0.4,r*0.2,r*0.7); g.stroke();
     } else if(id==='dog-food'){
       g.fillStyle='#92400e';
       g.fillRect(-r*0.7,-r*0.5,r*1.4,r*0.9);
