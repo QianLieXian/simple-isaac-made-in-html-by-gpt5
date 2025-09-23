@@ -1,6 +1,6 @@
 # 地窖速通实验室 · Basement Speedrun Lab
 
-[![Progress](https://img.shields.io/badge/Progress-92%25-blue)](#) [![HTML5 Canvas](https://img.shields.io/badge/Engine-HTML5%20Canvas-orange)](#) [![Single-file](https://img.shields.io/badge/Build-Single--file-green)](#) [![Zero Deps](https://img.shields.io/badge/Deps-0-lightgrey)](#)
+[![Progress](https://img.shields.io/badge/Progress-92.5%25-blue)](#) [![HTML5 Canvas](https://img.shields.io/badge/Engine-HTML5%20Canvas-orange)](#) [![Single-file](https://img.shields.io/badge/Build-Single--file-green)](#) [![Zero Deps](https://img.shields.io/badge/Deps-0-lightgrey)](#)
 
 > 纯前端、**单文件** 的地牢速通实验室：顶视角射击、覆盖式引导、道具图鉴与进度可视化，开箱即玩。  
 > A **single-file** HTML5 Canvas prototype: snappy top-down combat, contextual overlays, and a live item codex—zero dependencies.
@@ -65,7 +65,7 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
 
 ## 地下城生成 · Procedural Basement
 
-基于 **9×9 潜在网格的随机游走**：自动铺设主线、Boss、道具房与商店；保证房门连通、障碍簇分布与隐藏房间掉落的合理性。  
+基于 **9×9 潜在网格的随机游走**：自动铺设主线、Boss、道具房与商店；保证房门连通、障碍簇分布与隐藏房间掉落的合理性，新增生命上限献祭台，每层有25%的概率会在初始房间的左上角生成，有硫黄火，权重只有15。  
 *9×9 lattice random walk places paths, bosses, treasure, and shops with door connectivity and secret-room rewards.*
 
 ---
