@@ -258,7 +258,7 @@
       beamDuration: 2,
       damageScale: 0.7,
       widthGrowth: 1.5,
-      chargeScale: 2.25,
+      chargeScale: 11.25,
     },
     progression: {
       enemyHp: 1.2,
@@ -2584,7 +2584,7 @@
       this.brimstoneCharging = false;
       this.brimstoneCharged = false;
       this.brimstoneCharge = 0;
-      const brimstoneChargeScale = CONFIG?.brimstone?.chargeScale ?? 2.25;
+      const brimstoneChargeScale = CONFIG?.brimstone?.chargeScale ?? 11.25;
       this.brimstoneChargeTime = Math.max(0.2, ((this.fireInterval || CONFIG.player.fireCd)/1000) * brimstoneChargeScale);
       this.brimstoneAim = {x:0, y:-1};
       this.brimstoneBeam = null;
@@ -2816,7 +2816,7 @@
     }
     updateBrimstoneChargeMetrics(){
       const interval = Number.isFinite(this.fireInterval) ? this.fireInterval : (CONFIG.player.fireCd || 360);
-      const brimstoneChargeScale = CONFIG?.brimstone?.chargeScale ?? 2.25;
+      const brimstoneChargeScale = CONFIG?.brimstone?.chargeScale ?? 11.25;
       this.brimstoneChargeTime = Math.max(0.15, (interval / 1000) * brimstoneChargeScale);
     }
     ensureBrimstoneMode(){
@@ -6109,13 +6109,13 @@
       ctx.rotate(Math.atan2(geom.endY - geom.startY, geom.endX - geom.startX));
       const length = geom.length;
       const gradient = ctx.createLinearGradient(0, 0, length, 0);
-      gradient.addColorStop(0, colorWithAlpha('#fde68a',0.85));
-      gradient.addColorStop(0.2, colorWithAlpha('#fca5a5',0.82));
-      gradient.addColorStop(0.55, colorWithAlpha('#f97316',0.7));
-      gradient.addColorStop(1, colorWithAlpha('#f97316',0.05));
+      gradient.addColorStop(0, colorWithAlpha('#fde68a',0.55));
+      gradient.addColorStop(0.2, colorWithAlpha('#fca5a5',0.45));
+      gradient.addColorStop(0.55, colorWithAlpha('#f97316',0.32));
+      gradient.addColorStop(1, colorWithAlpha('#f97316',0.02));
       ctx.fillStyle = gradient;
       ctx.fillRect(0, -half, length, half*2);
-      ctx.strokeStyle = colorWithAlpha('#fb7185',0.6);
+      ctx.strokeStyle = colorWithAlpha('#fb7185',0.35);
       ctx.lineWidth = Math.max(2, half*0.35);
       ctx.strokeRect(0, -half, length, half*2);
       ctx.restore();
