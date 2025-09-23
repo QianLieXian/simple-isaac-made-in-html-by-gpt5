@@ -189,6 +189,7 @@
       accelTime: 0.32,     // 0 → 正常移动速度所需时间（秒）
       decelTime: 0.32,      // 正常移动速度 → 0 所需时间（秒）
       maxSpeedScale: 1.1, // 允许的速度上限倍率，给予一点惯性裕度
+      activeMaxCharge: 4,
     }, // fireCd 毫秒
     enemy: {
       baseHP: 2,
@@ -199,6 +200,8 @@
       tinyFly: {speed: 80},
       elderFly: {speed: 60, minRange: 130, maxRange: 220, fireInterval: 2.5, telegraph: 1, projectileSpeed: 200},
       spider: {leapSpeed: 320, maxDistance: 320, telegraph: 1, cooldown: 3.2},
+      splitter: {speed: 80, radius: 14, maxSplits: 3, pause: 1, radiusDecay: 0.9, hpDecay: 0.75},
+      volatile: {speed: 150, triggerMultiplier: 2, fuse: 0.55, explosionRadiusMultiplier: 1.5, damage: 2},
     },
     drops: {
       heartPerEnemy: 0.2,
@@ -924,6 +927,7 @@
     if((state===STATE.PLAY || state===STATE.PAUSE || state===STATE.OVER) && code==='KeyR') startGame();
     if(state===STATE.PLAY && code==='KeyE') placeBomb();
     if(state===STATE.PLAY && code==='KeyF') attemptPurchase();
+    if(state===STATE.PLAY && code==='Space') attemptActiveUse();
   }
   function processKeyUp(code){
     keys.delete(code);
@@ -980,6 +984,8 @@
       this.isShop=false; this.shopInventory=[]; this.shopPrepared=false; this.locked=false;
       this.isSafeRoom=false;
       this.portal=null;
+      this.combatRoom=false;
+      this.chargeGranted=false;
     }
     center(){ return {x: CONFIG.roomW/2, y: CONFIG.roomH/2}; }
     spawnEnemies(depth){
@@ -987,18 +993,24 @@
       if(this.isSafeRoom){
         this.enemies = [];
         this.cleared = true;
+        this.combatRoom = false;
+        this.chargeGranted = true;
         return this.enemies;
       }
       if(this.isItemRoom){
         this.enemies = [];
         this.cleared = true;
         this.ensureItem();
+        this.combatRoom = false;
+        this.chargeGranted = true;
         return this.enemies;
       }
       if(this.isShop){
         this.prepareShop();
         this.enemies = [];
         this.cleared = true;
+        this.combatRoom = false;
+        this.chargeGranted = true;
         return this.enemies;
       }
       if(this.isBoss){
@@ -1010,6 +1022,8 @@
         }
         this.enemies = [this.bossEntity];
         this.cleared = false;
+        this.combatRoom = true;
+        this.chargeGranted = false;
         return this.enemies;
       }
       // 按深度稍微增加数量
@@ -1023,6 +1037,8 @@
         const pos = this.findSpawnPosition(radius);
         this.enemies.push(makeEnemy(t, pos, depth));
       }
+      this.combatRoom = this.enemies.length>0;
+      this.chargeGranted = !this.combatRoom;
       return this.enemies;
     }
     ensureItem(){
@@ -1715,6 +1731,10 @@
       this.flying = false;
       this.canPierceObstacles = false;
       this.effects = {bloodPower:false, moneyPower:false, despairPower:false};
+      this.baseActiveMaxCharge = Math.max(0, CONFIG.player.activeMaxCharge ?? 0);
+      this.activeItem = null;
+      this.activeCharge = 0;
+      this.activeMaxCharge = this.baseActiveMaxCharge;
       this.moveDir = {x:0,y:0};
       this.lastDisplacement = {x:0,y:0};
       this.lastVelocity = {x:0,y:0};
@@ -1917,6 +1937,54 @@
       this.knockVel.x += (dx/len) * power;
       this.knockVel.y += (dy/len) * power;
       this.knockTimer = 0.25;
+    }
+    setActiveItem(item){
+      if(!item){
+        this.activeItem = null;
+        this.activeMaxCharge = this.baseActiveMaxCharge;
+        this.activeCharge = clamp(this.activeCharge, 0, this.activeMaxCharge);
+        return;
+      }
+      this.activeItem = {...item};
+      if(Number.isFinite(item.maxCharge) && item.maxCharge>0){
+        this.activeMaxCharge = Math.max(1, Math.floor(item.maxCharge));
+      } else {
+        this.activeMaxCharge = this.baseActiveMaxCharge;
+      }
+      if(Number.isFinite(item.startCharge)){
+        this.activeCharge = clamp(Math.floor(item.startCharge), 0, this.activeMaxCharge);
+      } else {
+        this.activeCharge = clamp(this.activeCharge, 0, this.activeMaxCharge);
+      }
+    }
+    gainActiveCharge(amount=1){
+      if(!Number.isFinite(amount) || amount<=0) return false;
+      const max = Math.max(0, this.activeMaxCharge ?? 0);
+      if(max<=0) return false;
+      const prev = this.activeCharge;
+      this.activeCharge = clamp(Math.floor(prev + amount), 0, max);
+      return this.activeCharge !== prev;
+    }
+    canUseActiveItem(){
+      if(!this.activeItem) return false;
+      if(typeof this.activeItem.use !== 'function') return false;
+      const max = Math.max(0, this.activeMaxCharge ?? 0);
+      return max>0 && this.activeCharge >= max;
+    }
+    useActiveItem(context){
+      if(!this.canUseActiveItem()) return false;
+      const handler = this.activeItem.use;
+      const result = handler ? handler(this, context) : true;
+      if(result === false) return false;
+      let consume = this.activeMaxCharge;
+      if(typeof result === 'number' && Number.isFinite(result)){
+        consume = clamp(Math.floor(result), 0, this.activeMaxCharge);
+      } else if(result && typeof result === 'object' && Number.isFinite(result.consume)){
+        consume = clamp(Math.floor(result.consume), 0, this.activeMaxCharge);
+      }
+      if(consume<=0) consume = this.activeMaxCharge;
+      this.activeCharge = Math.max(0, this.activeCharge - consume);
+      return result || true;
     }
     recalculateDamage(){
       let dmg = this.baseDamage;
@@ -2152,9 +2220,12 @@
     tinyfly:8,
     elderfly:13,
     spider:16,
+    splitter:13,
+    volatile:11,
   };
 
   function rollEnemyType(depth){
+    const floorLevel = Math.max(1, Math.floor(currentFloor || 1));
     const weights = [
       {type:'chaser', w: 2.6},
       {type:'orbiter', w: 1.2 + depth*0.05},
@@ -2163,6 +2234,12 @@
       {type:'elderfly', w: 0.75 + depth*0.06},
       {type:'spider', w: 0.65 + depth*0.07},
     ];
+    if(floorLevel >= 2){
+      weights.push({type:'volatile', w: 0.5 + Math.max(0, depth-1)*0.05});
+    }
+    if(floorLevel >= 3){
+      weights.push({type:'splitter', w: 0.45 + Math.max(0, depth-2)*0.06});
+    }
     const total = weights.reduce((sum, entry)=>sum+entry.w,0);
     let r = rand()*total;
     for(const entry of weights){
@@ -2180,6 +2257,8 @@
     if(type==='tinyfly') return new EnemyTinyFly(pos.x,pos.y, Math.max(1, Math.round(1 + depth*0.15)));
     if(type==='elderfly') return new EnemyElderFly(pos.x,pos.y, Math.max(hp, 3));
     if(type==='spider') return new EnemySpiderLeaper(pos.x,pos.y, Math.max(hp+1, 4));
+    if(type==='splitter') return new EnemySplitter(pos.x,pos.y, Math.max(hp+2, 4));
+    if(type==='volatile') return new EnemyVolatile(pos.x,pos.y, Math.max(hp, 2));
     return new EnemyChaser(pos.x,pos.y,hp);
   }
 
@@ -2379,6 +2458,251 @@
         ctx.beginPath(); ctx.arc(this.x, this.y, this.r + 8, 0, Math.PI*2); ctx.stroke();
         ctx.restore();
       }
+    }
+  }
+
+  class EnemySplitter{
+    constructor(x,y,baseHp, options={}){
+      const cfg = CONFIG.enemy.splitter || {};
+      this.x=x; this.y=y;
+      this.seedHp = options.seedHp ?? baseHp;
+      this.splitLevel = options.splitLevel ?? 0;
+      this.maxSplits = Math.max(0, Math.floor(cfg.maxSplits ?? 3));
+      const decay = clamp(cfg.radiusDecay ?? 0.9, 0.55, 1);
+      const baseRadius = cfg.radius ?? 14;
+      this.r = Math.max(8, baseRadius * Math.pow(decay, this.splitLevel));
+      const speedBase = cfg.speed ?? (CONFIG.enemy.speed * 0.75);
+      const perSplit = cfg.speedScalePerSplit ?? 0.12;
+      this.speed = speedBase * randRange(0.9,1.1) * (1 + perSplit * this.splitLevel);
+      this.pauseDuration = Math.max(0, cfg.pause ?? 1);
+      this.spawnGrace = options.spawnGrace ?? (this.splitLevel>0 ? Math.min(this.pauseDuration, 0.65) : 0.25);
+      this.reengageTimer = options.reengageTimer ?? (this.splitLevel>0 ? this.pauseDuration : 0);
+      this.knock = 0;
+      this.scaling = getFloorScalingFactors();
+      const hpDecay = clamp(cfg.hpDecay ?? 0.75, 0.1, 1);
+      const scaledSeed = Math.max(1, Math.round(this.seedHp * this.scaling.hp));
+      const totalHp = Math.max(1, Math.round(scaledSeed * Math.pow(hpDecay, this.splitLevel)));
+      const branches = Math.pow(2, this.splitLevel);
+      this.hp = Math.max(1, Math.round(totalHp / branches));
+      this.speed *= this.scaling.speed;
+      this.aggression = this.scaling.aggression;
+      this.flying = false;
+      this.splitTriggered = false;
+      this.preventDrops = false;
+    }
+    update(dt){
+      if(!player) return;
+      if(this.spawnGrace>0){ this.spawnGrace = Math.max(0, this.spawnGrace - dt); }
+      if(this.reengageTimer>0){ this.reengageTimer = Math.max(0, this.reengageTimer - dt); }
+      const to = {x:player.x - this.x, y:player.y - this.y};
+      const l = Math.hypot(to.x,to.y)||1;
+      const nx = to.x/l, ny = to.y/l;
+      if(this.knock>0){
+        this.x -= nx * 220 * dt;
+        this.y -= ny * 220 * dt;
+        this.knock -= dt;
+      } else if(this.reengageTimer<=0){
+        this.x += nx * this.speed * dt;
+        this.y += ny * this.speed * dt;
+      }
+      this.x = clamp(this.x, 36, CONFIG.roomW-36);
+      this.y = clamp(this.y, 44, CONFIG.roomH-44);
+      resolveEntityObstacles(this);
+      if(this.spawnGrace<=0 && this.reengageTimer<=0 && dist(this, player) < this.r + player.r){
+        player.hurt(1);
+        this.knock = 0.2;
+        this.reengageTimer = Math.max(this.reengageTimer, 0.35);
+      }
+    }
+    draw(){
+      const idle = this.reengageTimer>0 || this.spawnGrace>0;
+      const base = idle ? '#ede9fe' : '#d8b4fe';
+      const edge = idle ? '#c4b5fd' : '#a855f7';
+      drawBlob(this.x,this.y,this.r,base,edge);
+      ctx.save();
+      ctx.translate(this.x,this.y);
+      ctx.fillStyle = '#1f2937';
+      ctx.beginPath();
+      ctx.arc(-this.r*0.28, -this.r*0.1, this.r*0.16, 0, Math.PI*2);
+      ctx.arc(this.r*0.28, -this.r*0.1, this.r*0.16, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      if(idle){
+        ctx.save();
+        const phase = performance.now()/180 + this.splitLevel;
+        const pulse = 6 + 3*Math.sin(phase);
+        const ratio = this.pauseDuration>0 ? this.reengageTimer/this.pauseDuration : 0;
+        ctx.globalAlpha = 0.25 + 0.25*Math.max(0, ratio);
+        ctx.strokeStyle = '#a855f7';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r + pulse, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    damage(d){
+      this.hp -= d;
+      if(this.hp<=0){
+        this.dead = true;
+        return true;
+      }
+      this.knock = 0.18;
+      return false;
+    }
+    onDeath(room){
+      if(this.splitTriggered) return;
+      if(this.splitLevel >= this.maxSplits) return;
+      this.splitTriggered = true;
+      this.preventDrops = true;
+      const nextLevel = this.splitLevel + 1;
+      const cfg = CONFIG.enemy.splitter || {};
+      const delay = Math.max(0, cfg.pause ?? 1);
+      const childSpawnGrace = Math.min(delay, 0.65);
+      for(let i=0;i<2;i++){
+        const angle = rand()*Math.PI*2;
+        const radius = this.r + 10 + rand()*8;
+        const pos = {
+          x: clamp(this.x + Math.cos(angle)*radius, 50, CONFIG.roomW-50),
+          y: clamp(this.y + Math.sin(angle)*radius, 56, CONFIG.roomH-56)
+        };
+        queueEnemySpawn(new EnemySplitter(pos.x, pos.y, this.seedHp, {
+          splitLevel: nextLevel,
+          seedHp: this.seedHp,
+          spawnGrace: childSpawnGrace,
+          reengageTimer: delay,
+        }));
+      }
+      if(room){ room.chargeGranted = false; room.combatRoom = true; }
+    }
+  }
+
+  class EnemyVolatile{
+    constructor(x,y,hp){
+      const cfg = CONFIG.enemy.volatile || {};
+      this.x=x; this.y=y; this.r=11; this.hp=hp;
+      this.state='chase';
+      this.spawnGrace = 0.18;
+      this.knock = 0;
+      this.knockVx = 0;
+      this.knockVy = 0;
+      this.scaling = getFloorScalingFactors();
+      this.hp = Math.max(1, Math.round(this.hp * this.scaling.hp));
+      const baseSpeed = cfg.speed ?? (CONFIG.enemy.speed * 1.35);
+      this.speed = baseSpeed * randRange(0.95,1.15) * this.scaling.speed;
+      this.aggression = this.scaling.aggression;
+      const playerRadius = player?.r ?? CONFIG.player.radius ?? 12;
+      const triggerMul = cfg.triggerMultiplier ?? 2;
+      this.explosionRadius = playerRadius * (cfg.explosionRadiusMultiplier ?? 1.5);
+      this.triggerRange = Math.max(playerRadius * triggerMul + this.r, this.explosionRadius + this.r + 2);
+      this.damageAmount = cfg.damage ?? 2;
+      const fuse = Math.max(0.25, cfg.fuse ?? 0.5);
+      this.fuseDuration = Math.max(0.2, fuse / this.aggression);
+      this.fuseTimer = 0;
+      this.flashTimer = 0;
+      this.exploded = false;
+      this.flying = false;
+    }
+    startFuse(){
+      if(this.state==='fuse' || this.exploded) return;
+      this.state='fuse';
+      this.fuseTimer = this.fuseDuration;
+      this.flashTimer = 0;
+    }
+    triggerExplosion(){
+      if(this.exploded) return;
+      this.exploded = true;
+      spawnCircularEffect(this.x, this.y, this.explosionRadius + 6, {
+        duration:0.35,
+        innerColor:'#fff6',
+        midColor:'#fdba74',
+        outerColor:'#f97316',
+      });
+      const room = dungeon?.current;
+      if(player){
+        const d = dist(this, player);
+        if(d <= this.explosionRadius + player.r){
+          player.hurt(this.damageAmount);
+          player.applyImpulse(player.x - this.x, player.y - this.y, 220);
+        }
+      }
+      this.dead = true;
+      if(room){ handleEnemyDeath(this, room); }
+    }
+    update(dt){
+      if(!player || this.exploded) return;
+      if(this.spawnGrace>0){ this.spawnGrace = Math.max(0, this.spawnGrace - dt); }
+      if(this.knock>0){
+        this.x += this.knockVx * dt;
+        this.y += this.knockVy * dt;
+        this.knockVx *= 0.82;
+        this.knockVy *= 0.82;
+        this.knock = Math.max(0, this.knock - dt);
+        resolveEntityObstacles(this);
+        return;
+      }
+      const to = {x:player.x - this.x, y:player.y - this.y};
+      const l = Math.hypot(to.x,to.y)||1;
+      const nx = to.x/l, ny = to.y/l;
+      if(this.state==='fuse'){
+        this.fuseTimer = Math.max(0, this.fuseTimer - dt * this.aggression);
+        this.flashTimer += dt * 10;
+        if(this.fuseTimer<=0){ this.triggerExplosion(); return; }
+      } else {
+        this.x += nx * this.speed * dt;
+        this.y += ny * this.speed * dt;
+        if(l <= this.triggerRange){ this.startFuse(); }
+      }
+      this.x = clamp(this.x, 34, CONFIG.roomW-34);
+      this.y = clamp(this.y, 42, CONFIG.roomH-42);
+      resolveEntityObstacles(this);
+      if(this.spawnGrace<=0){
+        const overlap = dist(this, player);
+        if(overlap < this.r + player.r){ this.triggerExplosion(); return; }
+      }
+    }
+    draw(){
+      if(this.exploded) return;
+      const base = this.state==='fuse' ? '#f97316' : '#fde68a';
+      const edge = this.state==='fuse' ? '#b91c1c' : '#f59e0b';
+      drawBlob(this.x,this.y,this.r,base,edge);
+      ctx.save();
+      ctx.translate(this.x, this.y - this.r*0.1);
+      ctx.fillStyle = '#1f2937';
+      ctx.beginPath();
+      ctx.arc(-this.r*0.3, 0, this.r*0.16, 0, Math.PI*2);
+      ctx.arc(this.r*0.3, 0, this.r*0.16, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      if(this.state==='fuse'){
+        ctx.save();
+        const pulse = 0.5 + 0.5*Math.sin(this.flashTimer*8);
+        ctx.globalAlpha = 0.4 + 0.35*pulse;
+        ctx.strokeStyle = '#fb923c';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.explosionRadius * (0.9 + 0.2*pulse), 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    damage(d){
+      if(this.exploded) return false;
+      this.hp -= d;
+      if(this.hp<=0){
+        this.dead = true;
+        return true;
+      }
+      this.knock = 0.2;
+      const vec = {x:this.x - player.x, y:this.y - player.y};
+      const len = Math.hypot(vec.x, vec.y)||1;
+      this.knockVx = (vec.x/len) * 180;
+      this.knockVy = (vec.y/len) * 180;
+      if(this.state==='fuse'){
+        this.state='chase';
+        this.fuseTimer = 0;
+      }
+      return false;
     }
   }
 
@@ -2974,6 +3298,60 @@
     ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
   }
 
+  function spawnCircularEffect(x,y,radius, options={}){
+    if(!runtime?.effects) return;
+    const duration = Math.max(0.05, options.duration ?? 0.35);
+    runtime.effects.push({
+      type:'burst',
+      x, y,
+      radius,
+      life: duration,
+      ttl: duration,
+      innerColor: options.innerColor || '#fff6',
+      midColor: options.midColor || '#fca5a5',
+      outerColor: options.outerColor || '#fb7185',
+    });
+  }
+
+  function updateEffects(dt){
+    if(!runtime.effects || !runtime.effects.length) return;
+    for(let i=runtime.effects.length-1;i>=0;i--){
+      const effect = runtime.effects[i];
+      effect.life -= dt;
+      if(effect.life<=0){
+        runtime.effects.splice(i,1);
+      }
+    }
+  }
+
+  function drawEffects(){
+    if(!runtime.effects || !runtime.effects.length) return;
+    for(const effect of runtime.effects){
+      if(effect.type==='burst'){
+        drawBurstEffect(effect);
+      } else if(typeof effect.draw === 'function'){
+        effect.draw(ctx, effect);
+      }
+    }
+  }
+
+  function drawBurstEffect(effect){
+    const ttl = effect.ttl || 0.0001;
+    const progress = clamp(1 - (effect.life/ttl), 0, 1);
+    const radius = (effect.radius || 20) * (0.6 + progress*0.6);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, 1 - progress*0.85);
+    const g = ctx.createRadialGradient(effect.x, effect.y, radius*0.15, effect.x, effect.y, radius);
+    g.addColorStop(0, effect.innerColor || '#fff5');
+    g.addColorStop(0.45, effect.midColor || '#fca5a5');
+    g.addColorStop(1, effect.outerColor || '#fb7185');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(effect.x, effect.y, radius, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   function updateRoomPortal(room, dt){
     if(!room?.portal) return;
     const portal = room.portal;
@@ -3073,6 +3451,7 @@
     itemPickupName: '',
     itemPickupDesc: '',
     floor: currentFloor,
+    effects: [],
   };
   let dungeon, player;
 
@@ -3098,6 +3477,7 @@
     runtime.itemPickupTimer = 0;
     runtime.itemPickupName = '';
     runtime.itemPickupDesc = '';
+    runtime.effects.length = 0;
     syncCheatPanel();
   }
 
@@ -3134,6 +3514,7 @@
     runtime.itemPickupName = `已抵达第 ${currentFloor} 层`;
     runtime.itemPickupDesc = '敌人变得更加愤怒。';
     runtime.itemPickupTimer = 2.6;
+    runtime.effects.length = 0;
     keys.clear();
     for(const code of preservedKeys){ keys.add(code); }
     syncCheatPanel();
@@ -3313,6 +3694,18 @@
     // 房间是否清空
     if(!dungeon.current.cleared && dungeon.current.enemies.length===0){
       dungeon.current.cleared = true;
+      const room = dungeon.current;
+      if(room.combatRoom && !room.chargeGranted){
+        const gained = player.gainActiveCharge(1);
+        if(gained && runtime.itemPickupTimer<=0){
+          const maxCharge = Math.max(0, player.activeMaxCharge ?? 0);
+          const current = Math.min(player.activeCharge, maxCharge);
+          runtime.itemPickupName = '主动道具充能 +1';
+          runtime.itemPickupDesc = maxCharge>0 ? `当前充能：${current}/${maxCharge}` : '能量已存入电容槽。';
+          runtime.itemPickupTimer = 1.4;
+        }
+        room.chargeGranted = true;
+      }
       // 小概率掉红心
       if(rand()<CONFIG.drops.heartRoomClear){
         dungeon.current.pickups.push(makeHeartPickup(randRange(120,CONFIG.roomW-120), randRange(120,CONFIG.roomH-120), 1));
@@ -3368,6 +3761,8 @@
     // 换房
     tryRoomTransition();
 
+    updateEffects(dt);
+
     // 更新 HUD
     renderHUD();
     runtime.bossIntroTimer = Math.max(0, runtime.bossIntroTimer - dt);
@@ -3393,10 +3788,16 @@
     HUDS.innerHTML = statItems.map(({label,value,unit})=>`<span>${label}：<strong>${value}</strong>${unit?`<small>${unit}</small>`:''}</span>`).join('');
     const itemsText = player.items.length ? player.items.join('、') : '空手上阵';
     const floorLevel = runtime.floor || currentFloor || 1;
+    const maxCharge = Math.max(0, player.activeMaxCharge ?? 0);
+    const chargeValue = clamp(Math.floor(player.activeCharge ?? 0), 0, maxCharge);
+    const ready = maxCharge>0 && chargeValue >= maxCharge && player.activeItem && typeof player.activeItem.use === 'function';
+    const activeName = player.activeItem?.name || '空槽';
+    const chargeLabel = maxCharge>0 ? `${chargeValue}/${maxCharge}` : '--';
+    const activeBadge = ready ? `<span class="kbd" style="color:var(--ok)">⚡ 就绪</span>` : `<span class="kbd">⚡ ${chargeLabel}</span>`;
     if(dungeon.current.isBoss && dungeon.current.bossEntity && !dungeon.current.bossEntity.dead){
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span></span>`;
+      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span></span>`;
     } else {
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span></span>`;
+      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span></span>`;
     }
     if(cheatPanelNode?.classList.contains('show')){ syncCheatPanel(); }
   }
@@ -3421,6 +3822,8 @@
 
     // 敌人
     for(const e of dungeon.current.enemies){ e.draw(); }
+
+    drawEffects();
 
     // 敌弹
     for(const eb of runtime.enemyProjectiles){ eb.draw(); }
@@ -3899,8 +4302,13 @@
   }
 
   function handleEnemyDeath(enemy, room){
+    if(!enemy) return;
     if(enemy._dropHandled) return;
     enemy._dropHandled = true;
+    if(typeof enemy.onDeath === 'function'){
+      enemy.onDeath(room);
+    }
+    if(enemy.preventDrops) return;
     if(enemy.isBossEntity){
       room.bossDefeated = true;
       room.cleared = true;
@@ -3971,6 +4379,60 @@
     dungeon.current.bombs.push(bomb);
     player.bombs = Math.max(0, player.bombs-1);
     player.bombCooldown = 0.3;
+  }
+
+  function attemptActiveUse(){
+    if(state!==STATE.PLAY) return;
+    if(!player) return;
+    const item = player.activeItem;
+    if(!item){
+      if(runtime.itemPickupTimer<=0){
+        runtime.itemPickupName = '未装备主动道具';
+        runtime.itemPickupDesc = '清理道具房或商店，寻找主动道具。';
+        runtime.itemPickupTimer = 1.6;
+      }
+      return;
+    }
+    const maxCharge = Math.max(0, player.activeMaxCharge ?? 0);
+    if(maxCharge<=0){
+      if(runtime.itemPickupTimer<=0){
+        runtime.itemPickupName = `${item.name || '主动道具'} 无充能槽`;
+        runtime.itemPickupDesc = '请为主动道具设定最大充能值。';
+        runtime.itemPickupTimer = 1.4;
+      }
+      return;
+    }
+    if(typeof item.use !== 'function'){
+      if(runtime.itemPickupTimer<=0){
+        runtime.itemPickupName = `${item.name || '主动道具'} 暂无效果`;
+        runtime.itemPickupDesc = '为主动道具编写 use() 函数后即可释放。';
+        runtime.itemPickupTimer = 1.6;
+      }
+      return;
+    }
+    if(!player.canUseActiveItem()){
+      if(runtime.itemPickupTimer<=0){
+        const remain = Math.max(0, maxCharge - player.activeCharge);
+        runtime.itemPickupName = `${item.name || '主动道具'} 充能中`;
+        runtime.itemPickupDesc = remain>0 ? `还需 ${remain} 点充能` : '再等等能量汇聚。';
+        runtime.itemPickupTimer = 1.3;
+      }
+      return;
+    }
+    const context = {runtime, dungeon, config: CONFIG};
+    const outcome = player.useActiveItem(context);
+    if(outcome === false) return;
+    if(runtime.itemPickupTimer<=0){
+      let name = `${item.name || '主动道具'} 已释放`;
+      let desc = item.description || '主动效果发动。';
+      if(outcome && typeof outcome === 'object'){
+        if(outcome.message) name = outcome.message;
+        if(outcome.detail) desc = outcome.detail;
+      }
+      runtime.itemPickupName = name;
+      runtime.itemPickupDesc = desc;
+      runtime.itemPickupTimer = 1.6;
+    }
   }
 
   function tryPortalInteract(room){
