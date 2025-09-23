@@ -254,7 +254,7 @@
       spawnPosition: { x: 120, y: 150 },
     },
     brimstone: {
-      tickFrames: 15,
+      tickFrames: 8,
       beamDuration: 2,
       damageScale: 0.7,
       widthGrowth: 1.5,
@@ -416,6 +416,25 @@
     }
     if(typeof extra === 'function'){
       extra(enemy, scaling);
+    }
+    return enemy;
+  }
+
+  const ENEMY_DAMAGE_FLASH_DURATION = 0.1;
+  function prepareEnemy(enemy){
+    if(!enemy) return enemy;
+    if(typeof enemy.damageFlashTimer !== 'number'){ enemy.damageFlashTimer = 0; }
+    if(typeof enemy.damage === 'function' && !enemy._damageFlashWrapped){
+      const originalDamage = enemy.damage;
+      enemy.damage = function(...args){
+        const prevHp = (typeof this.hp === 'number') ? this.hp : null;
+        const result = originalDamage.apply(this, args);
+        if(prevHp !== null && typeof this.hp === 'number' && this.hp < prevHp){
+          this.damageFlashTimer = ENEMY_DAMAGE_FLASH_DURATION;
+        }
+        return result;
+      };
+      enemy._damageFlashWrapped = true;
     }
     return enemy;
   }
@@ -714,8 +733,8 @@
     {
       slug:'brimstone',
       name:'硫磺火',
-      weight:2,
-      description:'被动：蓄力释放贯穿障碍的血色激光。蓄力时间随射速缩短，束宽随拾取次数递增。每 15 帧造成 0.7 倍攻击伤害，持续 2 秒。拾取后仅保留 1 点生命上限。',
+      weight:3,
+      description:'被动：蓄力释放贯穿障碍的血色激光。蓄力时间随射速缩短，束宽随拾取次数递增。每 8 帧造成相当于当前攻击力 70% 的伤害，持续 2 秒。拾取后仅保留 1 点生命上限。',
       lifeTradeCost:{type:'set-to-one'},
       apply(player){
         if(!player) return;
@@ -1513,6 +1532,8 @@
         if(!this.bossEntity || this.bossEntity.dead){
           const c = this.center();
           this.bossEntity = makeBoss(c, this);
+        } else {
+          prepareEnemy(this.bossEntity);
         }
         this.enemies = [this.bossEntity];
         this.cleared = false;
@@ -2765,7 +2786,7 @@
       }
       if(this.ifr>0 && !options.bypassIFrames) return;
       this.hp = Math.max(0, this.hp - amount);
-      const ifrDuration = Number.isFinite(options.ifr) ? Math.max(0, options.ifr) : 1.0;
+      const ifrDuration = Number.isFinite(options.ifr) ? Math.max(0, options.ifr) : 0.75;
       this.ifr = Math.max(this.ifr, ifrDuration);
       if(this.hp<=0){ gameOver(); return; }
       if(cause==='explosion' && this.explosionHealAmount>0){
@@ -3384,20 +3405,22 @@
 
   function makeEnemy(type, pos, depth){
     const hp = Math.max(1, Math.round(CONFIG.enemy.baseHP + depth*0.3 + rand()*1.0));
-    if(type==='chaser') return new EnemyChaser(pos.x,pos.y,hp);
-    if(type==='orbiter') return new EnemyOrbiter(pos.x,pos.y,hp);
-    if(type==='gasbag') return new EnemyGasbag(pos.x,pos.y, Math.max(hp+1, 3));
-    if(type==='tinyfly') return new EnemyTinyFly(pos.x,pos.y, Math.max(1, Math.round(1 + depth*0.15)));
-    if(type==='elderfly') return new EnemyElderFly(pos.x,pos.y, Math.max(hp, 3));
-    if(type==='spider') return new EnemySpiderLeaper(pos.x,pos.y, Math.max(hp+1, 4));
-    if(type==='splitter') return new EnemySplitter(pos.x,pos.y, Math.max(hp+2, 4));
-    if(type==='volatile') return new EnemyVolatile(pos.x,pos.y, Math.max(hp, 2));
-    if(type==='sentry') return new EnemySentry(pos.x,pos.y, Math.max(hp+1, 4));
-    if(type==='dashling') return new EnemyDashling(pos.x,pos.y, Math.max(hp, 3));
-    if(type==='burrower') return new EnemyBurrower(pos.x,pos.y, Math.max(hp+1, 4));
-    if(type==='spark') return new EnemySpark(pos.x,pos.y, Math.max(hp, 2));
-    if(type==='brood') return new EnemyBrood(pos.x,pos.y, Math.max(hp+1, 4));
-    return new EnemyChaser(pos.x,pos.y,hp);
+    let enemy;
+    if(type==='chaser') enemy = new EnemyChaser(pos.x,pos.y,hp);
+    else if(type==='orbiter') enemy = new EnemyOrbiter(pos.x,pos.y,hp);
+    else if(type==='gasbag') enemy = new EnemyGasbag(pos.x,pos.y, Math.max(hp+1, 3));
+    else if(type==='tinyfly') enemy = new EnemyTinyFly(pos.x,pos.y, Math.max(1, Math.round(1 + depth*0.15)));
+    else if(type==='elderfly') enemy = new EnemyElderFly(pos.x,pos.y, Math.max(hp, 3));
+    else if(type==='spider') enemy = new EnemySpiderLeaper(pos.x,pos.y, Math.max(hp+1, 4));
+    else if(type==='splitter') enemy = new EnemySplitter(pos.x,pos.y, Math.max(hp+2, 4));
+    else if(type==='volatile') enemy = new EnemyVolatile(pos.x,pos.y, Math.max(hp, 2));
+    else if(type==='sentry') enemy = new EnemySentry(pos.x,pos.y, Math.max(hp+1, 4));
+    else if(type==='dashling') enemy = new EnemyDashling(pos.x,pos.y, Math.max(hp, 3));
+    else if(type==='burrower') enemy = new EnemyBurrower(pos.x,pos.y, Math.max(hp+1, 4));
+    else if(type==='spark') enemy = new EnemySpark(pos.x,pos.y, Math.max(hp, 2));
+    else if(type==='brood') enemy = new EnemyBrood(pos.x,pos.y, Math.max(hp+1, 4));
+    else enemy = new EnemyChaser(pos.x,pos.y,hp);
+    return prepareEnemy(enemy);
   }
 
   function makeBoss(pos, room){
@@ -3423,7 +3446,7 @@
         break;
     }
     boss.room = room;
-    return boss;
+    return prepareEnemy(boss);
   }
 
   class EnemyChaser{
@@ -6511,8 +6534,18 @@
 
     // 敌人
     const enemies = dungeon.current.enemies;
-    for(const e of enemies) e.update(dt);
-    if(runtime.pendingEnemySpawns.length){ enemies.push(...runtime.pendingEnemySpawns.splice(0)); }
+    for(const e of enemies){
+      e.update(dt);
+      if(typeof e.damageFlashTimer === 'number' && e.damageFlashTimer>0){
+        e.damageFlashTimer = Math.max(0, e.damageFlashTimer - dt);
+      }
+    }
+    if(runtime.pendingEnemySpawns.length){
+      while(runtime.pendingEnemySpawns.length){
+        const spawn = prepareEnemy(runtime.pendingEnemySpawns.shift());
+        if(spawn){ enemies.push(spawn); }
+      }
+    }
     updateBeams(dt);
 
     // 敌方弹幕
@@ -6684,7 +6717,20 @@
 
     for(const bomb of dungeon.current.bombs){ bomb.draw(); }
 
-    for(const e of dungeon.current.enemies){ e.draw(); }
+    for(const e of dungeon.current.enemies){
+      e.draw();
+      if(e.damageFlashTimer>0){
+        const ratio = clamp(e.damageFlashTimer / ENEMY_DAMAGE_FLASH_DURATION, 0, 1);
+        const radius = (e.r || 12) * 1.15;
+        ctx.save();
+        ctx.globalAlpha = 0.3 + ratio * 0.35;
+        ctx.fillStyle = '#ff4d4f';
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, radius, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
 
     drawEffects();
     drawBeams();
@@ -7443,12 +7489,19 @@
         edgeColor = mixHexColor('#a78bfa', '#ef4444', ratio);
       }
     }
+    ctx.save();
+    if(player.ifr>0){
+      const phase = Math.floor((performance.now()/70)) % 2;
+      const alpha = phase===0 ? 1 : 0.25;
+      ctx.globalAlpha *= alpha;
+    }
     drawBlob(player.x, player.y, player.r, baseColor, edgeColor);
     if(player.attackMode === 'brimstone' && (player.brimstoneBeam || player.brimstoneCharged)){
       const pulse = player.brimstoneBeam ? 1 : clamp(player.getBrimstoneChargeRatio?.() ?? 0, 0, 1);
       const radius = player.r * (1.25 + pulse * 0.35);
       ctx.save();
-      ctx.globalAlpha = 0.35 + pulse * 0.25;
+      const haloAlpha = ctx.globalAlpha * (0.35 + pulse * 0.25);
+      ctx.globalAlpha = haloAlpha;
       const halo = ctx.createRadialGradient(player.x, player.y, radius*0.35, player.x, player.y, radius);
       halo.addColorStop(0, colorWithAlpha('#fca5a5', 0.9));
       halo.addColorStop(1, colorWithAlpha('#b91c1c', 0));
@@ -7458,8 +7511,7 @@
       ctx.fill();
       ctx.restore();
     }
-    // 眼泪闪烁（无敌帧提示）
-    if(player.ifr>0){ ctx.save(); ctx.globalAlpha = 0.5 + 0.5*Math.sin(performance.now()/60); ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(player.x,player.y,player.r+3,0,Math.PI*2); ctx.stroke(); ctx.restore(); }
+    ctx.restore();
   }
   function drawMiniMap(){
     const cell=12, pad=8, left=16, top=16;
@@ -7693,7 +7745,7 @@
     return {type:'heart', x:clamp(x,60,CONFIG.roomW-60), y:clamp(y,60,CONFIG.roomH-60), r: heal>1?14:10, heal, vx:0, vy:0, solid:true, spawnGrace:CONFIG.pickupSpawnGrace};
   }
 
-  function queueEnemySpawn(enemy){ runtime.pendingEnemySpawns.push(enemy); }
+  function queueEnemySpawn(enemy){ runtime.pendingEnemySpawns.push(prepareEnemy(enemy)); }
 
   function placeBomb(){
     if(!player || !dungeon?.current) return;
