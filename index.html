@@ -388,6 +388,21 @@
       apply(player){ player.tearSpeed*=0.75; adjustFireRate(player,0.75); player.tearLife*=1.25; }
     },
     {
+      slug:'seer-map',
+      name:'透视雷达',
+      weight:28,
+      description:'被动：当前与未来楼层地图全开，显示所有房间、商店和道具房。',
+      apply(player){
+        if(!player) return;
+        if(typeof player.enableFullMapVision === 'function'){
+          player.enableFullMapVision(dungeon);
+        } else {
+          player.fullMapVision = true;
+          if(dungeon?.revealAllRooms){ dungeon.revealAllRooms(); }
+        }
+      }
+    },
+    {
       slug:'outdoor-pouch',
       name:'户外腰包',
       weight:6,
@@ -1072,6 +1087,7 @@
     if(state===STATE.PLAY && code==='KeyE') placeBomb();
     if(state===STATE.PLAY && code==='KeyF') attemptPurchase();
     if(state===STATE.PLAY && code==='Space') attemptActiveUse();
+    if(state===STATE.PLAY && code==='KeyQ') attemptSingleUse();
   }
   function processKeyUp(code){
     keys.delete(code);
@@ -1579,6 +1595,30 @@
       room.discovered = true;
       this.updateBounds(room);
     }
+    revealAllRooms(){
+      const rooms = Array.isArray(this.allRooms) ? this.allRooms : [];
+      if(!rooms.length) return;
+      let minI = Infinity, maxI = -Infinity, minJ = Infinity, maxJ = -Infinity;
+      for(const room of rooms){
+        if(!room) continue;
+        room.discovered = true;
+        minI = Math.min(minI, room.i);
+        maxI = Math.max(maxI, room.i);
+        minJ = Math.min(minJ, room.j);
+        maxJ = Math.max(maxJ, room.j);
+      }
+      if(minI === Infinity){
+        return;
+      }
+      if(!this.bounds){
+        this.bounds = {minI, maxI, minJ, maxJ};
+        return;
+      }
+      this.bounds.minI = Math.min(this.bounds.minI, minI);
+      this.bounds.maxI = Math.max(this.bounds.maxI, maxI);
+      this.bounds.minJ = Math.min(this.bounds.minJ, minJ);
+      this.bounds.maxJ = Math.max(this.bounds.maxJ, maxJ);
+    }
   }
   function key(i,j){return `${i},${j}`}
 
@@ -1879,6 +1919,7 @@
       this.activeItem = null;
       this.activeCharge = 0;
       this.activeMaxCharge = this.baseActiveMaxCharge;
+      this.singleUseItem = null;
       this.bombRadiusMultiplier = 1;
       this.bombDamageMultiplier = 1;
       this.bombShakeStrength = 0;
@@ -1887,6 +1928,7 @@
       this.homingTears = false;
       this.homingStrength = 6;
       this.roomBuff = null;
+      this.fullMapVision = false;
       this.moveDir = {x:0,y:0};
       this.lastDisplacement = {x:0,y:0};
       this.lastVelocity = {x:0,y:0};
@@ -2177,6 +2219,37 @@
       } else {
         this.activeCharge = clamp(this.activeCharge, 0, this.activeMaxCharge);
       }
+    }
+    enableFullMapVision(dungeonInstance){
+      this.fullMapVision = true;
+      if(dungeonInstance && typeof dungeonInstance.revealAllRooms === 'function'){
+        dungeonInstance.revealAllRooms();
+      }
+    }
+    setSingleUseItem(item){
+      if(!item){
+        this.singleUseItem = null;
+        return;
+      }
+      this.singleUseItem = {...item};
+    }
+    canUseSingleUseItem(){
+      return !!(this.singleUseItem && typeof this.singleUseItem.use === 'function');
+    }
+    useSingleUseItem(context){
+      if(!this.singleUseItem) return false;
+      const item = this.singleUseItem;
+      const handler = item.use;
+      const result = handler ? handler(this, context) : true;
+      if(result === false) return false;
+      let consume = true;
+      if(result && typeof result === 'object' && 'consume' in result){
+        consume = !!result.consume;
+      }
+      if(consume){
+        this.singleUseItem = null;
+      }
+      return result ?? true;
     }
     gainActiveCharge(amount=1){
       if(!Number.isFinite(amount) || amount<=0) return false;
@@ -3796,6 +3869,13 @@
     dungeon.depth = Math.max(prevDepth + 1, 1);
     dungeon.current.visited = true;
     dungeon.revealRoom(dungeon.current);
+    if(player.fullMapVision){
+      if(typeof player.enableFullMapVision === 'function'){
+        player.enableFullMapVision(dungeon);
+      } else if(typeof dungeon.revealAllRooms === 'function'){
+        dungeon.revealAllRooms();
+      }
+    }
     dungeon.current.spawnEnemies(dungeon.depth);
     player.handleRoomChange(dungeon.current);
     player.x = CONFIG.roomW/2;
@@ -4101,10 +4181,14 @@
     const activeName = player.activeItem?.name || '空槽';
     const chargeLabel = maxCharge>0 ? `${chargeValue}/${maxCharge}` : '--';
     const activeBadge = ready ? `<span class="kbd" style="color:var(--ok)">⚡ 就绪</span>` : `<span class="kbd">⚡ ${chargeLabel}</span>`;
+    const singleUseItem = player.singleUseItem;
+    const singleUseName = singleUseItem?.name || '空槽';
+    const singleUseReady = !!(singleUseItem && typeof singleUseItem.use === 'function');
+    const singleUseBadge = singleUseReady ? `<span class="kbd" style="color:var(--accent)">Q 就绪</span>` : `<span class="kbd">Q --</span>`;
     if(dungeon.current.isBoss && dungeon.current.bossEntity && !dungeon.current.bossEntity.dead){
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span></span>`;
+      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>一次性：${singleUseName} ${singleUseBadge}</span></span>`;
     } else {
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span></span>`;
+      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>一次性：${singleUseName} ${singleUseBadge}</span></span>`;
     }
     if(cheatPanelNode?.classList.contains('show')){ syncCheatPanel(); }
   }
@@ -4477,6 +4561,28 @@
       g.beginPath(); g.arc(0,0,r*0.9,Math.PI*0.2,Math.PI*1.6); g.stroke();
       g.strokeStyle='#f472b6';
       g.beginPath(); g.moveTo(r*0.4,0); g.quadraticCurveTo(r*0.7,r*0.4,r*0.2,r*0.7); g.stroke();
+    } else if(id==='seer-map'){
+      g.fillStyle='#0f172a';
+      g.fillRect(-r*0.9,-r*0.7,r*1.8,r*1.4);
+      g.strokeStyle='#38bdf8';
+      g.lineWidth=2.5;
+      g.strokeRect(-r*0.85,-r*0.65,r*1.7,r*1.3);
+      g.strokeStyle='#94a3b8';
+      g.lineWidth=1.2;
+      g.beginPath();
+      g.moveTo(-r*0.85,0);
+      g.lineTo(r*0.85,0);
+      g.moveTo(0,-r*0.65);
+      g.lineTo(0,r*0.65);
+      g.moveTo(-r*0.4,-r*0.65);
+      g.lineTo(-r*0.2,r*0.65);
+      g.moveTo(r*0.4,-r*0.65);
+      g.lineTo(r*0.2,r*0.65);
+      g.stroke();
+      g.fillStyle='#facc15';
+      g.beginPath(); g.arc(r*0.35,-r*0.25,r*0.18,0,Math.PI*2); g.fill();
+      g.fillStyle='#fb7185';
+      g.beginPath(); g.arc(-r*0.45,r*0.25,r*0.16,0,Math.PI*2); g.fill();
     } else if(id==='dog-food'){
       g.fillStyle='#92400e';
       g.fillRect(-r*0.7,-r*0.5,r*1.4,r*0.9);
@@ -4811,6 +4917,42 @@
       runtime.itemPickupName = name;
       runtime.itemPickupDesc = desc;
       runtime.itemPickupTimer = 1.6;
+    }
+  }
+
+  function attemptSingleUse(){
+    if(state!==STATE.PLAY) return;
+    if(!player) return;
+    const item = player.singleUseItem;
+    if(!item){
+      if(runtime.itemPickupTimer<=0){
+        runtime.itemPickupName = '一次性道具空槽';
+        runtime.itemPickupDesc = '探索或购物以获取一次性道具。';
+        runtime.itemPickupTimer = 1.4;
+      }
+      return;
+    }
+    if(typeof item.use !== 'function'){
+      if(runtime.itemPickupTimer<=0){
+        runtime.itemPickupName = `${item.name || '一次性道具'} 暂无效果`;
+        runtime.itemPickupDesc = '为一次性道具编写 use() 函数即可释放。';
+        runtime.itemPickupTimer = 1.4;
+      }
+      return;
+    }
+    const context = {runtime, dungeon, config: CONFIG};
+    const outcome = player.useSingleUseItem(context);
+    if(outcome === false) return;
+    if(runtime.itemPickupTimer<=0){
+      let name = `${item.name || '一次性道具'} 已使用`;
+      let desc = item.description || '一次性效果发动。';
+      if(outcome && typeof outcome === 'object'){
+        if(outcome.message) name = outcome.message;
+        if(outcome.detail) desc = outcome.detail;
+      }
+      runtime.itemPickupName = name;
+      runtime.itemPickupDesc = desc;
+      runtime.itemPickupTimer = 1.4;
     }
   }
 
