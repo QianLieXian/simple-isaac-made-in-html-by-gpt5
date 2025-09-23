@@ -122,6 +122,7 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
 | 21 | 狗粮 *Dog Food* | **上限 +1 并立即恢复** |
 | 22 | 结束纸条 *Ending Note* | **射速 +0.75**，**射程 ×1.1** |
 | 23 | 热水壶 *Kettle* | **伤害 +1** |
+| 24 | 硫磺火 *idkeng* | **更改攻击方式** |
 
 ---
 
