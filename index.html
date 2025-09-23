@@ -42,15 +42,17 @@
     .cheat-section button:hover{border-color:#3c4c6a;background:linear-gradient(180deg,#34405a,#273044)}
     .hud-stats span small{font-size:12px;color:var(--muted);opacity:.8}
     .kbd{padding:2px 6px;border:1px solid #2a3142;border-radius:6px;color:var(--muted)}
-    .virtual-kb{display:none;position:absolute;top:110%;right:0;z-index:19;min-width:260px;background:rgba(15,19,28,.95);border:1px solid #273146;border-radius:12px;padding:10px;box-shadow:0 16px 28px rgba(0,0,0,.45);gap:8px}
+    .virtual-kb{display:none;position:absolute;top:110%;right:0;z-index:19;min-width:260px;background:rgba(15,19,28,.86);border:1px solid rgba(39,49,70,.85);border-radius:12px;padding:10px;box-shadow:0 16px 28px rgba(0,0,0,.35);gap:10px;backdrop-filter:blur(6px)}
     .virtual-kb.show{display:grid}
+    .virtual-kb-cluster{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:end}
+    .virtual-kb-block{display:grid;gap:8px}
     .virtual-kb-row{display:grid;gap:8px}
     .virtual-kb-row[data-type="movement"]{grid-template-columns:repeat(3,1fr)}
     .virtual-kb-row[data-type="arrows"]{grid-template-columns:repeat(3,1fr)}
     .virtual-kb-row[data-type="actions"]{grid-template-columns:repeat(4,1fr)}
     .virtual-kb-row[data-type="system"]{grid-template-columns:repeat(3,1fr)}
-    .virtual-kb button{padding:10px 8px;border-radius:10px;border:1px solid #2f3a52;background:linear-gradient(180deg,#2c3348,#222735);color:var(--ink);font-weight:600;font-size:13px;min-width:0;transition:all .15s ease;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none}
-    .virtual-kb button:active,.virtual-kb button.active{transform:translateY(1px);border-color:#3c4c6a;background:linear-gradient(180deg,#34405a,#273044)}
+    .virtual-kb button{padding:10px 8px;border-radius:10px;border:1px solid rgba(47,58,82,.85);background:linear-gradient(180deg,rgba(44,51,72,.88),rgba(34,39,53,.82));color:var(--ink);font-weight:600;font-size:13px;min-width:0;transition:all .15s ease;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none}
+    .virtual-kb button:active,.virtual-kb button.active{transform:translateY(1px);border-color:#3c4c6a;background:linear-gradient(180deg,rgba(52,64,90,.9),rgba(39,48,68,.86))}
     .virtual-kb button.small{font-size:12px;font-weight:500}
     .virtual-kb-spacer{visibility:hidden}
     .item-codex{margin-top:14px;padding:16px 18px;display:flex;flex-direction:column;gap:14px}
@@ -71,6 +73,8 @@
       .hud-tools{align-self:flex-end}
       .virtual-kb{position:fixed;left:50%;bottom:16px;top:auto;right:auto;transform:translateX(-50%);z-index:30;display:none;grid-template-columns:repeat(1,minmax(240px,1fr));width:min(92vw,400px)}
       .virtual-kb.show{display:grid}
+      .virtual-kb-cluster{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+      .virtual-kb-block{gap:10px}
       .virtual-kb-row{grid-template-columns:repeat(4,1fr)}
       .virtual-kb-row[data-type="movement"]{grid-template-columns:repeat(3,1fr)}
       .virtual-kb-row[data-type="arrows"]{grid-template-columns:repeat(3,1fr)}
@@ -284,6 +288,9 @@
   const BOSS_TYPES = [
     {id:'idol', name:'哭泣塑像 · 社畜蛹'},
     {id:'master', name:'余烬教官 · Master'},
+    {id:'hydra', name:'缠鳞九首 · 海德拉'},
+    {id:'seer', name:'裂隙先知 · 星瞳使者'},
+    {id:'titan', name:'震颤机偶 · 玄铁执事'},
   ];
   function rollBossType(){
     return BOSS_TYPES[Math.floor(rand()*BOSS_TYPES.length)];
@@ -1014,55 +1021,59 @@
   function createVirtualKeyboard({panel, toggle, onKeyDown, onKeyUp}){
     if(!panel || !toggle || typeof onKeyDown !== 'function' || typeof onKeyUp !== 'function') return null;
     const layout = [
-      {type:'movement', keys:[null,{label:'W', code:'KeyW', hold:true},null]},
-      {type:'movement', keys:[
-        {label:'A', code:'KeyA', hold:true},
-        {label:'S', code:'KeyS', hold:true},
-        {label:'D', code:'KeyD', hold:true},
-      ]},
-      {type:'arrows', keys:[null,{label:'↑', code:'ArrowUp', hold:true},null]},
-      {type:'arrows', keys:[
-        {label:'←', code:'ArrowLeft', hold:true},
-        {label:'↓', code:'ArrowDown', hold:true},
-        {label:'→', code:'ArrowRight', hold:true},
-      ]},
-      {type:'actions', keys:[
-        {label:'E', code:'KeyE', tap:true},
-        {label:'F', code:'KeyF', tap:true},
-        {label:'R', code:'KeyR', tap:true},
-        {label:'P', code:'KeyP', tap:true},
-      ]},
-      {type:'system', keys:[
-        {label:'Enter', code:'Enter', tap:true, span:3, className:'small'},
-      ]},
+      {
+        type:'cluster',
+        columns:[
+          {
+            type:'movement',
+            rows:[
+              [null,{label:'W', code:'KeyW', hold:true},null],
+              [
+                {label:'A', code:'KeyA', hold:true},
+                {label:'S', code:'KeyS', hold:true},
+                {label:'D', code:'KeyD', hold:true},
+              ],
+            ],
+          },
+          {
+            type:'arrows',
+            rows:[
+              [null,{label:'↑', code:'ArrowUp', hold:true},null],
+              [
+                {label:'←', code:'ArrowLeft', hold:true},
+                {label:'↓', code:'ArrowDown', hold:true},
+                {label:'→', code:'ArrowRight', hold:true},
+              ],
+            ],
+          },
+        ],
+      },
+      {
+        type:'actions',
+        rows:[[
+          {label:'E', code:'KeyE', tap:true},
+          {label:'F', code:'KeyF', tap:true},
+          {label:'R', code:'KeyR', tap:true},
+          {label:'P', code:'KeyP', tap:true},
+        ]],
+      },
+      {
+        type:'system',
+        rows:[[
+          {label:'Enter', code:'Enter', tap:true, span:3, className:'small'},
+        ]],
+      },
     ];
 
     panel.innerHTML = '';
     const activeHoldButtons = new Map();
     const pointerHold = new Map();
 
-    function releaseHold(code){
-      if(!code) return;
-      onKeyUp(code);
-      const btn = activeHoldButtons.get(code);
-      if(btn){
-        btn.classList.remove('active');
-        activeHoldButtons.delete(code);
-      }
-    }
-
-    function releaseAll(){
-      for(const code of Array.from(activeHoldButtons.keys())){
-        releaseHold(code);
-      }
-      pointerHold.clear();
-    }
-
-    for(const row of layout){
+    function createRow(row, type){
       const rowEl = document.createElement('div');
       rowEl.className = 'virtual-kb-row';
-      rowEl.dataset.type = row.type;
-      for(const key of row.keys){
+      if(type) rowEl.dataset.type = type;
+      for(const key of row){
         if(!key){
           const spacer = document.createElement('div');
           spacer.className = 'virtual-kb-spacer';
@@ -1122,7 +1133,46 @@
         });
         rowEl.appendChild(btn);
       }
-      panel.appendChild(rowEl);
+      return rowEl;
+    }
+
+    function releaseHold(code){
+      if(!code) return;
+      onKeyUp(code);
+      const btn = activeHoldButtons.get(code);
+      if(btn){
+        btn.classList.remove('active');
+        activeHoldButtons.delete(code);
+      }
+    }
+
+    function releaseAll(){
+      for(const code of Array.from(activeHoldButtons.keys())){
+        releaseHold(code);
+      }
+      pointerHold.clear();
+    }
+
+    for(const section of layout){
+      if(section.columns){
+        const cluster = document.createElement('div');
+        cluster.className = 'virtual-kb-cluster';
+        for(const column of section.columns){
+          const block = document.createElement('div');
+          block.className = 'virtual-kb-block';
+          if(column.type) block.dataset.type = column.type;
+          for(const row of column.rows){
+            block.appendChild(createRow(row, column.type));
+          }
+          cluster.appendChild(block);
+        }
+        panel.appendChild(cluster);
+        continue;
+      }
+      const rows = section.rows || [];
+      for(const row of rows){
+        panel.appendChild(createRow(row, section.type));
+      }
     }
 
     panel.setAttribute('aria-hidden', 'true');
@@ -2863,10 +2913,24 @@
   function makeBoss(pos, room){
     const bossId = room?.bossId || 'idol';
     let boss;
-    if(bossId==='master'){
-      boss = new EnemyBossMaster(pos.x, pos.y, room?.bossName || getBossMeta('master').name);
-    } else {
-      boss = new EnemyBoss(pos.x, pos.y, room?.bossName || getBossMeta('idol').name);
+    const meta = getBossMeta(bossId);
+    const bossName = room?.bossName || meta.name;
+    switch(bossId){
+      case 'master':
+        boss = new EnemyBossMaster(pos.x, pos.y, bossName);
+        break;
+      case 'hydra':
+        boss = new EnemyBossHydra(pos.x, pos.y, bossName);
+        break;
+      case 'seer':
+        boss = new EnemyBossSeer(pos.x, pos.y, bossName);
+        break;
+      case 'titan':
+        boss = new EnemyBossTitan(pos.x, pos.y, bossName);
+        break;
+      default:
+        boss = new EnemyBoss(pos.x, pos.y, bossName);
+        break;
     }
     boss.room = room;
     return boss;
@@ -3886,6 +3950,932 @@
         ctx.stroke();
         ctx.restore();
       }
+    }
+  }
+
+  class EnemyBossHydra{
+    constructor(x,y,name){
+      this.x=x; this.y=y; this.r=34;
+      this.hp=78; this.maxHp=this.hp;
+      this.name=name;
+      this.state='orbit';
+      this.attackTimer=1.5;
+      this.hitFlash=0;
+      this.enraged=false;
+      this.rotation=rand()*Math.PI*2;
+      this.anchorAngle=rand()*Math.PI*2;
+      this.anchorRadius=124;
+      this.headWiggle=rand()*Math.PI*2;
+      this.spiralTimer=0;
+      this.spiralCooldown=0;
+      this.spiralDir=1;
+      this.spiralAngle=0;
+      this.pendingBursts=[];
+      this.lastAttack='';
+      this.isBossEntity=true;
+      this.scaling=getFloorScalingFactors();
+      this.hp=Math.round(this.hp*this.scaling.hp);
+      this.maxHp=this.hp;
+      this.speedScale=this.scaling.speed;
+      this.aggression=this.scaling.aggression;
+    }
+    update(dt){
+      if(!player) return;
+      this.hitFlash = Math.max(0, this.hitFlash - dt*3.4);
+      this.rotation += dt * 0.9 * this.speedScale;
+      this.headWiggle += dt * 1.8;
+      if(!this.enraged && this.hp <= this.maxHp*0.52){
+        this.enraged = true;
+        this.anchorRadius = 112;
+      }
+      this.anchorAngle += dt * (0.45 + (this.enraged?0.12:0)) * this.speedScale;
+      const wave = Math.sin(performance.now()/520) * 10;
+      const targetX = clamp(CONFIG.roomW/2 + Math.cos(this.anchorAngle)*(this.anchorRadius + wave), 78, CONFIG.roomW-78);
+      const targetY = clamp(CONFIG.roomH/2 + Math.sin(this.anchorAngle)*(this.anchorRadius*0.72 + wave), 92, CONFIG.roomH-92);
+      const followRate = Math.min(1, dt * 3.2);
+      this.x += (targetX - this.x) * followRate;
+      this.y += (targetY - this.y) * followRate;
+      resolveEntityObstacles(this);
+      if(dist(this, player) < this.r + player.r - 6){ player.hurt(1); }
+
+      this.attackTimer -= dt * this.aggression;
+      if(this.attackTimer<=0){ this.chooseAttack(); }
+
+      for(let i=this.pendingBursts.length-1;i>=0;i--){
+        const burst = this.pendingBursts[i];
+        burst.delay -= dt * this.aggression;
+        if(burst.delay<=0){
+          this.executeBurst(burst);
+          this.pendingBursts.splice(i,1);
+        }
+      }
+
+      if(this.spiralTimer>0){
+        this.spiralTimer = Math.max(0, this.spiralTimer - dt);
+        this.spiralCooldown -= dt * this.aggression;
+        if(this.spiralCooldown<=0){
+          this.spiralCooldown += 0.08;
+          this.spiralAngle += this.spiralDir * (0.32 + (this.enraged?0.05:0));
+          const angle = this.spiralAngle;
+          const speed = 150 + rand()*40 + (this.enraged?35:0);
+          runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.8, 'tear'));
+        }
+      } else {
+        this.spiralCooldown = 0;
+      }
+    }
+    chooseAttack(){
+      const options = ['fans','spiral','orbs'];
+      if(this.lastAttack){
+        const idx = options.indexOf(this.lastAttack);
+        if(idx>=0 && options.length>1){ options.splice(idx,1); }
+      }
+      const pick = options[Math.floor(rand()*options.length)];
+      this.lastAttack = pick;
+      if(pick==='fans'){
+        this.performFans();
+        this.attackTimer = (this.enraged ? 1.7 : 2.1) / this.aggression;
+      } else if(pick==='spiral'){
+        this.performSpiral();
+        this.attackTimer = (this.enraged ? 1.6 : 2.0) / this.aggression;
+      } else {
+        this.performOrbs();
+        this.attackTimer = (this.enraged ? 1.8 : 2.2) / this.aggression;
+      }
+    }
+    performFans(){
+      const waves = this.enraged ? 3 : 2;
+      for(let w=0; w<waves; w++){
+        this.pendingBursts.push({type:'fan', delay:w*0.22, count:this.enraged?7:6, spread:0.48});
+      }
+      spawnCircularEffect(this.x, this.y, this.r+14, {innerColor:'#cffafe', midColor:'#38bdf8', outerColor:'#0ea5e9'});
+    }
+    performSpiral(){
+      this.spiralTimer = this.enraged ? 1.35 : 1.15;
+      this.spiralDir = rand() < 0.5 ? -1 : 1;
+      this.spiralAngle = Math.atan2((player?.y ?? this.y) - this.y, (player?.x ?? this.x) - this.x);
+      this.spiralCooldown = 0;
+      spawnCircularEffect(this.x, this.y, this.r+10, {innerColor:'#ecfeff', midColor:'#67e8f9', outerColor:'#22d3ee'});
+    }
+    performOrbs(){
+      const count = this.enraged ? 4 : 3;
+      for(let i=0;i<count;i++){
+        const angle = (Math.PI*2/count)*i + randRange(-0.2,0.2);
+        const radius = 68 + rand()*14;
+        runtime.enemyProjectiles.push(new HydraOrb(this.x, this.y, {
+          centerRef: this,
+          angle,
+          radius,
+          orbitSpeed: 1.8 + randRange(-0.2,0.2),
+          windup: (this.enraged?0.5:0.65) / this.aggression,
+          dashSpeed: 210 + rand()*40 + (this.enraged?50:0),
+          damage: this.enraged?2:1,
+          color: this.enraged ? '#34d399' : '#22d3ee',
+        }));
+      }
+      spawnCircularEffect(this.x, this.y, this.r+18, {innerColor:'#ccfbf1', midColor:'#34d399', outerColor:'#0ea5e9'});
+    }
+    executeBurst(burst){
+      if(burst.type!=='fan') return;
+      const headAngles = this.getHeadAngles();
+      const count = Math.max(3, burst.count|0);
+      const spread = burst.spread ?? 0.4;
+      for(const base of headAngles){
+        for(let i=0;i<count;i++){
+          const offset = count>1 ? (i - (count-1)/2) : 0;
+          const angle = base + offset * spread / Math.max(1, (count-1) || 1);
+          const speed = 170 + rand()*45 + (this.enraged?35:0);
+          runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.4, 'tear'));
+        }
+      }
+    }
+    getHeadAngles(){
+      const count = this.enraged ? 4 : 3;
+      const base = Math.atan2((player?.y ?? this.y) - this.y, (player?.x ?? this.x) - this.x);
+      const separation = 0.55;
+      const angles = [];
+      for(let i=0;i<count;i++){
+        const offset = (i - (count-1)/2) * separation;
+        angles.push(base + offset + Math.sin(this.headWiggle + i)*0.18);
+      }
+      return angles;
+    }
+    damage(d){
+      this.hp -= d;
+      this.hitFlash = 0.2;
+      if(this.hp<=0){ this.dead=true; return true; }
+      return false;
+    }
+    draw(){
+      const baseColor = this.hitFlash>0 ? '#d1fae5' : (this.enraged ? '#99f6e4' : '#bae6fd');
+      const edgeColor = this.enraged ? '#14b8a6' : '#38bdf8';
+      drawBlob(this.x, this.y, this.r, baseColor, edgeColor);
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      const headAngles = this.getHeadAngles();
+      for(const angle of headAngles){
+        const distR = this.r*0.95;
+        const hx = Math.cos(angle) * distR;
+        const hy = Math.sin(angle) * distR;
+        ctx.save();
+        ctx.translate(hx, hy);
+        ctx.rotate(angle);
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.ellipse(0,0,this.r*0.32,this.r*0.22,0,0,Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = '#e0f2fe';
+        ctx.beginPath();
+        ctx.arc(this.r*0.12,0,this.r*0.14,0,Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(0,0,this.r*0.28,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#67e8f9';
+      ctx.beginPath();
+      ctx.arc(0,0,this.r*0.14 + Math.sin(performance.now()/220)*1.4,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      if(this.spiralTimer>0){
+        ctx.save();
+        ctx.globalAlpha = 0.35 + 0.25*Math.sin(performance.now()/120);
+        ctx.strokeStyle = '#0ea5e9';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r+14, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  class EnemyBossSeer{
+    constructor(x,y,name){
+      this.x=x; this.y=y; this.r=30;
+      this.hp=74; this.maxHp=this.hp;
+      this.name=name;
+      this.state='glide';
+      this.attackTimer=1.4;
+      this.telegraphTimer=0;
+      this.telegraphTotal=0.5;
+      this.channelTimer=0;
+      this.channelType='';
+      this.channelDirection=0;
+      this.fade=1;
+      this.hitFlash=0;
+      this.enraged=false;
+      this.phase=rand()*Math.PI*2;
+      this.runes=[];
+      this.lastAttack='';
+      this.nextAttackType='';
+      this.warpTarget={x,y};
+      this.recoverTimer=0.6;
+      this.isBossEntity=true;
+      this.scaling=getFloorScalingFactors();
+      this.hp=Math.round(this.hp*this.scaling.hp);
+      this.maxHp=this.hp;
+      this.speedScale=this.scaling.speed;
+      this.aggression=this.scaling.aggression;
+    }
+    update(dt){
+      this.hitFlash = Math.max(0, this.hitFlash - dt*3.1);
+      if(!this.enraged && this.hp <= this.maxHp*0.5){ this.enraged = true; }
+      if(this.runes?.length){ this.updateRunes(dt); }
+      if(this.state==='glide') this.handleGlide(dt);
+      else if(this.state==='warp') this.handleWarp(dt);
+      else if(this.state==='channel') this.handleChannel(dt);
+      else if(this.state==='recover') this.handleRecover(dt);
+    }
+    handleGlide(dt){
+      this.phase += dt * (0.6 + this.aggression*0.18);
+      const orbitRadius = 122 + (this.enraged?12:0);
+      const targetX = clamp(CONFIG.roomW/2 + Math.cos(this.phase)*orbitRadius, 70, CONFIG.roomW-70);
+      const targetY = clamp(CONFIG.roomH/2 + Math.sin(this.phase*0.7)*(orbitRadius*0.6), 88, CONFIG.roomH-88);
+      this.x += (targetX - this.x) * dt * 2.4;
+      this.y += (targetY - this.y) * dt * 2.4;
+      if(player){
+        this.x += (player.x - this.x) * 0.08 * dt;
+        this.y += (player.y - this.y) * 0.08 * dt;
+      }
+      resolveEntityObstacles(this);
+      this.attackTimer -= dt * this.aggression;
+      if(this.attackTimer<=0){ this.chooseAttack(); }
+    }
+    handleWarp(dt){
+      this.telegraphTimer -= dt * this.aggression;
+      const ratio = this.telegraphTotal>0 ? this.telegraphTimer / this.telegraphTotal : 0;
+      this.fade = clamp(ratio, 0.35, 1);
+      if(this.telegraphTimer<=0){
+        this.x = this.warpTarget.x;
+        this.y = this.warpTarget.y;
+        spawnCircularEffect(this.x, this.y, this.r+14, {innerColor:'#ede9fe', midColor:'#c084fc', outerColor:'#a855f7'});
+        this.state='channel';
+        this.channelType=this.nextAttackType;
+        const base = this.channelType==='lance' ? 0.48 : (this.channelType==='mirror'?0.55:0.6);
+        this.channelTimer = base / this.aggression;
+        if(this.enraged) this.channelTimer *= 0.85;
+        this.channelDirection = Math.atan2((player?.y ?? this.y) - this.y, (player?.x ?? this.x) - this.x);
+        this.fade = 1;
+      }
+    }
+    handleChannel(dt){
+      this.channelTimer -= dt * this.aggression;
+      if(this.channelTimer<=0){
+        this.executeAttack(this.channelType);
+        this.state='recover';
+      }
+    }
+    handleRecover(dt){
+      this.recoverTimer -= dt * this.aggression;
+      if(this.recoverTimer<=0){
+        this.state='glide';
+        this.fade = 1;
+      }
+    }
+    chooseAttack(){
+      const options = ['lance','mirror','meteor'];
+      if(this.lastAttack){
+        const idx = options.indexOf(this.lastAttack);
+        if(idx>=0 && options.length>1){ options.splice(idx,1); }
+      }
+      const pick = options[Math.floor(rand()*options.length)];
+      this.lastAttack = pick;
+      this.startWarp(pick);
+    }
+    startWarp(type){
+      this.state='warp';
+      this.nextAttackType = type;
+      this.telegraphTotal = (type==='lance'?0.5:(type==='mirror'?0.55:0.6)) / this.aggression;
+      if(this.enraged) this.telegraphTotal *= 0.9;
+      this.telegraphTimer = this.telegraphTotal;
+      if(type==='lance' && player){
+        const distTarget = this.enraged ? 210 : 240;
+        const angle = Math.atan2(player.y - this.y, player.x - this.x) + Math.PI;
+        this.warpTarget = {
+          x: clamp(player.x + Math.cos(angle)*distTarget, 70, CONFIG.roomW-70),
+          y: clamp(player.y + Math.sin(angle)*distTarget, 80, CONFIG.roomH-80),
+        };
+      } else if(type==='mirror'){
+        this.warpTarget = {
+          x: clamp(CONFIG.roomW/2 + randRange(-40,40), 70, CONFIG.roomW-70),
+          y: clamp(CONFIG.roomH/2 + randRange(-40,40), 90, CONFIG.roomH-90),
+        };
+      } else {
+        const px = player?.x ?? CONFIG.roomW/2;
+        this.warpTarget = {
+          x: clamp(px + randRange(-60,60), 70, CONFIG.roomW-70),
+          y: clamp(CONFIG.roomH/2 - 90 + randRange(-20,20), 80, CONFIG.roomH-90),
+        };
+      }
+    }
+    executeAttack(type){
+      if(type==='lance') this.performLance();
+      else if(type==='mirror') this.performMirror();
+      else this.performMeteor();
+    }
+    performLance(){
+      const count = this.enraged ? 5 : 4;
+      const baseAngle = this.channelDirection;
+      for(let i=0;i<count;i++){
+        const offset = count>1 ? (i - (count-1)/2) * 0.08 : 0;
+        const angle = baseAngle + offset;
+        const speed = 230 + rand()*40 + (this.enraged?45:0);
+        runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 5, 'needle'));
+      }
+      const side = this.enraged ? 6 : 4;
+      for(let i=0;i<side;i++){
+        const angle = baseAngle + randRange(-0.5,0.5);
+        const speed = 150 + rand()*50;
+        runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.2, 'tear'));
+      }
+      addScreenShake(4,0.25);
+      spawnCircularEffect(this.x, this.y, this.r+16, {innerColor:'#ede9fe', midColor:'#c4b5fd', outerColor:'#a855f7'});
+      this.recoverTimer = (this.enraged?0.55:0.7)/this.aggression;
+      this.attackTimer = (this.enraged?1.1:1.4)/this.aggression;
+    }
+    performMirror(){
+      const centerX = CONFIG.roomW/2;
+      const centerY = CONFIG.roomH/2;
+      const count = this.enraged ? 5 : 4;
+      const radius = 150 + (this.enraged?12:0);
+      this.runes = [];
+      for(let i=0;i<count;i++){
+        const angle = (Math.PI*2/count)*i;
+        const rune = {
+          x: clamp(centerX + Math.cos(angle)*radius, 60, CONFIG.roomW-60),
+          y: clamp(centerY + Math.sin(angle)*radius, 80, CONFIG.roomH-80),
+          timer: (0.35 + i*0.1) / this.aggression * (this.enraged?0.85:1),
+          fired:false,
+          life:1.1,
+        };
+        this.runes.push(rune);
+      }
+      spawnCircularEffect(centerX, centerY, radius+12, {innerColor:'#ede9fe', midColor:'#c4b5fd', outerColor:'#a855f7'});
+      this.recoverTimer = (this.enraged?0.6:0.8)/this.aggression;
+      this.attackTimer = (this.enraged?1.2:1.5)/this.aggression;
+    }
+    performMeteor(){
+      const count = this.enraged ? 8 : 6;
+      for(let i=0;i<count;i++){
+        const offsetX = randRange(-140,140);
+        const spawnX = clamp((player?.x ?? CONFIG.roomW/2) + offsetX, 60, CONFIG.roomW-60);
+        runtime.enemyProjectiles.push(new FallingShard(spawnX, 40 - rand()*30, {
+          vx: randRange(-20,20),
+          vy: 160 + rand()*40,
+          accel: 260 + (this.enraged?60:0),
+          ground: CONFIG.roomH - 46,
+          damage: this.enraged?2:1,
+          color: '#a855f7',
+        }));
+      }
+      this.recoverTimer = (this.enraged?0.65:0.85)/this.aggression;
+      this.attackTimer = (this.enraged?1.25:1.55)/this.aggression;
+    }
+    updateRunes(dt){
+      for(let i=this.runes.length-1;i>=0;i--){
+        const rune = this.runes[i];
+        rune.timer -= dt * this.aggression;
+        if(!rune.fired && rune.timer<=0){
+          this.fireRune(rune);
+        }
+        rune.life -= dt;
+        if(rune.life<=0){ this.runes.splice(i,1); }
+      }
+    }
+    fireRune(rune){
+      const targetX = player?.x ?? this.x;
+      const targetY = player?.y ?? this.y;
+      const angle = Math.atan2(targetY - rune.y, targetX - rune.x);
+      const speed = 210 + rand()*40 + (this.enraged?50:0);
+      runtime.enemyProjectiles.push(new EnemyProjectile(rune.x, rune.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.8, 'needle'));
+      runtime.enemyProjectiles.push(new EnemyProjectile(rune.x, rune.y, Math.cos(angle+randRange(-0.2,0.2))*speed*0.75, Math.sin(angle+randRange(-0.2,0.2))*speed*0.75, 4.4, 'tear'));
+      spawnCircularEffect(rune.x, rune.y, 20, {innerColor:'#ede9fe', midColor:'#c4b5fd', outerColor:'#a855f7'});
+      rune.fired = true;
+      rune.life = 0.5;
+    }
+    damage(d){
+      this.hp -= d;
+      this.hitFlash = 0.18;
+      if(this.hp<=0){ this.dead=true; return true; }
+      return false;
+    }
+    draw(){
+      ctx.save();
+      ctx.globalAlpha = this.fade;
+      const baseColor = this.hitFlash>0 ? '#fdf4ff' : (this.enraged ? '#e9d5ff' : '#ede9fe');
+      const edgeColor = this.enraged ? '#a855f7' : '#c084fc';
+      drawBlob(this.x, this.y, this.r, baseColor, edgeColor);
+      ctx.translate(this.x, this.y);
+      ctx.save();
+      ctx.rotate(Math.sin(performance.now()/600)*0.1);
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.ellipse(0,0,this.r*0.35,this.r*0.5,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#e0f2fe';
+      ctx.beginPath();
+      ctx.arc(0,-this.r*0.05,this.r*0.2,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(0,-this.r*0.05,this.r*0.1,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      ctx.restore();
+      if(this.state==='channel' && this.channelType==='lance'){
+        ctx.save();
+        ctx.globalAlpha = 0.7 + 0.2*Math.sin(performance.now()/80);
+        ctx.strokeStyle = '#c084fc';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        const endX = this.x + Math.cos(this.channelDirection) * 260;
+        const endY = this.y + Math.sin(this.channelDirection) * 260;
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+        ctx.restore();
+      }
+      if(this.runes){
+        for(const rune of this.runes){
+          ctx.save();
+          const glow = rune.fired ? '#fbbf24' : '#c084fc';
+          ctx.globalAlpha = 0.45 + 0.35*Math.sin(performance.now()/130 + (rune.timer||0)*3);
+          ctx.strokeStyle = glow;
+          ctx.lineWidth = rune.fired ? 3 : 2;
+          ctx.beginPath();
+          ctx.arc(rune.x, rune.y, 16 + (rune.fired?4:0), 0, Math.PI*2);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
+  }
+
+  class EnemyBossTitan{
+    constructor(x,y,name){
+      this.x=x; this.y=y; this.r=36;
+      this.hp=90; this.maxHp=this.hp;
+      this.name=name;
+      this.state='stalk';
+      this.attackTimer=1.8;
+      this.recoverTimer=0.7;
+      this.leapTimer=0;
+      this.leapDuration=0.7;
+      this.leapStart={x,y};
+      this.leapEnd={x,y};
+      this.altitude=0;
+      this.hitFlash=0;
+      this.enraged=false;
+      this.pendingEvents=[];
+      this.lastAttack='';
+      this.isBossEntity=true;
+      this.scaling=getFloorScalingFactors();
+      this.hp=Math.round(this.hp*this.scaling.hp);
+      this.maxHp=this.hp;
+      this.speedScale=this.scaling.speed;
+      this.aggression=this.scaling.aggression;
+    }
+    update(dt){
+      this.hitFlash = Math.max(0, this.hitFlash - dt*3.2);
+      if(!this.enraged && this.hp <= this.maxHp*0.55){ this.enraged = true; }
+      if(this.state==='stalk') this.handleStalk(dt);
+      else if(this.state==='leap') this.handleLeap(dt);
+      else if(this.state==='brace') this.handleBrace(dt);
+      else if(this.state==='recover') this.handleRecover(dt);
+      for(let i=this.pendingEvents.length-1;i>=0;i--){
+        const evt = this.pendingEvents[i];
+        evt.delay -= dt * this.aggression;
+        if(evt.delay<=0){
+          this.executeEvent(evt);
+          this.pendingEvents.splice(i,1);
+        }
+      }
+    }
+    handleStalk(dt){
+      if(player){
+        const angle = Math.atan2(player.y - this.y, player.x - this.x);
+        const speed = (this.enraged?105:85) * this.speedScale;
+        this.x += Math.cos(angle) * speed * dt * 0.8;
+        this.y += Math.sin(angle) * speed * dt * 0.8;
+      }
+      this.x += Math.cos(performance.now()/480) * 16 * dt;
+      this.y += Math.sin(performance.now()/380) * 14 * dt;
+      this.x = clamp(this.x, 80, CONFIG.roomW-80);
+      this.y = clamp(this.y, 96, CONFIG.roomH-96);
+      resolveEntityObstacles(this);
+      if(player && dist(this, player) < this.r + player.r - 4){ player.hurt(1); }
+      this.attackTimer -= dt * this.aggression;
+      if(this.attackTimer<=0){ this.chooseAttack(); }
+    }
+    handleLeap(dt){
+      this.leapTimer += dt * this.aggression;
+      const ratio = Math.min(1, this.leapTimer / this.leapDuration);
+      const ease = ratio<0.5 ? 2*ratio*ratio : -1 + (4 - 2*ratio)*ratio;
+      this.x = this.leapStart.x + (this.leapEnd.x - this.leapStart.x) * ease;
+      this.y = this.leapStart.y + (this.leapEnd.y - this.leapStart.y) * ease;
+      this.altitude = Math.sin(Math.PI * ratio);
+      if(ratio>=1){
+        this.state='recover';
+        this.altitude = 0;
+        this.recoverTimer = (this.enraged?0.55:0.7)/this.aggression;
+        this.performSlamImpact();
+      }
+    }
+    handleBrace(dt){
+      this.telegraphTimer -= dt * this.aggression;
+      this.altitude = Math.max(0, this.altitude - dt*2.4);
+      if(this.telegraphTimer<=0){
+        this.performQuakeImpact();
+        this.state='recover';
+        this.recoverTimer = (this.enraged?0.6:0.8)/this.aggression;
+      }
+    }
+    handleRecover(dt){
+      this.recoverTimer -= dt * this.aggression;
+      if(this.recoverTimer<=0){
+        this.state='stalk';
+        this.altitude = 0;
+      }
+    }
+    chooseAttack(){
+      const options = ['slam','quake','boulder'];
+      if(this.lastAttack){
+        const idx = options.indexOf(this.lastAttack);
+        if(idx>=0 && options.length>1){ options.splice(idx,1); }
+      }
+      const pick = options[Math.floor(rand()*options.length)];
+      this.lastAttack = pick;
+      if(pick==='slam') this.startLeap();
+      else if(pick==='quake') this.startQuake();
+      else this.startBoulder();
+    }
+    startLeap(){
+      this.state='leap';
+      this.leapStart = {x:this.x, y:this.y};
+      const target = player ? {x:player.x, y:player.y} : {x:CONFIG.roomW/2, y:CONFIG.roomH/2};
+      const dx = target.x - this.x;
+      const dy = target.y - this.y;
+      const len = Math.hypot(dx,dy)||1;
+      const travel = clamp(len, 120, 260);
+      const nx = dx/len;
+      const ny = dy/len;
+      this.leapEnd = {
+        x: clamp(this.x + nx*travel, 80, CONFIG.roomW-80),
+        y: clamp(this.y + ny*travel, 96, CONFIG.roomH-96),
+      };
+      const speed = (this.enraged?320:280) * this.speedScale;
+      this.leapDuration = Math.max(0.55, travel / speed);
+      this.leapTimer = 0;
+      spawnCircularEffect(this.x, this.y, this.r+12, {innerColor:'#fef3c7', midColor:'#facc15', outerColor:'#f97316'});
+      this.attackTimer = (this.enraged?1.3:1.6)/this.aggression;
+    }
+    startQuake(){
+      this.state='brace';
+      this.telegraphTimer = (this.enraged?0.75:0.9) / this.aggression;
+      this.altitude = 0;
+      spawnCircularEffect(this.x, this.y, this.r+24, {innerColor:'#fef3c7', midColor:'#fcd34d', outerColor:'#f97316'});
+      const pulses = this.enraged ? 3 : 2;
+      for(let i=0;i<pulses;i++){
+        this.pendingEvents.push({type:'quakePulse', delay:0.1 + i*0.22, power:i});
+      }
+      this.attackTimer = (this.enraged?1.2:1.45)/this.aggression;
+    }
+    startBoulder(){
+      this.state='recover';
+      this.recoverTimer = (this.enraged?0.75:0.95)/this.aggression;
+      const count = this.enraged ? 3 : 2;
+      for(let i=0;i<count;i++){
+        const angle = Math.atan2((player?.y ?? this.y) - this.y, (player?.x ?? this.x) - this.x) + randRange(-0.4,0.4);
+        const speed = 180 + rand()*40;
+        runtime.enemyProjectiles.push(new LobbedRock(this.x, this.y - this.r*0.4, {
+          vx: Math.cos(angle)*speed,
+          vy: -(220 + i*30),
+          gravity: 520 + rand()*60,
+          ground: CONFIG.roomH - 52,
+          damage: this.enraged?2:1,
+        }));
+      }
+      spawnCircularEffect(this.x, this.y, this.r+18, {innerColor:'#fee2e2', midColor:'#fb923c', outerColor:'#f97316'});
+      this.attackTimer = (this.enraged?1.3:1.55)/this.aggression;
+    }
+    performSlamImpact(){
+      addScreenShake(6,0.35);
+      spawnCircularEffect(this.x, this.y, this.r+20, {innerColor:'#fee2e2', midColor:'#f97316', outerColor:'#ea580c'});
+      const shards = this.enraged ? 12 : 9;
+      for(let i=0;i<shards;i++){
+        const angle = (Math.PI*2/shards)*i + randRange(-0.05,0.05);
+        const speed = 200 + rand()*50 + (this.enraged?40:0);
+        runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.6, 'tear'));
+      }
+      const waveCount = this.enraged ? 2 : 1;
+      for(let i=0;i<waveCount;i++){
+        this.pendingEvents.push({type:'shockwave', delay:i*0.15, radius:this.r+16 + i*14});
+      }
+    }
+    performQuakeImpact(){
+      addScreenShake(5,0.3);
+    }
+    executeEvent(evt){
+      if(evt.type==='shockwave'){
+        runtime.enemyProjectiles.push(new GroundShock(this.x, this.y, {
+          inner: evt.radius,
+          width: 18,
+          speed: 200 + (this.enraged?40:0),
+          life: 0.9,
+          damage: this.enraged?2:1,
+          color: '#f97316',
+        }));
+      } else if(evt.type==='quakePulse'){
+        runtime.enemyProjectiles.push(new GroundShock(this.x, this.y, {
+          inner: this.r + 12 + evt.power*22,
+          width: 22,
+          speed: 190 + (this.enraged?40:0),
+          life: 1.0,
+          damage: this.enraged?2:1,
+          color: '#fb923c',
+        }));
+      }
+    }
+    damage(d){
+      if(this.state==='leap'){ d *= 0.7; }
+      this.hp -= d;
+      this.hitFlash = 0.2;
+      if(this.hp<=0){ this.dead=true; return true; }
+      return false;
+    }
+    draw(){
+      ctx.save();
+      const shadowAlpha = 0.35 + 0.3*this.altitude;
+      ctx.globalAlpha = shadowAlpha;
+      ctx.fillStyle = '#0008';
+      ctx.beginPath();
+      ctx.ellipse(this.x, this.y + this.r*0.9, this.r*(1 - this.altitude*0.3), this.r*0.55*(1 - this.altitude*0.35), 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+
+      const baseColor = this.hitFlash>0 ? '#fee2e2' : (this.enraged ? '#fed7aa' : '#fecaca');
+      const edgeColor = this.enraged ? '#f97316' : '#fb7185';
+      drawBlob(this.x, this.y - this.altitude*this.r*0.8, this.r, baseColor, edgeColor);
+      ctx.save();
+      ctx.translate(this.x, this.y - this.altitude*this.r*0.8);
+      ctx.fillStyle = '#78350f';
+      ctx.beginPath();
+      ctx.arc(-this.r*0.24, -this.r*0.1, this.r*0.16, 0, Math.PI*2);
+      ctx.arc(this.r*0.24, -this.r*0.1, this.r*0.16, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#451a03';
+      ctx.beginPath();
+      ctx.moveTo(-this.r*0.38, this.r*0.18);
+      ctx.quadraticCurveTo(0, this.r*(this.enraged?0.45:0.38), this.r*0.38, this.r*0.18);
+      ctx.quadraticCurveTo(0, this.r*(this.enraged?0.55:0.48), -this.r*0.38, this.r*0.18);
+      ctx.fill();
+      ctx.restore();
+      if(this.state==='brace'){
+        ctx.save();
+        ctx.globalAlpha = 0.45 + 0.25*Math.sin(performance.now()/90);
+        ctx.strokeStyle = '#f97316';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r + 16, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  class HydraOrb{
+    constructor(x,y,options={}){
+      this.x=x; this.y=y;
+      this.center = {x, y};
+      this.centerRef = options.centerRef || null;
+      this.angle = options.angle ?? 0;
+      this.radius = options.radius ?? 60;
+      this.orbitSpeed = options.orbitSpeed ?? 2.2;
+      this.windup = Math.max(0.2, options.windup ?? 0.6);
+      this.timer = this.windup;
+      this.state='orbit';
+      this.life = options.life ?? 5.5;
+      this.alive=true;
+      this.r = options.r ?? 11;
+      this.dashSpeed = options.dashSpeed ?? 220;
+      this.damage = Math.max(1, options.damage ?? 1);
+      this.color = options.color || '#22d3ee';
+      this.vx=0; this.vy=0;
+    }
+    update(dt){
+      if(!this.alive) return;
+      this.life -= dt;
+      if(this.life<=0){ this.alive=false; return; }
+      if(this.centerRef){ this.center.x = this.centerRef.x; this.center.y = this.centerRef.y; }
+      if(this.state==='orbit'){
+        this.timer -= dt;
+        this.angle += this.orbitSpeed * dt;
+        this.x = this.center.x + Math.cos(this.angle)*this.radius;
+        this.y = this.center.y + Math.sin(this.angle)*Math.max(40, this.radius*0.65);
+        if(this.timer<=0){
+          this.state='dash';
+          const target = player ? {x:player.x, y:player.y} : this.center;
+          const dx = target.x - this.x;
+          const dy = target.y - this.y;
+          const len = Math.hypot(dx,dy)||1;
+          this.vx = (dx/len) * this.dashSpeed;
+          this.vy = (dy/len) * this.dashSpeed;
+          spawnCircularEffect(this.x, this.y, this.r+8, {innerColor:'#ecfeff', midColor:this.color, outerColor:'#0ea5e9'});
+        }
+      } else {
+        this.x += this.vx*dt;
+        this.y += this.vy*dt;
+        if(this.x<16||this.x>CONFIG.roomW-16||this.y<20||this.y>CONFIG.roomH-20){ this.alive=false; }
+      }
+    }
+    checkHit(target){
+      if(!this.alive) return false;
+      if(dist(this,target) < this.r + target.r){
+        target.hurt(this.damage);
+        this.alive=false;
+        return true;
+      }
+      return false;
+    }
+    draw(){
+      ctx.save();
+      ctx.translate(this.x,this.y);
+      const radius = this.r;
+      const gradient = ctx.createRadialGradient(0,0,radius*0.1,0,0,radius*1.1);
+      gradient.addColorStop(0,'#faffff');
+      gradient.addColorStop(1,this.color);
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(0,0,radius,0,Math.PI*2);
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = this.color;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  class FallingShard{
+    constructor(x,y,options={}){
+      this.x=x; this.y=y;
+      this.vx=options.vx ?? 0;
+      this.vy=options.vy ?? 160;
+      this.accel=options.accel ?? 220;
+      this.ground=options.ground ?? (CONFIG.roomH - 40);
+      this.life=options.life ?? 4;
+      this.alive=true;
+      this.r=options.r ?? 10;
+      this.damage=Math.max(1, options.damage ?? 1);
+      this.color=options.color || '#c084fc';
+      this.impacted=false;
+    }
+    update(dt){
+      if(!this.alive) return;
+      this.vy += this.accel * dt;
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+      this.life -= dt;
+      if(this.y >= this.ground){
+        this.triggerImpact();
+      } else if(this.life<=0 || this.x<20 || this.x>CONFIG.roomW-20){
+        this.alive=false;
+      }
+    }
+    triggerImpact(){
+      if(this.impacted) return;
+      this.impacted=true;
+      this.alive=false;
+      spawnCircularEffect(this.x, this.ground, this.r+14, {innerColor:'#ede9fe', midColor:this.color, outerColor:'#7c3aed'});
+      addScreenShake(3,0.2);
+    }
+    checkHit(target){
+      if(!this.alive) return false;
+      if(dist(this,target) < this.r + target.r){
+        target.hurt(this.damage);
+        this.triggerImpact();
+        return true;
+      }
+      return false;
+    }
+    draw(){
+      ctx.save();
+      ctx.translate(this.x,this.y);
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.moveTo(-this.r*0.6, -this.r*0.9);
+      ctx.lineTo(this.r*0.6, -this.r*0.9);
+      ctx.lineTo(this.r*0.3, this.r*0.9);
+      ctx.lineTo(-this.r*0.3, this.r*0.9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  class GroundShock{
+    constructor(x,y,options={}){
+      this.x=x; this.y=y;
+      this.inner=Math.max(0, options.inner ?? 30);
+      this.width=Math.max(4, options.width ?? 16);
+      this.speed=options.speed ?? 180;
+      this.life=options.life ?? 0.9;
+      this.damage=Math.max(1, options.damage ?? 1);
+      this.color=options.color || '#f97316';
+      this.alive=true;
+      this.hit=false;
+    }
+    update(dt){
+      if(!this.alive) return;
+      this.inner += this.speed * dt;
+      this.life -= dt;
+      if(this.life<=0){ this.alive=false; }
+    }
+    checkHit(target){
+      if(!this.alive) return false;
+      const d = dist(this, target);
+      if(d >= this.inner && d <= this.inner + this.width){
+        if(!this.hit){ target.hurt(this.damage); this.hit = true; }
+      }
+      return false;
+    }
+    draw(){
+      if(!this.alive) return;
+      ctx.save();
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = this.color;
+      ctx.lineWidth = this.width;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.inner + this.width/2, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  class LobbedRock{
+    constructor(x,y,options={}){
+      this.x=x; this.y=y;
+      this.vx=options.vx ?? 0;
+      this.vy=options.vy ?? -220;
+      this.gravity=options.gravity ?? 520;
+      this.ground=options.ground ?? (CONFIG.roomH - 54);
+      this.life=options.life ?? 6;
+      this.r=options.r ?? 12;
+      this.damage=Math.max(1, options.damage ?? 2);
+      this.color=options.color || '#fb923c';
+      this.alive=true;
+      this.exploded=false;
+    }
+    update(dt){
+      if(!this.alive) return;
+      this.life -= dt;
+      if(this.life<=0){ this.explode(); return; }
+      this.vy += this.gravity * dt;
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+      if(this.y >= this.ground){
+        this.y = this.ground;
+        this.explode();
+      } else if(this.x<30 || this.x>CONFIG.roomW-30){
+        this.explode();
+      }
+    }
+    explode(){
+      if(this.exploded) return;
+      this.exploded=true;
+      this.alive=false;
+      spawnCircularEffect(this.x, this.y, this.r+18, {innerColor:'#fee2e2', midColor:this.color, outerColor:'#f97316'});
+      addScreenShake(5,0.3);
+      const shards = 6;
+      for(let i=0;i<shards;i++){
+        const angle = (Math.PI*2/shards)*i + randRange(-0.1,0.1);
+        const speed = 160 + rand()*50;
+        runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.2, 'tear'));
+      }
+    }
+    checkHit(target){
+      if(!this.alive) return false;
+      if(dist(this,target) < this.r + target.r){
+        target.hurt(this.damage);
+        this.explode();
+        return true;
+      }
+      return false;
+    }
+    draw(){
+      ctx.save();
+      ctx.translate(this.x,this.y);
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.ellipse(0,0,this.r*1.1,this.r*0.85,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#7c2d12';
+      ctx.beginPath();
+      ctx.ellipse(0,-this.r*0.3,this.r*0.6,this.r*0.4,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
     }
   }
 
