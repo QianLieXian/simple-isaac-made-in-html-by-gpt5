@@ -2438,12 +2438,15 @@
   }
   function endBeam(beam){
     if(!beam) return;
-    const idx = runtime.beams ? runtime.beams.indexOf(beam) : -1;
-    if(idx>=0){ runtime.beams.splice(idx,1); }
-    if(beam.owner && beam.owner.brimstoneBeam === beam){
-      beam.owner.brimstoneBeam = null;
-      beam.owner.brimstoneFiring = false;
-      beam.owner.brimstoneBeamTimer = 0;
+    if(typeof beam.finish === 'function'){
+      beam.finish();
+    } else {
+      beam.alive = false;
+      if(beam.owner && beam.owner.brimstoneBeam === beam){
+        beam.owner.brimstoneBeam = null;
+        beam.owner.brimstoneFiring = false;
+        beam.owner.brimstoneBeamTimer = 0;
+      }
     }
   }
   function computeBeamGeometry(beam){
@@ -2468,43 +2471,31 @@
     const length = Math.hypot(endX - startX, endY - startY);
     return {startX, startY, endX, endY, length, nx, ny};
   }
-  function applyBeamDamage(beam){
-    const room = dungeon?.current;
-    if(!room) return;
-    const geom = computeBeamGeometry(beam);
-    if(!geom || geom.length<=0) return;
-    const enemies = room.enemies;
-    const owner = beam.owner;
-    const width = owner?.getBrimstoneWidth?.() ?? beam.width ?? 24;
-    const half = Math.max(4, width * 0.5);
-    const damageScale = beam.damageScale ?? (CONFIG.brimstone?.damageScale ?? 0.7);
-    const damageValue = Math.max(0, (owner?.damage ?? 1) * damageScale);
-    for(const enemy of enemies){
-      if(enemy.dead) continue;
-      const result = pointSegmentDistance(enemy.x, enemy.y, geom.startX, geom.startY, geom.endX, geom.endY);
-      const threshold = half + (enemy.r || 12);
-      if(result.distance <= threshold){
-        if(enemy.damage(damageValue)){ handleEnemyDeath(enemy, room); }
-      }
-    }
-  }
   function updateBeams(dt){
     const beams = runtime.beams;
     if(!Array.isArray(beams) || !beams.length) return;
-    const tickFrames = Math.max(1, CONFIG.brimstone?.tickFrames ?? 15);
-    const tickInterval = tickFrames / 60;
     for(let i=beams.length-1;i>=0;i--){
       const beam = beams[i];
       if(!beam){ beams.splice(i,1); continue; }
-      beam.timer -= dt;
-      beam.tickTimer = (beam.tickTimer ?? 0) - dt;
-      if(beam.timer <= 0 || !beam.owner){
-        endBeam(beam);
+      if(beam.alive === false){
+        if(beam.owner && beam.owner.brimstoneBeam === beam){
+          beam.owner.brimstoneBeam = null;
+          beam.owner.brimstoneFiring = false;
+          beam.owner.brimstoneBeamTimer = 0;
+        }
+        beams.splice(i,1);
         continue;
       }
-      if(beam.tickTimer <= 0){
-        beam.tickTimer += beam.tickInterval ?? tickInterval;
-        applyBeamDamage(beam);
+      if(typeof beam.update === 'function'){
+        beam.update(dt);
+      }
+      if(!beam.alive){
+        if(beam.owner && beam.owner.brimstoneBeam === beam){
+          beam.owner.brimstoneBeam = null;
+          beam.owner.brimstoneFiring = false;
+          beam.owner.brimstoneBeamTimer = 0;
+        }
+        beams.splice(i,1);
       }
     }
   }
@@ -2900,14 +2891,13 @@
       if(this.brimstoneBeam){
         endBeam(this.brimstoneBeam);
       }
-      const beam = {
-        owner: this,
-        dir,
-        timer: duration,
-        tickTimer: 0,
-        tickInterval: tickFrames / 60,
+      const beam = new BrimstoneProjectile(this, dir, {
+        duration,
+        tickFrames,
         damageScale: CONFIG.brimstone?.damageScale ?? 0.7,
-      };
+        homing: !!this.homingTears,
+        homingStrength: this.homingStrength,
+      });
       runtime.beams.push(beam);
       this.brimstoneBeam = beam;
       this.brimstoneFiring = true;
@@ -3269,6 +3259,144 @@
       ctx.beginPath(); ctx.arc(0,0,this.r*0.7,0,Math.PI*2); ctx.fill();
       ctx.fillStyle = '#2f3345';
       ctx.fillRect(-2,-this.r*1.1,4,this.r*0.6);
+      ctx.restore();
+    }
+  }
+
+  class BrimstoneProjectile{
+    constructor(owner, dir, options={}){
+      this.owner = owner;
+      const norm = Math.hypot(dir?.x ?? 0, dir?.y ?? 0) || 1;
+      this.dir = {x:(dir?.x ?? 0)/norm, y:(dir?.y ?? -1)/norm};
+      const duration = Number.isFinite(options.duration) ? Math.max(0.05, options.duration) : (CONFIG.brimstone?.beamDuration ?? 2);
+      this.timer = duration;
+      this.totalDuration = duration;
+      const rawTick = Number.isFinite(options.tickFrames) ? options.tickFrames : (CONFIG.brimstone?.tickFrames ?? 15);
+      const tickFrames = Math.max(1, rawTick);
+      this.tickInterval = tickFrames / 60;
+      this.tickTimer = 0;
+      this.damageScale = Number.isFinite(options.damageScale) ? options.damageScale : (CONFIG.brimstone?.damageScale ?? 0.7);
+      const ownerRadius = owner?.r ?? 18;
+      const offset = Number.isFinite(options.startOffset) ? options.startOffset : (ownerRadius + Math.max(ownerRadius*0.2, 6));
+      this.startOffset = offset;
+      this.widthOverride = options.width;
+      this.alive = true;
+      this.homing = !!options.homing;
+      const homingDefault = Number.isFinite(options.homingStrength) ? options.homingStrength : (owner?.homingStrength ?? 10);
+      this.homingStrength = Math.max(0, homingDefault);
+      this.visualSeed = rand();
+    }
+    getWidth(){
+      if(Number.isFinite(this.widthOverride)) return this.widthOverride;
+      if(this.owner && typeof this.owner.getBrimstoneWidth === 'function'){
+        const width = this.owner.getBrimstoneWidth();
+        if(Number.isFinite(width) && width>0) return width;
+      }
+      return 24;
+    }
+    getGeometry(){
+      return computeBeamGeometry({owner:this.owner, dir:this.dir, startOffset:this.startOffset});
+    }
+    applyDamage(){
+      const room = dungeon?.current;
+      if(!room || !this.owner) return;
+      const geom = this.getGeometry();
+      if(!geom || geom.length<=0) return;
+      const enemies = room.enemies;
+      const half = Math.max(4, this.getWidth() * 0.5);
+      const damageValue = Math.max(0, (this.owner?.damage ?? 1) * this.damageScale);
+      for(const enemy of enemies){
+        if(enemy.dead) continue;
+        const result = pointSegmentDistance(enemy.x, enemy.y, geom.startX, geom.startY, geom.endX, geom.endY);
+        const threshold = half + (enemy.r || 12);
+        if(result.distance <= threshold){
+          if(enemy.damage(damageValue)){ handleEnemyDeath(enemy, room); }
+        }
+      }
+    }
+    updateHoming(dt){
+      if(!this.homing || !this.owner) return;
+      const room = dungeon?.current;
+      if(!room) return;
+      let target=null;
+      let best=Infinity;
+      for(const enemy of room.enemies){
+        if(enemy.dead) continue;
+        const dx = enemy.x - this.owner.x;
+        const dy = enemy.y - this.owner.y;
+        const d = Math.hypot(dx,dy);
+        if(d < best){ best = d; target = enemy; }
+      }
+      if(!target) return;
+      const toX = target.x - this.owner.x;
+      const toY = target.y - this.owner.y;
+      const len = Math.hypot(toX,toY) || 1;
+      const nx = toX / len;
+      const ny = toY / len;
+      const curLen = Math.hypot(this.dir.x, this.dir.y) || 1;
+      const curX = this.dir.x / curLen;
+      const curY = this.dir.y / curLen;
+      const turn = clamp(this.homingStrength * dt, 0, 1);
+      const mixX = curX*(1-turn) + nx*turn;
+      const mixY = curY*(1-turn) + ny*turn;
+      const mixLen = Math.hypot(mixX, mixY) || 1;
+      this.dir.x = mixX / mixLen;
+      this.dir.y = mixY / mixLen;
+    }
+    update(dt){
+      if(!this.owner){ this.finish(); return; }
+      this.timer -= dt;
+      if(this.owner){
+        this.owner.brimstoneBeamTimer = Math.max(0, this.timer);
+        this.owner.brimstoneFiring = this.timer>0;
+      }
+      if(this.timer <= 0){ this.finish(); return; }
+      this.updateHoming(dt);
+      this.tickTimer -= dt;
+      if(this.tickTimer <= 0){
+        this.tickTimer += this.tickInterval;
+        this.applyDamage();
+      }
+    }
+    finish(){
+      if(!this.alive) return;
+      this.alive = false;
+      if(this.owner){
+        if(this.owner.brimstoneBeam === this){
+          this.owner.brimstoneBeam = null;
+        }
+        this.owner.brimstoneFiring = false;
+        this.owner.brimstoneBeamTimer = 0;
+      }
+    }
+    draw(ctx){
+      const geom = this.getGeometry();
+      if(!geom || geom.length<=0) return;
+      const length = Math.max(8, geom.length);
+      const width = Math.max(6, this.getWidth());
+      const centerX = (geom.startX + geom.endX) / 2;
+      const centerY = (geom.startY + geom.endY) / 2;
+      const angle = Math.atan2(geom.endY - geom.startY, geom.endX - geom.startX);
+      const rx = length / 2;
+      const ry = width / 2;
+      const pulse = 0.85 + Math.sin(performance.now()/120 + this.visualSeed * Math.PI * 2) * 0.12;
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(angle);
+      ctx.globalAlpha = 0.92;
+      const gradient = ctx.createRadialGradient(0, 0, Math.max(1, ry*0.3), 0, 0, Math.max(rx, ry));
+      gradient.addColorStop(0, colorWithAlpha('#fde68a', 0.55 * pulse));
+      gradient.addColorStop(0.35, colorWithAlpha('#fca5a5', 0.45 * pulse));
+      gradient.addColorStop(1, colorWithAlpha('#f97316', 0));
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.strokeStyle = colorWithAlpha('#fb7185', 0.4);
+      ctx.lineWidth = Math.max(2, ry * 0.35);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx*0.95, ry*0.85, 0, 0, Math.PI*2);
+      ctx.stroke();
       ctx.restore();
     }
   }
@@ -6099,25 +6227,34 @@
   function drawBeams(){
     if(!runtime.beams || !runtime.beams.length) return;
     for(const beam of runtime.beams){
+      if(beam && typeof beam.draw === 'function'){
+        beam.draw(ctx);
+        continue;
+      }
       const geom = computeBeamGeometry(beam);
       if(!geom || geom.length<=0) continue;
-      const owner = beam.owner;
-      const width = owner?.getBrimstoneWidth?.() ?? beam.width ?? 24;
+      const owner = beam?.owner;
+      const width = owner?.getBrimstoneWidth?.() ?? beam?.width ?? 24;
       const half = Math.max(4, width * 0.5);
       ctx.save();
-      ctx.translate(geom.startX, geom.startY);
+      ctx.translate((geom.startX + geom.endX)/2, (geom.startY + geom.endY)/2);
       ctx.rotate(Math.atan2(geom.endY - geom.startY, geom.endX - geom.startX));
-      const length = geom.length;
-      const gradient = ctx.createLinearGradient(0, 0, length, 0);
+      const length = Math.max(8, geom.length);
+      const rx = length/2;
+      const ry = half;
+      const gradient = ctx.createRadialGradient(0,0,Math.max(1,ry*0.3),0,0,Math.max(rx,ry));
       gradient.addColorStop(0, colorWithAlpha('#fde68a',0.55));
-      gradient.addColorStop(0.2, colorWithAlpha('#fca5a5',0.45));
-      gradient.addColorStop(0.55, colorWithAlpha('#f97316',0.32));
-      gradient.addColorStop(1, colorWithAlpha('#f97316',0.02));
+      gradient.addColorStop(0.35, colorWithAlpha('#fca5a5',0.45));
+      gradient.addColorStop(1, colorWithAlpha('#f97316',0));
       ctx.fillStyle = gradient;
-      ctx.fillRect(0, -half, length, half*2);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI*2);
+      ctx.fill();
       ctx.strokeStyle = colorWithAlpha('#fb7185',0.35);
-      ctx.lineWidth = Math.max(2, half*0.35);
-      ctx.strokeRect(0, -half, length, half*2);
+      ctx.lineWidth = Math.max(2, ry*0.35);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx*0.95, ry*0.85, 0, 0, Math.PI*2);
+      ctx.stroke();
       ctx.restore();
     }
   }
