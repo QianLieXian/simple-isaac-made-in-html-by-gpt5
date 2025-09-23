@@ -4180,6 +4180,12 @@
     if(r.doors.right) doors.push({dir:'right',x:w-offset-doorH, y:h/2-doorW/2, w:doorH, h:doorW});
     return doors;
   }
+  function isRoomReadyForExit(room){
+    if(!room) return false;
+    if(room.isBoss && !room.cleared) return false;
+    return !!room.cleared;
+  }
+
   function tryRoomTransition(){
     const r = dungeon.current;
     const doors = roomDoors(r);
@@ -4188,9 +4194,15 @@
       const nj = r.j + (d.dir==='right') - (d.dir==='left');
       const nr = dungeon.rooms[ni]?.[nj];
       if(!nr) continue;
-      const requiresClear = r.cleared || r.isBoss || nr.isBoss;
-      if(!requiresClear) continue;
       if(!rectCircleOverlap(d.x,d.y,d.w,d.h, player.x,player.y,player.r)) continue;
+      if(!isRoomReadyForExit(r)){
+        if(runtime.itemPickupTimer<=0){
+          runtime.itemPickupName = '房门紧闭';
+          runtime.itemPickupDesc = '先清理完本房间的敌人。';
+          runtime.itemPickupTimer = 1.2;
+        }
+        continue;
+      }
       if(nr.locked){
         if(player.keys>0){
           player.keys -= 1;
@@ -4527,7 +4539,7 @@
       const leadsBoss = !!(nr && nr.isBoss && !nr.bossDefeated);
       const leadsItem = !!(nr && nr.isItemRoom && !nr.itemClaimed);
       const locked = !!(nr && nr.locked);
-      const doorReady = r.cleared || r.isBoss || (nr && nr.isBoss);
+      const doorReady = isRoomReadyForExit(r);
       const doorUnlocked = doorReady && !locked;
       let frame = '#2a3142';
       let fill = '#1e2330';
