@@ -6,43 +6,106 @@
   <title>简易以撒-like</title>
   <style>
     :root{
-      --bg:#0f1115; --panel:#151923; --ink:#e6e6e6; --muted:#9aa4b2; --accent:#6ee7ff; --accent2:#a78bfa; --danger:#ff6b6b; --ok:#86efac;
+      --bg:#07080f;
+      --bg-top:#1b1f32;
+      --bg-mid:#101320;
+      --bg-bottom:#07080f;
+      --panel:#141724;
+      --panel-highlight:#1d2133;
+      --panel-border:#272f45;
+      --ink:#f5f5f8;
+      --muted:#99a5c0;
+      --accent:#7ee8ff;
+      --accent2:#cba9ff;
+      --danger:#ff6b6b;
+      --ok:#9ff6c8;
+      --glow:rgba(110,231,255,.28);
+      --shadow:rgba(0,0,0,.55);
     }
     html,body{height:100%;}
     *{box-sizing:border-box}
-    body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#1a2030 0%,#0f1115 55%,#0b0d12 100%);color:var(--ink);font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;}
-    .wrap{max-width:960px;margin:24px auto;padding:16px;}
-    header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px}
-    .title{font-weight:700;letter-spacing:.5px}
-    .badge{padding:4px 8px;border:1px solid #2a3142;border-radius:999px;color:var(--muted)}
-    .panel{background:linear-gradient(180deg,#121623,#0f131e);border:1px solid #202736;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35);}
-    .canvas-wrap{position:relative;aspect-ratio:4/3}
-    canvas{width:100%;height:100%;display:block;border-radius:16px}
-    .hud{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 12px;margin-top:10px;flex-wrap:wrap}
+    body{
+      margin:0;
+      background:
+        radial-gradient(1200px 800px at 30% -20%,rgba(110,231,255,.22) 0%,rgba(7,8,15,0) 65%),
+        radial-gradient(900px 600px at 70% -10%,rgba(203,169,255,.16) 0%,rgba(7,8,15,0) 60%),
+        linear-gradient(180deg,var(--bg-top) 0%,var(--bg-mid) 40%,var(--bg-bottom) 100%);
+      color:var(--ink);
+      font:14px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+      position:relative;
+      overflow-y:auto;
+    }
+    body::before{
+      content:"";
+      position:fixed;
+      inset:0;
+      background:radial-gradient(circle at 15% 20%,rgba(110,231,255,.06) 0,rgba(7,8,15,0) 60%),
+        radial-gradient(circle at 80% 12%,rgba(203,169,255,.08) 0,rgba(7,8,15,0) 55%),
+        repeating-radial-gradient(circle at 50% 50%,rgba(255,255,255,.02) 0,rgba(255,255,255,0) 4px,rgba(255,255,255,.015) 7px,rgba(255,255,255,0) 12px);
+      mix-blend-mode:screen;
+      opacity:.8;
+      pointer-events:none;
+      z-index:-1;
+    }
+    .wrap{max-width:980px;margin:28px auto;padding:20px 18px 40px;position:relative;}
+    .wrap::before{
+      content:"";
+      position:absolute;
+      inset:10px;
+      border-radius:24px;
+      border:1px solid rgba(203,169,255,.08);
+      pointer-events:none;
+      box-shadow:0 0 120px rgba(110,231,255,.08);
+    }
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+    .title{font-weight:700;letter-spacing:.8px;font-size:20px;text-shadow:0 4px 18px rgba(0,0,0,.36);}
+    .badge{padding:6px 10px;border:1px solid rgba(110,231,255,.24);border-radius:999px;color:var(--muted);background:linear-gradient(120deg,rgba(110,231,255,.12),rgba(203,169,255,.08));box-shadow:0 6px 20px rgba(0,0,0,.35);backdrop-filter:blur(6px)}
+    .panel{background:linear-gradient(160deg,var(--panel) 0%,var(--panel-highlight) 55%,#0d101a 100%);border:1px solid var(--panel-border);border-radius:20px;box-shadow:0 18px 40px var(--shadow), inset 0 0 0 1px rgba(110,231,255,.05);position:relative;overflow:hidden;}
+    .panel::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:radial-gradient(circle at 20% 15%,rgba(110,231,255,.08),transparent 60%),radial-gradient(circle at 80% 20%,rgba(203,169,255,.08),transparent 55%);
+      pointer-events:none;
+      z-index:0;
+    }
+    .canvas-wrap{position:relative;aspect-ratio:4/3;overflow:hidden}
+    .canvas-wrap::after{
+      content:"";
+      position:absolute;
+      inset:18px;
+      border-radius:18px;
+      border:1px solid rgba(110,231,255,.12);
+      pointer-events:none;
+      box-shadow:0 0 35px rgba(110,231,255,.15), inset 0 0 40px rgba(7,8,15,.65);
+      mix-blend-mode:screen;
+    }
+    canvas{width:100%;height:100%;display:block;border-radius:18px;box-shadow:inset 0 0 55px rgba(0,0,0,.65),0 14px 36px rgba(0,0,0,.45);position:relative;z-index:1}
+    .hud{display:flex;gap:14px;align-items:center;justify-content:space-between;padding:14px 16px;margin-top:14px;flex-wrap:wrap;background:linear-gradient(160deg,rgba(20,23,36,.88),rgba(12,15,26,.75));backdrop-filter:blur(6px)}
     .hud-section{display:flex;align-items:center;gap:6px}
     .hud-stats{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--muted);letter-spacing:.2px}
-    .hud-stats span{display:flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid #222a38;border-radius:8px;background:rgba(17,21,29,.65);color:var(--muted)}
+    .hud-stats span{display:flex;align-items:center;gap:4px;padding:4px 8px;border:1px solid rgba(46,57,82,.8);border-radius:10px;background:linear-gradient(160deg,rgba(17,21,29,.8),rgba(10,13,22,.65));color:var(--muted);box-shadow:0 6px 14px rgba(0,0,0,.35)}
     .hud-stats span strong{color:var(--ink);font-weight:600;min-width:36px;text-align:right;font-variant-numeric:tabular-nums}
     .hud-tools{display:flex;gap:10px;margin-left:auto;align-items:flex-start;position:relative}
     .hud-tools>div{position:relative}
-    .hud-tools button{background:rgba(31,36,52,.9);color:var(--ink);border:1px solid #2c3448;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px;letter-spacing:.4px;transition:all .2s ease}
-    .hud-tools button:hover,.hud-tools button.active{border-color:#3a4c6f;background:rgba(45,52,72,.95)}
+    .hud-tools button{background:linear-gradient(160deg,rgba(31,36,52,.92),rgba(18,21,33,.88));color:var(--ink);border:1px solid rgba(60,74,110,.6);border-radius:10px;padding:7px 12px;cursor:pointer;font-size:13px;letter-spacing:.4px;transition:all .2s ease;box-shadow:0 8px 16px rgba(0,0,0,.35)}
+    .hud-tools button:hover,.hud-tools button.active{border-color:rgba(110,231,255,.55);background:linear-gradient(150deg,rgba(45,60,90,.98),rgba(27,33,51,.92));box-shadow:0 12px 20px rgba(110,231,255,.18)}
     .hud-virtual{display:flex;flex-direction:column;gap:8px;align-items:flex-end}
     .hud-cheat{position:relative;display:flex;align-items:flex-start}
-    .cheat-toggle{background:rgba(31,36,52,.9);color:var(--ink);border:1px solid #2c3448;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px;letter-spacing:.4px;transition:all .2s ease}
-    .cheat-toggle:hover{border-color:#3a4c6f;background:rgba(45,52,72,.95)}
-    .cheat-panel{display:none;position:absolute;top:110%;right:0;z-index:20;min-width:240px;max-width:280px;padding:12px 14px;border-radius:12px;background:rgba(15,19,28,.95);border:1px solid #273146;box-shadow:0 16px 32px rgba(0,0,0,.45);gap:14px;flex-direction:column}
+    .cheat-toggle{background:linear-gradient(160deg,rgba(31,36,52,.92),rgba(18,21,33,.88));color:var(--ink);border:1px solid rgba(60,74,110,.6);border-radius:10px;padding:7px 12px;cursor:pointer;font-size:13px;letter-spacing:.4px;transition:all .2s ease;box-shadow:0 8px 16px rgba(0,0,0,.35)}
+    .cheat-toggle:hover{border-color:rgba(110,231,255,.55);background:linear-gradient(150deg,rgba(45,60,90,.98),rgba(27,33,51,.92));box-shadow:0 12px 20px rgba(110,231,255,.18)}
+    .cheat-panel{display:none;position:absolute;top:110%;right:0;z-index:20;min-width:240px;max-width:280px;padding:14px 16px;border-radius:16px;background:rgba(14,18,30,.95);border:1px solid rgba(55,69,105,.85);box-shadow:0 20px 40px rgba(0,0,0,.55);gap:16px;flex-direction:column;backdrop-filter:blur(8px)}
     .cheat-panel.show{display:flex}
     .cheat-panel h4{margin:0 0 6px 0;font-size:13px;color:var(--accent2);letter-spacing:.3px}
     .cheat-section{display:flex;flex-direction:column;gap:6px}
     .cheat-section label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
-    .cheat-section input{background:#111521;border:1px solid #2c3448;border-radius:6px;color:var(--ink);padding:5px 6px;font-size:12px}
-    .cheat-section input:focus{outline:none;border-color:var(--accent)}
-    .cheat-section button{align-self:flex-end;background:linear-gradient(180deg,#2c3348,#222735);border:1px solid #2f3a52;border-radius:8px;color:var(--ink);padding:6px 10px;font-size:12px;cursor:pointer;transition:all .2s ease}
-    .cheat-section button:hover{border-color:#3c4c6a;background:linear-gradient(180deg,#34405a,#273044)}
+    .cheat-section input{background:rgba(10,13,22,.8);border:1px solid rgba(62,78,114,.65);border-radius:8px;color:var(--ink);padding:6px 7px;font-size:12px;transition:border-color .2s ease,box-shadow .2s ease}
+    .cheat-section input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(110,231,255,.25)}
+    .cheat-section button{align-self:flex-end;background:linear-gradient(160deg,rgba(44,55,88,.95),rgba(31,38,60,.9));border:1px solid rgba(68,87,126,.8);border-radius:10px;color:var(--ink);padding:6px 11px;font-size:12px;cursor:pointer;transition:all .2s ease;box-shadow:0 10px 18px rgba(0,0,0,.35)}
+    .cheat-section button:hover{border-color:rgba(110,231,255,.55);background:linear-gradient(150deg,rgba(58,76,118,1),rgba(35,43,68,.94));box-shadow:0 14px 22px rgba(110,231,255,.18)}
     .hud-stats span small{font-size:12px;color:var(--muted);opacity:.8}
     .kbd{padding:2px 6px;border:1px solid #2a3142;border-radius:6px;color:var(--muted)}
-    .virtual-kb{display:none;position:absolute;top:110%;right:0;z-index:19;min-width:260px;background:rgba(15,19,28,.86);border:1px solid rgba(39,49,70,.85);border-radius:12px;padding:10px;box-shadow:0 16px 28px rgba(0,0,0,.35);gap:10px;backdrop-filter:blur(6px)}
+    .virtual-kb{display:none;position:absolute;top:110%;right:0;z-index:19;min-width:260px;background:rgba(13,17,27,.88);border:1px solid rgba(55,69,105,.85);border-radius:14px;padding:12px;box-shadow:0 18px 32px rgba(0,0,0,.45);gap:12px;backdrop-filter:blur(8px)}
     .virtual-kb.show{display:grid}
     .virtual-kb-cluster{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:end}
     .virtual-kb-block{display:grid;gap:8px}
@@ -51,8 +114,8 @@
     .virtual-kb-row[data-type="arrows"]{grid-template-columns:repeat(3,1fr)}
     .virtual-kb-row[data-type="actions"]{grid-template-columns:repeat(4,1fr)}
     .virtual-kb-row[data-type="system"]{grid-template-columns:repeat(3,1fr)}
-    .virtual-kb button{padding:10px 8px;border-radius:10px;border:1px solid rgba(47,58,82,.85);background:linear-gradient(180deg,rgba(44,51,72,.88),rgba(34,39,53,.82));color:var(--ink);font-weight:600;font-size:13px;min-width:0;transition:all .15s ease;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none}
-    .virtual-kb button:active,.virtual-kb button.active{transform:translateY(1px);border-color:#3c4c6a;background:linear-gradient(180deg,rgba(52,64,90,.9),rgba(39,48,68,.86))}
+    .virtual-kb button{padding:10px 8px;border-radius:12px;border:1px solid rgba(60,80,120,.85);background:linear-gradient(170deg,rgba(44,55,88,.9),rgba(24,29,46,.86));color:var(--ink);font-weight:600;font-size:13px;min-width:0;transition:all .15s ease;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none;box-shadow:0 10px 18px rgba(0,0,0,.35)}
+    .virtual-kb button:active,.virtual-kb button.active{transform:translateY(1px);border-color:rgba(110,231,255,.55);background:linear-gradient(170deg,rgba(58,74,120,.95),rgba(31,38,60,.9));box-shadow:0 14px 22px rgba(110,231,255,.18)}
     .virtual-kb button.small{font-size:12px;font-weight:500}
     .virtual-kb-spacer{visibility:hidden}
     .item-codex{margin-top:14px;padding:16px 18px;display:flex;flex-direction:column;gap:14px}
@@ -60,13 +123,13 @@
     .codex-title{font-size:15px;font-weight:600;letter-spacing:.3px}
     .codex-progress{font-size:12px;color:var(--muted);letter-spacing:.3px}
     .codex-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
-    .codex-entry{display:grid;grid-template-columns:48px 1fr;gap:12px;padding:12px 14px;border:1px solid #222a38;border-radius:12px;background:rgba(17,21,29,.7);box-shadow:inset 0 0 0 1px rgba(65,76,104,.18)}
-    .codex-icon{width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 35% 30%,rgba(110,231,255,.18),rgba(167,139,250,.12) 55%,transparent 100%);border-radius:12px}
+    .codex-entry{display:grid;grid-template-columns:52px 1fr;gap:14px;padding:14px 16px;border:1px solid rgba(48,58,82,.9);border-radius:16px;background:linear-gradient(160deg,rgba(16,21,32,.82),rgba(10,12,20,.78));box-shadow:0 14px 28px rgba(0,0,0,.38), inset 0 0 0 1px rgba(110,231,255,.05)}
+    .codex-icon{width:52px;height:52px;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 35% 30%,rgba(110,231,255,.22),rgba(167,139,250,.18) 55%,transparent 100%);border-radius:14px;box-shadow:0 8px 18px rgba(0,0,0,.35)}
     .codex-icon canvas{width:42px;height:42px}
     .codex-info{display:flex;flex-direction:column}
     .codex-name{font-size:13px;font-weight:600;color:var(--ink);letter-spacing:.2px}
     .codex-desc{margin-top:4px;font-size:12px;color:var(--muted);line-height:1.5}
-    .codex-empty{grid-column:1/-1;text-align:center;padding:28px 18px;border:1px dashed #293347;border-radius:12px;color:var(--muted);font-size:13px;background:rgba(12,15,22,.65)}
+    .codex-empty{grid-column:1/-1;text-align:center;padding:32px 22px;border:1px dashed rgba(68,84,124,.8);border-radius:16px;color:var(--muted);font-size:13px;background:linear-gradient(160deg,rgba(12,16,26,.78),rgba(9,11,18,.72));box-shadow:inset 0 0 0 1px rgba(110,231,255,.05)}
     .cheat-feedback{margin-top:6px;font-size:12px;color:var(--muted);min-height:18px}
     @media (max-width:720px){
       .hud{flex-direction:column;align-items:stretch}
@@ -80,48 +143,48 @@
       .virtual-kb-row[data-type="arrows"]{grid-template-columns:repeat(3,1fr)}
       .virtual-kb-row[data-type="system"]{grid-template-columns:repeat(3,1fr)}
     }
-    footer{margin-top:16px;color:var(--muted);text-align:center}
+    footer{margin-top:22px;color:var(--muted);text-align:center;font-size:13px;letter-spacing:.4px;text-shadow:0 4px 18px rgba(0,0,0,.46)}
     /* overlays */
     .overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;padding:24px}
     .overlay.show{display:flex}
-    .card{max-width:520px;padding:18px 18px;border-radius:14px;background:rgba(15,17,21,.85);backdrop-filter: blur(6px);border:1px solid #202736}
-    .card h2{margin:0 0 8px 0}
-    .card p{margin:8px 0;color:var(--muted)}
-    .card ul{margin:10px 0 0 1.2em;color:var(--muted)}
+    .card{max-width:540px;padding:22px 24px;border-radius:20px;background:rgba(10,12,20,.86);backdrop-filter: blur(10px);border:1px solid rgba(62,78,114,.8);box-shadow:0 20px 40px rgba(0,0,0,.55)}
+    .card h2{margin:0 0 10px 0;font-size:22px;letter-spacing:.6px}
+    .card p{margin:10px 0;color:var(--muted);font-size:14px;line-height:1.6}
+    .card ul{margin:12px 0 0 1.2em;color:var(--muted);font-size:13px;line-height:1.6}
     .card li{margin:4px 0}
-    a.btn{display:inline-block;margin-top:10px;padding:8px 12px;border-radius:10px;border:1px solid #273044;color:var(--ink);text-decoration:none}
-    a.btn:hover{border-color:#3a4764}
+    a.btn{display:inline-block;margin-top:14px;padding:10px 18px;border-radius:999px;border:1px solid rgba(110,231,255,.4);color:var(--ink);text-decoration:none;background:linear-gradient(140deg,rgba(110,231,255,.25),rgba(203,169,255,.18));letter-spacing:.6px;box-shadow:0 12px 24px rgba(0,0,0,.35);transition:all .2s ease}
+    a.btn:hover{border-color:rgba(203,169,255,.6);box-shadow:0 16px 28px rgba(203,169,255,.25);transform:translateY(-1px)}
   </style>
 </head>
 <body>
   <div class="wrap">
     <header>
-      <div class="title">地窖速通实验室 · HTML5 Canvas</div>
-      <div class="badge">WASD 移动 · 方向键射击 · E 放置炸弹 · F 购买 · Q 释放卡牌 · 回车开始 · P 暂停 · R 重开 · 记得深呼吸</div>
+      <div class="title">地窖星海实验室 · 以太帷幕</div>
+      <div class="badge">WASD 漫步 · 方向键泪弹 · E 扔出灵爆 · F 急购补给 · Q 放出卡符 · 回车整装 · P 沉淀呼吸 · R 重启命运</div>
     </header>
     <div class="panel canvas-wrap">
       <canvas id="game" width="800" height="600"></canvas>
       <div class="overlay" id="menu">
         <div class="card">
           <h2>地窖暖场中…</h2>
-          <p>这是款极简的房间制顶视角射击。先伸个懒腰再闯关——清空房间敌人，门才会知趣地打开。</p>
+          <p>这里是迷你版的地牢泪海。舒展肩颈，拍拍脸颊，等灵感加载完毕再去清空房间吧——只有全部怪物化作星尘，大门才会松口。</p>
           <ul>
             <li><b>W/A/S/D</b> 移动，<b>↑/↓/←/→</b> 射击</li>
             <li><b>Enter</b> 开始 · <b>P</b> 暂停/继续 · <b>R</b> 重开</li>
           </ul>
-          <a class="btn" href="#" id="startBtn">我要出发！</a>
+          <a class="btn" href="#" id="startBtn">破门而入！</a>
         </div>
       </div>
       <div class="overlay" id="paused">
         <div class="card">
-          <h2>暂时打个盹</h2>
-          <p>按 <b>P</b> 继续。关卡在原地等你，敌人也在发呆。</p>
+          <h2>稍事酝酿</h2>
+          <p>按下 <b>P</b> 继续。场景被琥珀凝住，你的敌人正好好享受无声的紧张。</p>
         </div>
       </div>
       <div class="overlay" id="gameover">
         <div class="card">
-          <h2>勇者累趴了</h2>
-          <p>按 <b>R</b> 重开，或者 <b>Enter</b> 回到主菜单准备再战。</p>
+          <h2>泪弹耗尽</h2>
+          <p>按 <b>R</b> 重开，或敲下 <b>Enter</b> 回到星海门厅，重新揣上勇气。</p>
         </div>
       </div>
     </div>
@@ -131,33 +194,33 @@
       <div id="hud-right" class="hud-section"></div>
       <div class="hud-tools">
         <div class="hud-virtual">
-          <button id="vk-toggle" type="button" aria-controls="virtual-kb" aria-expanded="false">屏幕键盘</button>
+          <button id="vk-toggle" type="button" aria-controls="virtual-kb" aria-expanded="false">星辉键盘</button>
           <div id="virtual-kb" class="virtual-kb" aria-hidden="true"></div>
         </div>
         <div class="hud-cheat">
-          <button id="cheat-toggle" class="cheat-toggle" type="button" aria-controls="cheat-panel" aria-expanded="false">作弊台</button>
+          <button id="cheat-toggle" class="cheat-toggle" type="button" aria-controls="cheat-panel" aria-expanded="false">调谐工坊</button>
           <div id="cheat-panel" class="cheat-panel">
           <div class="cheat-section">
-            <h4>状态</h4>
+            <h4>形态调谐</h4>
             <label>当前血量 <input id="cheat-hp" type="number" min="0" max="20" step="1"></label>
             <label>生命上限 <input id="cheat-maxhp" type="number" min="1" max="20" step="1"></label>
             <label>基础伤害 <input id="cheat-damage" type="number" min="0" step="0.1"></label>
             <label>移动速度 <input id="cheat-speed" type="number" min="0" step="1"></label>
             <label>射速(次/秒) <input id="cheat-firerate" type="number" min="0.1" step="0.1"></label>
             <label>子弹速度 <input id="cheat-tearspeed" type="number" min="1" step="1"></label>
-            <button id="cheat-apply-stats" type="button">应用状态</button>
+            <button id="cheat-apply-stats" type="button">注入调谐</button>
           </div>
           <div class="cheat-section">
-            <h4>资源</h4>
+            <h4>背包补给</h4>
             <label>炸弹 <input id="cheat-bombs" type="number" min="0" max="99" step="1"></label>
             <label>钥匙 <input id="cheat-keys" type="number" min="0" max="99" step="1"></label>
             <label>金币 <input id="cheat-coins" type="number" min="0" max="99" step="1"></label>
-            <button id="cheat-apply-resources" type="button">应用资源</button>
+            <button id="cheat-apply-resources" type="button">灌装物资</button>
           </div>
           <div class="cheat-section">
-            <h4>道具</h4>
+            <h4>奇物注入</h4>
             <label>道具 ID <input id="cheat-item-id" type="number" min="1" step="1" placeholder="例如 1"></label>
-            <button id="cheat-give-item" type="button">给予道具</button>
+            <button id="cheat-give-item" type="button">召唤奇物</button>
             <div id="cheat-item-result" class="cheat-feedback" aria-live="polite"></div>
           </div>
           </div>
@@ -166,12 +229,12 @@
     </div>
     <div id="item-codex" class="panel item-codex" aria-live="polite">
       <div class="codex-header">
-        <span class="codex-title">道具图鉴</span>
-        <span class="codex-progress">已解锁 <span id="codex-count">0</span> / <span id="codex-total">0</span></span>
+        <span class="codex-title">奇物星图</span>
+        <span class="codex-progress">已收录 <span id="codex-count">0</span> / <span id="codex-total">0</span></span>
       </div>
       <div id="codex-grid" class="codex-grid"></div>
     </div>
-    <footer>纯前端单文件 · 无素材 · 轻便又俏皮</footer>
+    <footer>纯前端单文件 · 手绘粒子幻境 · 装进口袋的泪海冒险</footer>
   </div>
 
 <script>
@@ -291,11 +354,11 @@
     {di:0,dj:1,key:'right',opp:'left'}
   ];
   const BOSS_TYPES = [
-    {id:'idol', name:'哭泣塑像 · 社畜蛹'},
-    {id:'master', name:'余烬教官 · Master'},
-    {id:'hydra', name:'缠鳞九首 · 海德拉'},
-    {id:'seer', name:'裂隙先知 · 星瞳使者'},
-    {id:'titan', name:'震颤机偶 · 玄铁执事'},
+    {id:'idol', name:'泪辉偶像 · 社畜蛹'},
+    {id:'master', name:'余烬教官 · 烬潮导师'},
+    {id:'hydra', name:'缠鳞九首 · 渊海九头'},
+    {id:'seer', name:'裂隙先知 · 星瞳执事'},
+    {id:'titan', name:'震颤机偶 · 玄铁裁决者'},
   ];
   function rollBossType(){
     return BOSS_TYPES[Math.floor(rand()*BOSS_TYPES.length)];
@@ -377,79 +440,79 @@
   const ITEM_POOL = [
     {
       slug:'onion',
-      name:'洋葱',
+      name:'泪灯洋葱',
       weight:50,
-      description:'泪腺更发达，射速 +0.75 次/秒',
+      description:'泪腺被彻底点燃，射速 +0.75 次/秒。',
       apply(player){ adjustFireRate(player, 0.75); }
     },
     {
       slug:'tar',
       name:'焦油抹布',
       weight:30,
-      description:'伤害 +0.5，泪滴更厚重',
+      description:'沥青般的怒火黏上指尖，伤害 +0.5，泪滴更厚重。',
       apply(player){ player.addDamage(0.5); }
     },
     {
       slug:'sneaker',
-      name:'小短跑鞋',
+      name:'疾风短跑鞋',
       weight:50,
-      description:'移动速度 +35，轻盈不少',
+      description:'脚踩疾风，移动速度 +35，步伐轻盈得像羽毛。',
       apply(player){ player.speed += 35; }
     },
     {
       slug:'pepper-steak',
-      name:'胡椒牛排',
+      name:'胡椒炽燃牛排',
       weight:5,
-      description:'全身沸腾，伤害 +1，攻速 +1，射程 x1.5，血上限 +1',
+      description:'鲜辣胡椒在血液里轰鸣：伤害 +1，攻速 +1，射程 ×1.5，血量上限 +1。',
       apply(player){ player.addDamage(1); adjustFireRate(player,1); player.tearLife*=1.5; if(typeof player.adjustMaxHp==='function'){ player.adjustMaxHp(1); } else { player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); } }
     },
     {
       slug:'rope',
-      name:'绳子',
+      name:'星陨系带',
       weight:20,
-      description:'轻盈漂浮，飞行不再畏惧地形',
+      description:'脚踝拴上星陨绳结，飞行不再畏惧地形。',
       apply(player){ player.flying = true; }
     },
     {
       slug:'spirit-date',
-      name:'酒枣',
+      name:'灵酿酒枣',
       weight:20,
-      description:'射程 x1.5，泪滴可穿透障碍',
+      description:'甜酒浸透瞳仁，射程 ×1.5，泪滴可穿透障碍。',
       apply(player){ player.tearLife*=1.5; player.canPierceObstacles = true; }
     },
     {
       slug:'betrayal-hound',
-      name:'伙伴倒戈犬',
+      name:'倒戈猎犬',
       weight:1,
-      description:'狂暴背叛，伤害 x2 +1.5，射速 -0.25 次/秒',
+      description:'狂性汹涌：伤害 ×2 +1.5，但射速 -0.25 次/秒。',
       apply(player){ player.damageMultiplier *= 2; player.addDamage(1.5); adjustFireRate(player,-0.25); }
     },
     {
       slug:'despair-shout',
-      name:'绝望呐喊',
+      name:'绝望咆哮',
       weight:40,
-      description:'撕裂呐喊，射程 x5',
+      description:'胸腔爆发的撕裂怒吼，射程 ×5。',
       apply(player){ player.tearLife*=5; }
     },
     {
       slug:'bad-thing',
-      name:'坏东西',
+      name:'危险玩物',
       weight:50,
-      description:'速度有点危险，子弹速度 x1.1',
+      description:'躁动的机关让弹速 ×1.1，小心别反噬自己。',
       apply(player){ player.tearSpeed*=1.1; }
     },
     {
       slug:'good-thing',
-      name:'好东西',
+      name:'顺眼奇玩',
       weight:20,
-      description:'越看越顺眼，子弹速度 x0.75，射速 +0.75，射程 x1.25',
+      description:'越看越顺眼：子弹速度 ×0.75，射速 +0.75，射程 ×1.25。',
       apply(player){ player.tearSpeed*=0.75; adjustFireRate(player,0.75); player.tearLife*=1.25; }
     },
     {
       slug:'seer-map',
-      name:'透视雷达',
+      name:'洞悉星图',
       weight:28,
-      description:'被动：当前与未来楼层地图全开，显示所有房间、商店和道具房。',
+      description:'被动：当前与未来楼层地图全开，标注所有房间、商店与奇物房。',
       apply(player){
         if(!player) return;
         if(typeof player.enableFullMapVision === 'function'){
@@ -462,14 +525,14 @@
     },
     {
       slug:'outdoor-pouch',
-      name:'户外腰包',
+      name:'流浪腰包',
       weight:6,
-      description:'主动道具 · 5 充能。翻找出 1 把钥匙、1 颗炸弹与 3 枚金币。',
+      description:'主动奇物 · 5 充能。翻找出 1 把钥匙、1 颗炸弹与 3 枚金币。',
       apply(player){
         const active = {
           slug:'outdoor-pouch',
-          name:'户外腰包',
-          description:'翻找出 1 把钥匙、1 颗炸弹与 3 枚金币。',
+          name:'流浪腰包',
+          description:'翻找出旅行储备：钥匙 1、炸弹 1、金币 3。',
           maxCharge:5,
           startCharge:0,
           use(p){
@@ -477,7 +540,7 @@
             const bombGain = grantResource('bomb',1);
             const coinGain = grantResource('coin',3);
             const detail = `钥匙 +${keyGain}，炸弹 +${bombGain}，金币 +${coinGain}`;
-            return {message:'户外腰包翻找完毕', detail};
+            return {message:'流浪腰包·翻找完毕', detail};
           }
         };
         player.setActiveItem(active);
@@ -485,23 +548,23 @@
     },
     {
       slug:'adrenaline',
-      name:'肾上腺素',
+      name:'怒潮注射',
       weight:6,
-      description:'主动道具 · 3 充能。本房间内：伤害 +2，射速 +2，射程 x5，弹速 x2，生命 -1。',
+      description:'主动奇物 · 3 充能。本房间内：伤害 +2，射速 +2，射程 ×5，弹速 ×2，同时生命 -1。',
       apply(player){
         const active = {
           slug:'adrenaline',
-          name:'肾上腺素',
-          description:'当前房间爆发强化，生命 -1。',
+          name:'怒潮注射',
+          description:'当前房间爆发强化，燃烧 1 点生命。',
           maxCharge:3,
           startCharge:0,
           use(p, context){
             const room = context?.dungeon?.current;
             if(!room){
-              return {consume:0, message:'肾上腺素无从发挥', detail:'需要在房间内使用。'};
+              return {consume:0, message:'怒潮注射无从发挥', detail:'需要在房间内使用。'};
             }
             if(p.hp<=0){
-              return {consume:0, message:'肾上腺素无法启动', detail:'至少需要 1 点生命。'};
+              return {consume:0, message:'怒潮注射拒绝启动', detail:'至少需要 1 点生命。'};
             }
             const roomKey = `${room.i},${room.j}`;
             p.applyRoomBuff({
@@ -515,7 +578,7 @@
             p.hp = Math.max(0, p.hp - 1);
             if(p.hp<=0){ gameOver(); }
             else { p.recalculateDamage(); }
-            return {message:'肾上腺素·爆发', detail:'当前房间属性飙升，生命 -1。'};
+            return {message:'怒潮注射·爆发', detail:'当前房间属性飙升，生命 -1。'};
           }
         };
         player.setActiveItem(active);
@@ -523,30 +586,30 @@
     },
     {
       slug:'bomb-cousin',
-      name:'炸弹表舅',
+      name:'爆鸣表舅',
       weight:18,
-      description:'炸弹 +5，爆炸范围 x2，伤害 x2。',
+      description:'炸弹 +5，爆炸范围 ×2，伤害 ×2，爆鸣震耳欲聋。',
       apply(player){ grantResource('bomb',5); player.bombRadiusMultiplier*=2; player.bombDamageMultiplier*=2; }
     },
     {
       slug:'bomb-uncle',
-      name:'炸弹舅爷',
+      name:'爆震舅爷',
       weight:6,
-      description:'炸弹 +99，爆炸范围 x5，伤害 x5，爆炸伴随震动。',
+      description:'炸弹 +99，爆炸范围 ×5，伤害 ×5，爆炸伴随震动回荡。',
       apply(player){ grantResource('bomb',99); player.bombRadiusMultiplier*=5; player.bombDamageMultiplier*=5; player.bombShakeStrength = Math.max(player.bombShakeStrength||0, 14); }
     },
     {
       slug:'bomb-grandpa',
-      name:'炸弹爷爷',
+      name:'爆影老祖',
       weight:6,
       description:'免疫炸弹伤害，受到爆炸时反而恢复生命。',
       apply(player){ player.bombImmunity = true; player.explosionHealAmount = Math.max(player.explosionHealAmount||0, 1); }
     },
     {
       slug:'magic-bullet',
-      name:'魔术子弹',
+      name:'星迹魔弹',
       weight:20,
-      description:'射程 x3，泪滴追踪最近的敌人。',
+      description:'射程 ×3，泪滴追踪最近的敌人。',
       apply(player){ player.tearLife*=3; player.homingTears = true; player.homingStrength = Math.max(player.homingStrength||0, 8); }
     }
   ];
@@ -559,42 +622,42 @@
   const SHOP_ITEM_POOL = [
     {
       slug:'blood-power',
-      name:'血之力',
+      name:'血契之力',
       weight:50,
-      description:'血越厚，伤害越高',
+      description:'血越厚，伤害越高。',
       apply(player){ player.effects.bloodPower = true; player.recalculateDamage(); }
     },
     {
       slug:'money-power',
-      name:'钱之力',
+      name:'财契之力',
       weight:50,
-      description:'财源滚滚，伤害随金币提升',
+      description:'财源滚滚，伤害随金币提升。',
       apply(player){ player.effects.moneyPower = true; player.recalculateDamage(); }
     },
     {
       slug:'despair-power',
-      name:'绝望之力',
+      name:'绝境之力',
       weight:20,
-      description:'血越少，越要反击',
+      description:'血越少，越要反击。',
       apply(player){ player.effects.despairPower = true; player.recalculateDamage(); }
     },
     {
       slug:'bomb-cousin',
-      name: ITEM_REF_BOMB_COUSIN?.name || '炸弹表舅',
+      name: ITEM_REF_BOMB_COUSIN?.name || '爆鸣表舅',
       weight:18,
-      description: ITEM_REF_BOMB_COUSIN?.description || '炸弹 +5，爆炸范围 x2，伤害 x2。',
+      description: ITEM_REF_BOMB_COUSIN?.description || '炸弹 +5，爆炸范围 ×2，伤害 ×2，爆鸣震耳欲聋。',
       apply(player){ ITEM_REF_BOMB_COUSIN?.apply?.(player); }
     },
     {
       slug:'bomb-uncle',
-      name: ITEM_REF_BOMB_UNCLE?.name || '炸弹舅爷',
+      name: ITEM_REF_BOMB_UNCLE?.name || '爆震舅爷',
       weight:6,
-      description: ITEM_REF_BOMB_UNCLE?.description || '炸弹 +99，爆炸范围 x5，伤害 x5，爆炸伴随震动。',
+      description: ITEM_REF_BOMB_UNCLE?.description || '炸弹 +99，爆炸范围 ×5，伤害 ×5，爆炸伴随震动回荡。',
       apply(player){ ITEM_REF_BOMB_UNCLE?.apply?.(player); }
     },
     {
       slug:'bomb-grandpa',
-      name: ITEM_REF_BOMB_GRANDPA?.name || '炸弹爷爷',
+      name: ITEM_REF_BOMB_GRANDPA?.name || '爆影老祖',
       weight:6,
       description: ITEM_REF_BOMB_GRANDPA?.description || '免疫炸弹伤害，受到爆炸时反而恢复生命。',
       apply(player){ ITEM_REF_BOMB_GRANDPA?.apply?.(player); }
@@ -603,104 +666,104 @@
   const BOSS_ITEM_POOL = [
     {
       slug:'dog-food',
-      name:'狗粮',
+      name:'犬王干粮',
       weight:50,
-      description:'血量上限 +1',
+      description:'血量上限 +1。',
       apply(player){ if(typeof player.adjustMaxHp==='function'){ player.adjustMaxHp(1); } else { player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); } }
     },
     {
       slug:'ending-note',
-      name:'结束纸条',
+      name:'终幕纸条',
       weight:50,
-      description:'射速 +0.75 次/秒，射程 x1.1',
+      description:'射速 +0.75 次/秒，射程 ×1.1。',
       apply(player){ adjustFireRate(player,0.75); player.tearLife*=1.1; }
     },
     {
       slug:'kettle',
-      name:'热水壶',
+      name:'熔炉水壶',
       weight:50,
-      description:'伤害 +1',
+      description:'伤害 +1。',
       apply(player){ player.addDamage(1); }
     },
     {
       slug:'outdoor-pouch',
-      name: ITEM_REF_OUTDOOR_POUCH?.name || '户外腰包',
+      name: ITEM_REF_OUTDOOR_POUCH?.name || '流浪腰包',
       weight:6,
-      description: ITEM_REF_OUTDOOR_POUCH?.description || '主动道具 · 5 充能。翻找出 1 把钥匙、1 颗炸弹与 3 枚金币。',
+      description: ITEM_REF_OUTDOOR_POUCH?.description || '主动奇物 · 5 充能。翻找出 1 把钥匙、1 颗炸弹与 3 枚金币。',
       apply(player){ ITEM_REF_OUTDOOR_POUCH?.apply?.(player); }
     },
     {
       slug:'adrenaline',
-      name: ITEM_REF_ADRENALINE?.name || '肾上腺素',
+      name: ITEM_REF_ADRENALINE?.name || '怒潮注射',
       weight:6,
-      description: ITEM_REF_ADRENALINE?.description || '主动道具 · 3 充能。本房间内强化并消耗 1 点生命。',
+      description: ITEM_REF_ADRENALINE?.description || '主动奇物 · 3 充能。本房间内：伤害 +2，射速 +2，射程 ×5，弹速 ×2，同时生命 -1。',
       apply(player){ ITEM_REF_ADRENALINE?.apply?.(player); }
     },
     {
       slug:'bomb-grandpa',
-      name: ITEM_REF_BOMB_GRANDPA?.name || '炸弹爷爷',
+      name: ITEM_REF_BOMB_GRANDPA?.name || '爆影老祖',
       weight:6,
       description: ITEM_REF_BOMB_GRANDPA?.description || '免疫炸弹伤害，受到爆炸时反而恢复生命。',
       apply(player){ ITEM_REF_BOMB_GRANDPA?.apply?.(player); }
     },
     {
       slug:'magic-bullet',
-      name: ITEM_REF_MAGIC_BULLET?.name || '魔术子弹',
+      name: ITEM_REF_MAGIC_BULLET?.name || '星迹魔弹',
       weight:20,
-      description: ITEM_REF_MAGIC_BULLET?.description || '射程 x3，泪滴追踪最近的敌人。',
+      description: ITEM_REF_MAGIC_BULLET?.description || '射程 ×3，泪滴追踪最近的敌人。',
       apply(player){ ITEM_REF_MAGIC_BULLET?.apply?.(player); }
     }
   ];
   const CARD_POOL = [
     {
       slug:'seer-card',
-      name:'通透牌',
+      name:'星透牌',
       weight:16,
-      description:'本层地图全显。',
+      description:'瞬间揭示本层地图。',
       use(player, context){
         const dungeonInstance = context?.dungeon;
         if(!dungeonInstance){
-          return {consume:false, message:'通透牌迷路', detail:'暂未锁定楼层。'};
+          return {consume:false, message:'星透牌迷路', detail:'暂未锁定楼层。'};
         }
         if(typeof dungeonInstance.revealAllRooms === 'function'){
           dungeonInstance.revealAllRooms();
         }
-        return {message:'通透牌·侦测', detail:'当前楼层地图完全显形。'};
+        return {message:'星透牌·洞察', detail:'当前楼层地图尽数显形。'};
       }
     },
     {
       slug:'rage-card',
-      name:'伤害牌',
+      name:'怒火牌',
       weight:18,
       description:'本房间伤害 +2。',
       use(player, context){
         const room = context?.dungeon?.current;
         if(!room){
-          return {consume:false, message:'伤害牌未生效', detail:'需要在房间内使用。'};
+          return {consume:false, message:'怒火牌未生效', detail:'需要在房间内使用。'};
         }
         const roomKey = `${room.i},${room.j}`;
         player.applyRoomBuff({type:'card-damage', roomKey, damageBonus:2});
-        return {message:'伤害牌·激怒', detail:'本房间伤害 +2，离开即失效。'};
+        return {message:'怒火牌·激怒', detail:'本房间伤害 +2，离开即失效。'};
       }
     },
     {
       slug:'homing-card',
-      name:'追踪牌',
+      name:'锁魂牌',
       weight:14,
       description:'本房间眼泪追踪敌人。',
       use(player, context){
         const room = context?.dungeon?.current;
         if(!room){
-          return {consume:false, message:'追踪牌未锁定', detail:'进入房间后再使用。'};
+          return {consume:false, message:'锁魂牌未锁定', detail:'进入房间后再使用。'};
         }
         const roomKey = `${room.i},${room.j}`;
         player.applyRoomBuff({type:'card-homing', roomKey, homing:true, homingStrength:10});
-        return {message:'追踪牌·锁定', detail:'当前房间子弹追踪敌人。'};
+        return {message:'锁魂牌·锁定', detail:'当前房间子弹追踪敌人。'};
       }
     },
     {
       slug:'juggle-card',
-      name:'杂耍牌',
+      name:'杂耍补给牌',
       weight:12,
       description:'获得 1 钥匙、1 炸弹与 1 滴血。',
       use(player){
@@ -710,60 +773,60 @@
         player.hp = Math.min(player.maxHp, player.hp + 1);
         if(player.hp!==prevHp){ player.recalculateDamage(); }
         const healGain = player.hp - prevHp;
-        return {message:'杂耍牌·补给', detail:`钥匙 +${keyGain}，炸弹 +${bombGain}，生命 +${healGain}`};
+        return {message:'杂耍补给牌·补给', detail:`钥匙 +${keyGain}，炸弹 +${bombGain}，生命 +${healGain}`};
       }
     },
     {
       slug:'invincible-card',
-      name:'无敌牌',
+      name:'辉耀牌',
       weight:10,
       description:'获得 3 秒无敌。',
       use(player){
         player.ifr = Math.max(player.ifr, 3);
-        return {message:'无敌牌·护佑', detail:'未来 3 秒免疫伤害。'};
+        return {message:'辉耀牌·护佑', detail:'未来 3 秒免疫所有伤害。'};
       }
     },
     {
       slug:'blood-card',
-      name:'血牌',
+      name:'血泉牌',
       weight:10,
       description:'生命回复至满。',
       use(player){
         player.hp = player.maxHp;
         player.recalculateDamage();
-        return {message:'血牌·再生', detail:'生命回复至上限。'};
+        return {message:'血泉牌·再生', detail:'生命回复至上限。'};
       }
     },
     {
       slug:'pierce-card',
-      name:'穿透牌',
+      name:'破障牌',
       weight:14,
       description:'本房间子弹穿透障碍。',
       use(player, context){
         const room = context?.dungeon?.current;
         if(!room){
-          return {consume:false, message:'穿透牌无目标', detail:'需要在房间内使用。'};
+          return {consume:false, message:'破障牌无目标', detail:'需要在房间内使用。'};
         }
         const roomKey = `${room.i},${room.j}`;
         player.applyRoomBuff({type:'card-pierce', roomKey, pierceObstacles:true});
-        return {message:'穿透牌·破障', detail:'当前房间子弹穿透障碍。'};
+        return {message:'破障牌·破障', detail:'当前房间子弹穿透全部障碍。'};
       }
     },
     {
       slug:'player-card',
-      name:'玩家牌',
+      name:'命运牌',
       weight:8,
-      description:'随机获得一个被动道具。',
+      description:'随机获得一个被动奇物。',
       use(player, context){
         const item = rollPassiveItem();
         if(!item){
-          return {consume:false, message:'玩家牌失手', detail:'暂无法召唤被动道具。'};
+          return {consume:false, message:'命运牌失手', detail:'暂无法召唤被动奇物。'};
         }
         const clone = {...item};
         if(typeof clone.apply === 'function'){ clone.apply(player); }
         if(player && !player.items.includes(clone.name)){ player.items.push(clone.name); }
         registerItemDiscovery(clone);
-        return {message:`玩家牌·${clone.name}`, detail: clone.description || '神秘力量注入背包。'};
+        return {message:`命运牌·${clone.name}`, detail: clone.description || '随机奇物注入背包。'};
       }
     }
   ];
@@ -865,7 +928,7 @@
     if(!discoveredList.length){
       const empty=document.createElement('div');
       empty.className='codex-empty';
-      empty.textContent='尚未获得任何道具。探索地下室，解锁第一件宝物吧！';
+      empty.textContent='星图尚未点亮。深入地窖，把第一件奇物抱回怀中！';
       CODEX_GRID.appendChild(empty);
       return;
     }
@@ -887,7 +950,7 @@
       title.textContent=`#${formatItemNumber(item.id)} · ${item.name}`;
       const desc=document.createElement('div');
       desc.className='codex-desc';
-      desc.textContent=item.description || '暂无描述';
+      desc.textContent=item.description || '这件奇物还在沉睡，等待你的笔触去描绘。';
       info.appendChild(title);
       info.appendChild(desc);
       card.appendChild(iconWrap);
@@ -994,25 +1057,25 @@
     const resetColor = ()=>{ cheatItemResult.style.color = 'var(--muted)'; };
     resetColor();
     if(!player){
-      cheatItemResult.textContent = '请先进入游戏后再使用道具召唤。';
+      cheatItemResult.textContent = '请先踏入地窖，再来召唤奇物。';
       cheatItemResult.style.color = 'var(--danger)';
       return;
     }
     const raw = cheatItemIdInput ? String(cheatItemIdInput.value).trim() : '';
     if(!raw){
-      cheatItemResult.textContent = '请输入道具编号。';
+      cheatItemResult.textContent = '请写下奇物编号。';
       cheatItemResult.style.color = 'var(--danger)';
       return;
     }
     const numeric = Math.floor(Number(raw));
     if(!Number.isFinite(numeric) || numeric<1){
-      cheatItemResult.textContent = '编号无效，请输入正整数。';
+      cheatItemResult.textContent = '编号无效，换个正整数试试。';
       cheatItemResult.style.color = 'var(--danger)';
       return;
     }
     const base = getItemByNumericId(numeric);
     if(!base){
-      cheatItemResult.textContent = `未找到编号为 ${numeric} 的道具。`;
+      cheatItemResult.textContent = `未在星图中找到编号为 ${numeric} 的奇物。`;
       cheatItemResult.style.color = 'var(--danger)';
       return;
     }
@@ -1024,7 +1087,7 @@
     runtime.itemPickupName = item.name;
     runtime.itemPickupDesc = item.description || '';
     runtime.itemPickupTimer = 2.4;
-    cheatItemResult.textContent = `已获得「${item.name}」`;  
+    cheatItemResult.textContent = `星图回应：获得「${item.name}」。`;
     cheatItemResult.style.color = 'var(--accent)';
     syncCheatPanel();
   }
@@ -2051,7 +2114,7 @@
     const previous = player.singleUseItem ? cloneCardData(player.singleUseItem) : null;
     player.setSingleUseItem(data);
     if(runtime){
-      runtime.itemPickupName = `获得卡牌：${data.name}`;
+      runtime.itemPickupName = `抽得卡牌：${data.name}`;
       const detail = data.description ? `${data.description} · 按 Q 使用。` : '按 Q 使用后消耗。';
       runtime.itemPickupDesc = detail;
       runtime.itemPickupTimer = Math.max(runtime.itemPickupTimer, 2.2);
@@ -2094,7 +2157,7 @@
         runtime.itemPickupTimer = Math.max(runtime.itemPickupTimer, 2.4);
       } else {
         runtime.itemPickupName = `掉落卡牌：${card.name}`;
-        runtime.itemPickupDesc = card.description ? `${card.description} · 按 Q 使用。` : '按 Q 使用后消耗。';
+        runtime.itemPickupDesc = card.description ? `${card.description} · 按 Q 使用即可释放。` : '按 Q 使用后即会消耗。';
         runtime.itemPickupTimer = 2.4;
       }
     }
@@ -5827,8 +5890,8 @@
     runtime.pendingEnemySpawns.length = 0;
     runtime.bossIntroTimer = 0;
     runtime.bossIntroText = '';
-    runtime.itemPickupName = `已抵达第 ${currentFloor} 层`;
-    runtime.itemPickupDesc = '敌人变得更加愤怒。';
+    runtime.itemPickupName = `踏入第 ${currentFloor} 层`;
+    runtime.itemPickupDesc = '敌人愈发躁动不安。';
     runtime.itemPickupTimer = 2.6;
     runtime.effects.length = 0;
     resetScreenShake();
@@ -5866,7 +5929,7 @@
       if(!isRoomReadyForExit(r)){
         if(runtime.itemPickupTimer<=0){
           runtime.itemPickupName = '房门紧闭';
-          runtime.itemPickupDesc = '先清理完本房间的敌人。';
+          runtime.itemPickupDesc = '先把这里的敌人打成星渣。';
           runtime.itemPickupTimer = 1.2;
         }
         continue;
@@ -5878,12 +5941,12 @@
           nr.locked = false;
           if(runtime.itemPickupTimer<=0){
             runtime.itemPickupName = '钥匙冒着烟消失';
-            runtime.itemPickupDesc = nr.isShop ? '商店老板：欢迎惠顾！' : '门锁：「勉强通过。」';
+            runtime.itemPickupDesc = nr.isShop ? '商店老板：欢迎光临，慢慢挑。' : '门锁：「勉强通过。」';
             runtime.itemPickupTimer = 1.4;
           }
         } else if(runtime.itemPickupTimer<=0){
           runtime.itemPickupName = '缺钥匙提示';
-          runtime.itemPickupDesc = '门锁不吃嘴炮，只认金属';
+          runtime.itemPickupDesc = '门锁不吃嘴炮，只认叮当金属。';
           runtime.itemPickupTimer = 1.2;
         }
         continue;
@@ -6031,8 +6094,8 @@
         if(gained && runtime.itemPickupTimer<=0){
           const maxCharge = Math.max(0, player.activeMaxCharge ?? 0);
           const current = Math.min(player.activeCharge, maxCharge);
-          runtime.itemPickupName = '主动道具充能 +1';
-          runtime.itemPickupDesc = maxCharge>0 ? `当前充能：${current}/${maxCharge}` : '能量已存入电容槽。';
+          runtime.itemPickupName = '主动奇物充能 +1';
+          runtime.itemPickupDesc = maxCharge>0 ? `当前充能：${current}/${maxCharge}` : '能量已存入灵能槽。';
           runtime.itemPickupTimer = 1.4;
         }
         room.chargeGranted = true;
@@ -6895,8 +6958,8 @@
     const item = player.activeItem;
     if(!item){
       if(runtime.itemPickupTimer<=0){
-        runtime.itemPickupName = '未装备主动道具';
-        runtime.itemPickupDesc = '清理道具房或商店，寻找主动道具。';
+        runtime.itemPickupName = '未装备主动奇物';
+        runtime.itemPickupDesc = '去道具房或商店摸一摸主动奇物。';
         runtime.itemPickupTimer = 1.6;
       }
       return;
@@ -6904,16 +6967,16 @@
     const maxCharge = Math.max(0, player.activeMaxCharge ?? 0);
     if(maxCharge<=0){
       if(runtime.itemPickupTimer<=0){
-        runtime.itemPickupName = `${item.name || '主动道具'} 无充能槽`;
-        runtime.itemPickupDesc = '请为主动道具设定最大充能值。';
+        runtime.itemPickupName = `${item.name || '主动奇物'} 无充能槽`;
+        runtime.itemPickupDesc = '请为主动奇物设定最大充能值。';
         runtime.itemPickupTimer = 1.4;
       }
       return;
     }
     if(typeof item.use !== 'function'){
       if(runtime.itemPickupTimer<=0){
-        runtime.itemPickupName = `${item.name || '主动道具'} 暂无效果`;
-        runtime.itemPickupDesc = '为主动道具编写 use() 函数后即可释放。';
+        runtime.itemPickupName = `${item.name || '主动奇物'} 暂无效应`;
+        runtime.itemPickupDesc = '为主动奇物写好 use() 函数后即可释放。';
         runtime.itemPickupTimer = 1.6;
       }
       return;
@@ -6921,8 +6984,8 @@
     if(!player.canUseActiveItem()){
       if(runtime.itemPickupTimer<=0){
         const remain = Math.max(0, maxCharge - player.activeCharge);
-        runtime.itemPickupName = `${item.name || '主动道具'} 充能中`;
-        runtime.itemPickupDesc = remain>0 ? `还需 ${remain} 点充能` : '再等等能量汇聚。';
+        runtime.itemPickupName = `${item.name || '主动奇物'} 充能中`;
+        runtime.itemPickupDesc = remain>0 ? `还需 ${remain} 点充能` : '耐心等能量汇聚。';
         runtime.itemPickupTimer = 1.3;
       }
       return;
@@ -6931,7 +6994,7 @@
     const outcome = player.useActiveItem(context);
     if(outcome === false) return;
     if(runtime.itemPickupTimer<=0){
-      let name = `${item.name || '主动道具'} 已释放`;
+      let name = `${item.name || '主动奇物'} 已释放`;
       let desc = item.description || '主动效果发动。';
       if(outcome && typeof outcome === 'object'){
         if(outcome.message) name = outcome.message;
@@ -6949,16 +7012,16 @@
     const item = player.singleUseItem;
     if(!item){
       if(runtime.itemPickupTimer<=0){
-        runtime.itemPickupName = '卡牌槽为空';
-        runtime.itemPickupDesc = '探索或购物以获取卡牌。';
+        runtime.itemPickupName = '卡牌槽空空';
+        runtime.itemPickupDesc = '探索或购物，才能抽到新卡。';
         runtime.itemPickupTimer = 1.4;
       }
       return;
     }
     if(typeof item.use !== 'function'){
       if(runtime.itemPickupTimer<=0){
-        runtime.itemPickupName = `${item.name || '卡牌'} 暂无效果`;
-        runtime.itemPickupDesc = '为卡牌编写 use() 函数即可释放。';
+        runtime.itemPickupName = `${item.name || '卡牌'} 暂无妙用`;
+        runtime.itemPickupDesc = '为卡牌写好 use() 函数即可释放。';
         runtime.itemPickupTimer = 1.4;
       }
       return;
@@ -7005,8 +7068,8 @@
     const pickup = room.pickups[targetIndex];
     if(player.coins < pickup.price){
       if(runtime.itemPickupTimer<=0){
-        runtime.itemPickupName = '钱包在抗议';
-        runtime.itemPickupDesc = `还差 ${pickup.price - player.coins} 枚金币才买得起`;
+      runtime.itemPickupName = '钱包在哭泣';
+      runtime.itemPickupDesc = `还差 ${pickup.price - player.coins} 枚金币才买得起。`;
         runtime.itemPickupTimer = 1.2;
       }
       return;
@@ -7031,11 +7094,11 @@
       const label = RESOURCE_LABELS[pickup.entry.resource] || '资源';
       if(gained>0){
         runtime.itemPickupName = `${label} +${gained}`;
-        runtime.itemPickupDesc = '来自商店柜台的友情价';
+        runtime.itemPickupDesc = '来自柜台的友情折扣。';
         runtime.itemPickupTimer = 1.5;
       } else {
         runtime.itemPickupName = `${label} 背包已满`;
-        runtime.itemPickupDesc = '再整理一下口袋吧';
+        runtime.itemPickupDesc = '再整理一下口袋吧。';
         runtime.itemPickupTimer = 1.2;
       }
     }
