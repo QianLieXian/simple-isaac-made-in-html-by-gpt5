@@ -93,7 +93,7 @@
   <div class="wrap">
     <header>
       <div class="title">地窖速通实验室 · HTML5 Canvas</div>
-      <div class="badge">WASD 移动 · 方向键射击 · E 放置炸弹 · F 购买 · 回车开始 · P 暂停 · R 重开 · 记得深呼吸</div>
+      <div class="badge">WASD 移动 · 方向键射击 · E 放置炸弹 · F 购买 · Q 释放卡牌 · 回车开始 · P 暂停 · R 重开 · 记得深呼吸</div>
     </header>
     <div class="panel canvas-wrap">
       <canvas id="game" width="800" height="600"></canvas>
@@ -233,6 +233,11 @@
       doubleItemChance: 0.05,
       dropPrice: 5,
       itemPrice: 15,
+    },
+    cards: {
+      price: 5,
+      dropChanceOnItemPickup: 0.35,
+      shopCardChance: 0.22,
     },
     progression: {
       enemyHp: 1.2,
@@ -593,6 +598,122 @@
       apply(player){ ITEM_REF_MAGIC_BULLET?.apply?.(player); }
     }
   ];
+  const CARD_POOL = [
+    {
+      slug:'seer-card',
+      name:'通透牌',
+      weight:16,
+      description:'本层地图全显。',
+      use(player, context){
+        const dungeonInstance = context?.dungeon;
+        if(!dungeonInstance){
+          return {consume:false, message:'通透牌迷路', detail:'暂未锁定楼层。'};
+        }
+        if(typeof dungeonInstance.revealAllRooms === 'function'){
+          dungeonInstance.revealAllRooms();
+        }
+        return {message:'通透牌·侦测', detail:'当前楼层地图完全显形。'};
+      }
+    },
+    {
+      slug:'rage-card',
+      name:'伤害牌',
+      weight:18,
+      description:'本房间伤害 +2。',
+      use(player, context){
+        const room = context?.dungeon?.current;
+        if(!room){
+          return {consume:false, message:'伤害牌未生效', detail:'需要在房间内使用。'};
+        }
+        const roomKey = `${room.i},${room.j}`;
+        player.applyRoomBuff({type:'card-damage', roomKey, damageBonus:2});
+        return {message:'伤害牌·激怒', detail:'本房间伤害 +2，离开即失效。'};
+      }
+    },
+    {
+      slug:'homing-card',
+      name:'追踪牌',
+      weight:14,
+      description:'本房间眼泪追踪敌人。',
+      use(player, context){
+        const room = context?.dungeon?.current;
+        if(!room){
+          return {consume:false, message:'追踪牌未锁定', detail:'进入房间后再使用。'};
+        }
+        const roomKey = `${room.i},${room.j}`;
+        player.applyRoomBuff({type:'card-homing', roomKey, homing:true, homingStrength:10});
+        return {message:'追踪牌·锁定', detail:'当前房间子弹追踪敌人。'};
+      }
+    },
+    {
+      slug:'juggle-card',
+      name:'杂耍牌',
+      weight:12,
+      description:'获得 1 钥匙、1 炸弹与 1 滴血。',
+      use(player){
+        const keyGain = grantResource('key',1);
+        const bombGain = grantResource('bomb',1);
+        const prevHp = player.hp;
+        player.hp = Math.min(player.maxHp, player.hp + 1);
+        if(player.hp!==prevHp){ player.recalculateDamage(); }
+        const healGain = player.hp - prevHp;
+        return {message:'杂耍牌·补给', detail:`钥匙 +${keyGain}，炸弹 +${bombGain}，生命 +${healGain}`};
+      }
+    },
+    {
+      slug:'invincible-card',
+      name:'无敌牌',
+      weight:10,
+      description:'获得 3 秒无敌。',
+      use(player){
+        player.ifr = Math.max(player.ifr, 3);
+        return {message:'无敌牌·护佑', detail:'未来 3 秒免疫伤害。'};
+      }
+    },
+    {
+      slug:'blood-card',
+      name:'血牌',
+      weight:10,
+      description:'生命回复至满。',
+      use(player){
+        player.hp = player.maxHp;
+        player.recalculateDamage();
+        return {message:'血牌·再生', detail:'生命回复至上限。'};
+      }
+    },
+    {
+      slug:'pierce-card',
+      name:'穿透牌',
+      weight:14,
+      description:'本房间子弹穿透障碍。',
+      use(player, context){
+        const room = context?.dungeon?.current;
+        if(!room){
+          return {consume:false, message:'穿透牌无目标', detail:'需要在房间内使用。'};
+        }
+        const roomKey = `${room.i},${room.j}`;
+        player.applyRoomBuff({type:'card-pierce', roomKey, pierceObstacles:true});
+        return {message:'穿透牌·破障', detail:'当前房间子弹穿透障碍。'};
+      }
+    },
+    {
+      slug:'player-card',
+      name:'玩家牌',
+      weight:8,
+      description:'随机获得一个被动道具。',
+      use(player, context){
+        const item = rollPassiveItem();
+        if(!item){
+          return {consume:false, message:'玩家牌失手', detail:'暂无法召唤被动道具。'};
+        }
+        const clone = {...item};
+        if(typeof clone.apply === 'function'){ clone.apply(player); }
+        if(player && !player.items.includes(clone.name)){ player.items.push(clone.name); }
+        registerItemDiscovery(clone);
+        return {message:`玩家牌·${clone.name}`, detail: clone.description || '神秘力量注入背包。'};
+      }
+    }
+  ];
   const ITEM_ID_REGISTRY = (()=>{
     const pools = [ITEM_POOL, SHOP_ITEM_POOL, BOSS_ITEM_POOL];
     const byKey = new Map();
@@ -621,6 +742,9 @@
   }
   function cloneItemData(item){
     return item ? {...item} : null;
+  }
+  function cloneCardData(card){
+    return card ? {...card} : null;
   }
   const RESOURCE_LABELS = {bomb:'炸弹', key:'钥匙', coin:'金币'};
   const HUDL = document.getElementById('hud-left');
@@ -1384,6 +1508,8 @@
         const slot=slots[idx++];
         if(entry.type==='item'){
           this.pickups.push(makeShopPickup(slot.x, slot.y, entry, CONFIG.shop.itemPrice));
+        } else if(entry.type==='card'){
+          this.pickups.push(makeShopPickup(slot.x, slot.y, entry, CONFIG.cards?.price ?? 5));
         } else {
           this.pickups.push(makeShopPickup(slot.x, slot.y, entry, CONFIG.shop.dropPrice));
         }
@@ -1391,6 +1517,9 @@
       this.shopInventory = shopItems.map(entry=>{
         if(entry.type==='item'){
           return {type:'item', item:{...entry.item}};
+        }
+        if(entry.type==='card'){
+          return {type:'card', card:{...entry.card}};
         }
         return {...entry};
       });
@@ -1656,6 +1785,8 @@
   }
   const recentItemHistory = [];
   const recentShopItemHistory = [];
+  const recentCardHistory = [];
+  const ACTIVE_ITEM_SLUGS = new Set(['outdoor-pouch','adrenaline']);
   function rememberRecent(history, id, limit){
     if(!id) return;
     history.push(id);
@@ -1666,21 +1797,40 @@
     rememberRecent(recentItemHistory, item.slug, 3);
     return item;
   }
+  function rollPassiveItem(){
+    const pool = ITEM_POOL.filter(item=>item && !ACTIVE_ITEM_SLUGS.has(item.slug));
+    if(!pool.length){
+      return rollItem();
+    }
+    const item = weightedRoll(pool, {exclude: recentItemHistory});
+    rememberRecent(recentItemHistory, item.slug, 3);
+    return item;
+  }
+  function rollCard(){
+    const card = weightedRoll(CARD_POOL, {exclude: recentCardHistory});
+    rememberRecent(recentCardHistory, card.slug, 2);
+    return card;
+  }
   function rollShopItems(){
     const entries=[];
     const indices=[0,1,2,3,4];
     for(let i=indices.length-1;i>0;i--){ const j=Math.floor(rand()*(i+1)); [indices[i],indices[j]]=[indices[j],indices[i]]; }
     const itemCount = rand()<CONFIG.shop.doubleItemChance ? 2 : 1;
     const itemSlots = new Set(indices.slice(0,itemCount));
+    const cardChance = Math.max(0, CONFIG.cards?.shopCardChance ?? 0);
     for(let i=0;i<5;i++){
       if(itemSlots.has(i)){
         const shopItem = weightedRoll(SHOP_ITEM_POOL, {exclude: recentShopItemHistory});
         rememberRecent(recentShopItemHistory, shopItem.slug, 2);
         entries.push({type:'item', item: shopItem});
       } else {
-        const resType = CONFIG.drops.resourceTypes[Math.floor(rand()*CONFIG.drops.resourceTypes.length)];
-        const amount = resType==='coin'?8:2;
-        entries.push({type:'resource', resource:resType, amount});
+        if(rand() < cardChance){
+          entries.push({type:'card', card: rollCard()});
+        } else {
+          const resType = CONFIG.drops.resourceTypes[Math.floor(rand()*CONFIG.drops.resourceTypes.length)];
+          const amount = resType==='coin'?8:2;
+          entries.push({type:'resource', resource:resType, amount});
+        }
       }
     }
     return entries;
@@ -1714,6 +1864,20 @@
       vy:0,
       solid:true,
       spawnGrace:CONFIG.pickupSpawnGrace,
+    };
+  }
+  function makeCardPickup(x,y,card){
+    return {
+      type:'card',
+      card: cloneCardData(card),
+      x:clamp(x,70,CONFIG.roomW-70),
+      y:clamp(y,80,CONFIG.roomH-80),
+      r:16,
+      vx:0,
+      vy:0,
+      solid:true,
+      spawnGrace:CONFIG.pickupSpawnGrace,
+      anglePhase: rand()*Math.PI*2,
     };
   }
   function makeShopPickup(x,y,entry,price){
@@ -1761,6 +1925,7 @@
     runtime.itemPickupName = item.name;
     runtime.itemPickupDesc = item.description || '';
     runtime.itemPickupTimer = 3.2;
+    maybeSpawnCardDrop(pickup.room || dungeon?.current, {x: pickup.x, y: pickup.y});
   }
   function grantResource(type, amount){
     if(!player) return 0;
@@ -1781,6 +1946,63 @@
       player.recalculateDamage();
     }
     return gained;
+  }
+
+  function givePlayerCard(card, options={}){
+    if(!player) return false;
+    const data = cloneCardData(card);
+    if(!data) return false;
+    const previous = player.singleUseItem ? cloneCardData(player.singleUseItem) : null;
+    player.setSingleUseItem(data);
+    if(runtime){
+      runtime.itemPickupName = `获得卡牌：${data.name}`;
+      const detail = data.description ? `${data.description} · 按 Q 使用。` : '按 Q 使用后消耗。';
+      runtime.itemPickupDesc = detail;
+      runtime.itemPickupTimer = Math.max(runtime.itemPickupTimer, 2.2);
+    }
+    if(previous && options.dropPrevious !== false){
+      const room = options.room || dungeon?.current;
+      if(room){
+        const baseX = options.x ?? player.x;
+        const baseY = options.y ?? player.y;
+        const px = clamp(baseX + randRange(-26,26), 70, CONFIG.roomW-70);
+        const py = clamp(baseY + randRange(-24,24), 80, CONFIG.roomH-80);
+        const drop = makeCardPickup(px, py, previous);
+        if(drop){
+          drop.spawnGrace = CONFIG.pickupSpawnGrace;
+          room.pickups.push(drop);
+        }
+      }
+    }
+    return true;
+  }
+
+  function maybeSpawnCardDrop(room, options={}){
+    if(!room) return null;
+    const chance = Math.max(0, CONFIG.cards?.dropChanceOnItemPickup ?? 0);
+    if(rand() >= chance) return null;
+    const card = rollCard();
+    if(!card) return null;
+    const center = typeof room.center === 'function' ? room.center() : {x: CONFIG.roomW/2, y: CONFIG.roomH/2};
+    const baseX = options.x ?? player?.x ?? center.x;
+    const baseY = options.y ?? player?.y ?? center.y;
+    const px = clamp(baseX + randRange(-24,24), 70, CONFIG.roomW-70);
+    const py = clamp(baseY + randRange(-18,18), 80, CONFIG.roomH-80);
+    const pickup = makeCardPickup(px, py, card);
+    room.pickups.push(pickup);
+    if(runtime){
+      const extra = `额外掉落卡牌：${card.name}`;
+      if(runtime.itemPickupTimer>0){
+        const prevDesc = runtime.itemPickupDesc || '';
+        runtime.itemPickupDesc = prevDesc && prevDesc.includes(extra) ? prevDesc : (prevDesc ? `${prevDesc} ${extra}` : extra);
+        runtime.itemPickupTimer = Math.max(runtime.itemPickupTimer, 2.4);
+      } else {
+        runtime.itemPickupName = `掉落卡牌：${card.name}`;
+        runtime.itemPickupDesc = card.description ? `${card.description} · 按 Q 使用。` : '按 Q 使用后消耗。';
+        runtime.itemPickupTimer = 2.4;
+      }
+    }
+    return pickup;
   }
 
   function isPhysicalPickup(p){
@@ -2162,34 +2384,75 @@
         if(typeof snapshot.fireCd === 'number'){ this.fireCd = Math.min(snapshot.fireCd, this.fireInterval); }
         if(typeof snapshot.tearLife === 'number'){ this.tearLife = snapshot.tearLife; }
         if(typeof snapshot.tearSpeed === 'number'){ this.tearSpeed = snapshot.tearSpeed; }
+        if(typeof snapshot.homingTears === 'boolean'){ this.homingTears = snapshot.homingTears; }
+        if(typeof snapshot.homingStrength === 'number'){ this.homingStrength = snapshot.homingStrength; }
+        if(typeof snapshot.canPierceObstacles === 'boolean'){ this.canPierceObstacles = snapshot.canPierceObstacles; }
       }
       this.roomBuff = null;
       this.recalculateDamage();
     }
     applyRoomBuff(buff){
       if(!buff) return;
-      this.clearRoomBuff();
       const roomKey = buff.roomKey ?? null;
-      const snapshot = {
-        baseDamage: this.baseDamage,
-        fireInterval: this.fireInterval,
-        fireCd: this.fireCd,
-        tearLife: this.tearLife,
-        tearSpeed: this.tearSpeed,
-      };
-      if(Number.isFinite(buff.damageBonus) && buff.damageBonus!==0){
-        this.baseDamage = +(this.baseDamage + buff.damageBonus);
+      if(this.roomBuff && this.roomBuff.roomKey && roomKey && this.roomBuff.roomKey !== roomKey){
+        this.clearRoomBuff();
       }
-      if(Number.isFinite(buff.fireRateBonus) && buff.fireRateBonus!==0){
-        adjustFireRate(this, buff.fireRateBonus);
+      if(!this.roomBuff){
+        const snapshot = {
+          baseDamage: this.baseDamage,
+          fireInterval: this.fireInterval,
+          fireCd: this.fireCd,
+          tearLife: this.tearLife,
+          tearSpeed: this.tearSpeed,
+          homingTears: this.homingTears,
+          homingStrength: this.homingStrength,
+          canPierceObstacles: this.canPierceObstacles,
+        };
+        this.roomBuff = {roomKey, snapshot, effects: []};
       }
-      if(Number.isFinite(buff.rangeMultiplier) && buff.rangeMultiplier>0){
-        this.tearLife *= buff.rangeMultiplier;
+      const effects = Array.isArray(this.roomBuff.effects) ? this.roomBuff.effects : (this.roomBuff.effects = []);
+      const stored = {...buff};
+      if(stored.type){
+        for(let i=effects.length-1;i>=0;i--){
+          if(effects[i]?.type === stored.type){ effects.splice(i,1); }
+        }
       }
-      if(Number.isFinite(buff.speedMultiplier) && buff.speedMultiplier>0){
-        this.tearSpeed *= buff.speedMultiplier;
+      effects.push(stored);
+      const snapshot = this.roomBuff.snapshot;
+      if(snapshot){
+        if(typeof snapshot.baseDamage === 'number'){ this.baseDamage = snapshot.baseDamage; }
+        if(typeof snapshot.fireInterval === 'number'){ this.fireInterval = snapshot.fireInterval; }
+        if(typeof snapshot.fireCd === 'number'){ this.fireCd = Math.min(snapshot.fireCd, this.fireInterval); }
+        if(typeof snapshot.tearLife === 'number'){ this.tearLife = snapshot.tearLife; }
+        if(typeof snapshot.tearSpeed === 'number'){ this.tearSpeed = snapshot.tearSpeed; }
+        if(typeof snapshot.homingTears === 'boolean'){ this.homingTears = snapshot.homingTears; }
+        if(typeof snapshot.homingStrength === 'number'){ this.homingStrength = snapshot.homingStrength; }
+        if(typeof snapshot.canPierceObstacles === 'boolean'){ this.canPierceObstacles = snapshot.canPierceObstacles; }
       }
-      this.roomBuff = {type: buff.type || 'room-buff', roomKey, snapshot};
+      for(const effect of effects){
+        if(!effect) continue;
+        if(Number.isFinite(effect.damageBonus) && effect.damageBonus!==0){
+          this.baseDamage = +(this.baseDamage + effect.damageBonus);
+        }
+        if(Number.isFinite(effect.fireRateBonus) && effect.fireRateBonus!==0){
+          adjustFireRate(this, effect.fireRateBonus);
+        }
+        if(Number.isFinite(effect.rangeMultiplier) && effect.rangeMultiplier>0){
+          this.tearLife *= effect.rangeMultiplier;
+        }
+        if(Number.isFinite(effect.speedMultiplier) && effect.speedMultiplier>0){
+          this.tearSpeed *= effect.speedMultiplier;
+        }
+        if(effect.homing){
+          this.homingTears = true;
+          if(Number.isFinite(effect.homingStrength)){
+            this.homingStrength = Math.max(this.homingStrength, effect.homingStrength);
+          }
+        }
+        if(effect.pierceObstacles || effect.pierce){
+          this.canPierceObstacles = true;
+        }
+      }
       this.recalculateDamage();
     }
     handleRoomChange(room){
@@ -3833,6 +4096,7 @@
     overlayManager.clear();
     recentItemHistory.length = 0;
     recentShopItemHistory.length = 0;
+    recentCardHistory.length = 0;
     currentFloor = 1;
     runtime.floor = currentFloor;
     dungeon = new Dungeon();
@@ -4141,6 +4405,14 @@
           } else {
             pushPickup(p, player, shove);
           }
+        } else if(p.type==='card'){
+          if(!p.card){
+            picks.splice(i,1);
+          } else if(givePlayerCard(p.card, {room: dungeon.current, x: p.x, y: p.y})){ 
+            picks.splice(i,1);
+          } else {
+            pushPickup(p, player, shove);
+          }
         }
       }
     }
@@ -4186,9 +4458,9 @@
     const singleUseReady = !!(singleUseItem && typeof singleUseItem.use === 'function');
     const singleUseBadge = singleUseReady ? `<span class="kbd" style="color:var(--accent)">Q 就绪</span>` : `<span class="kbd">Q --</span>`;
     if(dungeon.current.isBoss && dungeon.current.bossEntity && !dungeon.current.bossEntity.dead){
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>一次性：${singleUseName} ${singleUseBadge}</span></span>`;
+      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`;
     } else {
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>一次性：${singleUseName} ${singleUseBadge}</span></span>`;
+      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`;
     }
     if(cheatPanelNode?.classList.contains('show')){ syncCheatPanel(); }
   }
@@ -4312,6 +4584,8 @@
       drawResourcePickup(p);
     } else if(p.type==='item' && p.item){
       drawItemPickup(p);
+    } else if(p.type==='card' && p.card){
+      drawCardPickup(p);
     } else if(p.type==='shop'){
       drawShopPickup(p);
     }
@@ -4368,6 +4642,23 @@
     ctx.restore();
   }
 
+  function drawCardPickup(p){
+    const phase = p.anglePhase || 0;
+    const bob = Math.sin(performance.now()/520 + phase)*5;
+    const angle = Math.sin(performance.now()/680 + phase)*0.18;
+    ctx.save();
+    ctx.translate(p.x, p.y + bob - 4);
+    ctx.rotate(angle);
+    drawCardIcon(p.card, p.r*1.1);
+    ctx.restore();
+    ctx.save();
+    ctx.fillStyle = '#dbeafe';
+    ctx.font = '12px "HYWenHei", "PingFang SC", sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText(p.card?.name || '神秘卡牌', p.x, p.y - 30);
+    ctx.restore();
+  }
+
   function drawShopPickup(p){
     const bob = Math.sin(performance.now()/520)*4;
     const near = player ? dist(p, player) < p.r + player.r + 16 : false;
@@ -4380,11 +4671,20 @@
     ctx.translate(0,bob-6);
     if(p.entry.type==='item'){
       drawItemIcon(p.entry.item.slug, p.r*0.9);
+    } else if(p.entry.type==='card'){
+      drawCardIcon(p.entry.card, p.r*0.95);
     } else {
       drawResourceIcon(p.entry.resource, p.r*0.9);
     }
     ctx.restore();
-    const title = p.entry.type==='item' ? p.entry.item.name : `${RESOURCE_LABELS[p.entry.resource]} x${p.entry.amount}`;
+    let title = '';
+    if(p.entry.type==='item'){
+      title = p.entry.item.name;
+    } else if(p.entry.type==='card'){
+      title = p.entry.card.name;
+    } else {
+      title = `${RESOURCE_LABELS[p.entry.resource]} x${p.entry.amount}`;
+    }
     ctx.save();
     ctx.fillStyle = '#d6dcff';
     ctx.font = '12px "HYWenHei", "PingFang SC", sans-serif';
@@ -4603,6 +4903,36 @@
       g.arc(0,0,r*0.8,0,Math.PI*2);
       g.fill();
     }
+  }
+
+  function drawCardIcon(card, radius, ctxRef = ctx){
+    const g = ctxRef;
+    if(!g) return;
+    const r = Math.max(8, radius || 12);
+    const w = r * 1.4;
+    const h = r * 1.9;
+    g.save();
+    g.fillStyle = '#1f2536';
+    g.strokeStyle = '#60a5fa';
+    g.lineWidth = Math.max(1.6, r * 0.16);
+    g.beginPath();
+    g.moveTo(-w/2, -h/2);
+    g.lineTo(w/2, -h/2);
+    g.lineTo(w/2, h/2);
+    g.lineTo(-w/2, h/2);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.fillStyle = '#bae6fd';
+    g.font = `${Math.max(12, r*0.85)}px "HYWenHei", "PingFang SC", sans-serif`;
+    g.textAlign='center';
+    g.textBaseline='middle';
+    const label = card?.name ? card.name.charAt(0) : '卡';
+    g.fillText(label, 0, -h*0.18);
+    g.fillStyle = '#38bdf8';
+    g.font = `${Math.max(10, r*0.6)}px "HYWenHei", "PingFang SC", sans-serif`;
+    g.fillText('Q', 0, h*0.28);
+    g.restore();
   }
 
   function drawResourceIcon(type, radius){
@@ -4926,16 +5256,16 @@
     const item = player.singleUseItem;
     if(!item){
       if(runtime.itemPickupTimer<=0){
-        runtime.itemPickupName = '一次性道具空槽';
-        runtime.itemPickupDesc = '探索或购物以获取一次性道具。';
+        runtime.itemPickupName = '卡牌槽为空';
+        runtime.itemPickupDesc = '探索或购物以获取卡牌。';
         runtime.itemPickupTimer = 1.4;
       }
       return;
     }
     if(typeof item.use !== 'function'){
       if(runtime.itemPickupTimer<=0){
-        runtime.itemPickupName = `${item.name || '一次性道具'} 暂无效果`;
-        runtime.itemPickupDesc = '为一次性道具编写 use() 函数即可释放。';
+        runtime.itemPickupName = `${item.name || '卡牌'} 暂无效果`;
+        runtime.itemPickupDesc = '为卡牌编写 use() 函数即可释放。';
         runtime.itemPickupTimer = 1.4;
       }
       return;
@@ -4944,8 +5274,8 @@
     const outcome = player.useSingleUseItem(context);
     if(outcome === false) return;
     if(runtime.itemPickupTimer<=0){
-      let name = `${item.name || '一次性道具'} 已使用`;
-      let desc = item.description || '一次性效果发动。';
+      let name = `${item.name || '卡牌'} 已使用`;
+      let desc = item.description ? `${item.description} · 已触发。` : '卡牌效果发动。';
       if(outcome && typeof outcome === 'object'){
         if(outcome.message) name = outcome.message;
         if(outcome.detail) desc = outcome.detail;
@@ -5000,6 +5330,9 @@
       runtime.itemPickupName = item.name;
       runtime.itemPickupDesc = item.description || '';
       runtime.itemPickupTimer = 2.4;
+      maybeSpawnCardDrop(dungeon.current, {x: pickup.x, y: pickup.y});
+    } else if(pickup.entry.type==='card'){
+      givePlayerCard(pickup.entry.card, {room: dungeon.current, x: pickup.x, y: pickup.y});
     } else if(pickup.entry.type==='resource'){
       const gained = grantResource(pickup.entry.resource, pickup.entry.amount);
       const label = RESOURCE_LABELS[pickup.entry.resource] || '资源';
