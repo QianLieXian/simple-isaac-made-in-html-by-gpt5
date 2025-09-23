@@ -206,6 +206,11 @@
       spider: {leapSpeed: 320, maxDistance: 320, telegraph: 1, cooldown: 3.2},
       splitter: {speed: 80, radius: 14, maxSplits: 3, pause: 1, radiusDecay: 0.9, hpDecay: 0.75},
       volatile: {speed: 150, triggerMultiplier: 2, fuse: 0.55, explosionRadiusMultiplier: 1.5, damage: 2},
+      sentry: {rotateSpeed: 2.6, fireInterval: 2.3, telegraph: 0.45, burst: 3, burstSpacing: 0.16, spread: 0.22, projectileSpeed: 230, projectileLife: 2.2},
+      dashling: {speed: 115, dashSpeed: 340, dashDuration: 0.32, windup: 0.55, recover: 0.6, preferredRange: 150},
+      burrower: {idleSpeed: 70, surfaceMin: 1.6, surfaceMax: 2.9, burrowTime: 1.1, burrowSpeed: 160, emergeSpeed: 300, emergeDuration: 0.36},
+      spark: {driftSpeed: 46, orbitSpeed: 1.7, rangeMin: 48, rangeMax: 86, fireInterval: 2.8, burst: 2, burstSpacing: 0.22, bolts: 6, projectileSpeed: 210, projectileLife: 1.6},
+      brood: {speed: 68, preferredRange: 180, spawnInterval: 4.4, spawnMax: 3, minionSpread: 26},
     },
     drops: {
       heartPerEnemy: 0.2,
@@ -327,6 +332,47 @@
       speed: Math.pow(safeProgressionValue(progression.enemySpeed), exponent),
       aggression: Math.pow(safeProgressionValue(progression.enemyAggression), exponent),
     };
+  }
+
+  function initializeEnemyStats(enemy, options = {}){
+    if(!enemy) return enemy;
+    const scaling = getFloorScalingFactors();
+    enemy.scaling = scaling;
+    const baseHp = (options.hpBase!==undefined ? options.hpBase : enemy.hp);
+    if(baseHp!==undefined){
+      enemy.hp = Math.max(1, Math.round(baseHp * scaling.hp));
+    }
+    const { speedFields = ['speed'], aggressionField = 'aggression', extra } = options;
+    if(Array.isArray(speedFields)){
+      for(const field of speedFields){
+        if(field && typeof enemy[field] === 'number'){
+          enemy[field] *= scaling.speed;
+        }
+      }
+    } else if(speedFields === true && typeof enemy.speed === 'number'){
+      enemy.speed *= scaling.speed;
+    }
+    if(aggressionField){
+      enemy[aggressionField] = scaling.aggression;
+    }
+    if(typeof extra === 'function'){
+      extra(enemy, scaling);
+    }
+    return enemy;
+  }
+
+  function normalizeAngle(angle){
+    if(!isFinite(angle)) return 0;
+    angle %= Math.PI * 2;
+    if(angle > Math.PI) angle -= Math.PI * 2;
+    if(angle < -Math.PI) angle += Math.PI * 2;
+    return angle;
+  }
+
+  function stepTowardsAngle(current, target, maxStep){
+    const diff = normalizeAngle(target - current);
+    if(Math.abs(diff) <= maxStep) return target;
+    return current + Math.sign(diff || 1) * maxStep;
   }
   const ITEM_POOL = [
     {
@@ -2870,6 +2916,11 @@
     spider:16,
     splitter:13,
     volatile:11,
+    sentry:12,
+    dashling:11,
+    burrower:13,
+    spark:10,
+    brood:14,
   };
 
   function rollEnemyType(depth){
@@ -2881,12 +2932,17 @@
       {type:'tinyfly', w: 0.6 + Math.max(0, depth-1)*0.05},
       {type:'elderfly', w: 0.75 + depth*0.06},
       {type:'spider', w: 0.65 + depth*0.07},
+      {type:'sentry', w: 0.4 + depth*0.05},
     ];
     if(floorLevel >= 2){
       weights.push({type:'volatile', w: 0.5 + Math.max(0, depth-1)*0.05});
+      weights.push({type:'spark', w: 0.45 + Math.max(0, depth-1)*0.05});
+      weights.push({type:'dashling', w: 0.5 + Math.max(0, depth-1)*0.05});
     }
     if(floorLevel >= 3){
       weights.push({type:'splitter', w: 0.45 + Math.max(0, depth-2)*0.06});
+      weights.push({type:'burrower', w: 0.35 + Math.max(0, depth-2)*0.05});
+      weights.push({type:'brood', w: 0.3 + Math.max(0, depth-2)*0.05});
     }
     const total = weights.reduce((sum, entry)=>sum+entry.w,0);
     let r = rand()*total;
@@ -2907,6 +2963,11 @@
     if(type==='spider') return new EnemySpiderLeaper(pos.x,pos.y, Math.max(hp+1, 4));
     if(type==='splitter') return new EnemySplitter(pos.x,pos.y, Math.max(hp+2, 4));
     if(type==='volatile') return new EnemyVolatile(pos.x,pos.y, Math.max(hp, 2));
+    if(type==='sentry') return new EnemySentry(pos.x,pos.y, Math.max(hp+1, 4));
+    if(type==='dashling') return new EnemyDashling(pos.x,pos.y, Math.max(hp, 3));
+    if(type==='burrower') return new EnemyBurrower(pos.x,pos.y, Math.max(hp+1, 4));
+    if(type==='spark') return new EnemySpark(pos.x,pos.y, Math.max(hp, 2));
+    if(type==='brood') return new EnemyBrood(pos.x,pos.y, Math.max(hp+1, 4));
     return new EnemyChaser(pos.x,pos.y,hp);
   }
 
@@ -2941,10 +3002,7 @@
       this.x=x; this.y=y; this.r=12; this.hp=hp;
       this.speed = CONFIG.enemy.speed * randRange(0.9,1.2);
       this.knock=0;
-      this.scaling = getFloorScalingFactors();
-      this.hp = Math.max(1, Math.round(this.hp * this.scaling.hp));
-      this.speed *= this.scaling.speed;
-      this.aggression = this.scaling.aggression;
+      initializeEnemyStats(this, {speedFields:['speed']});
     }
     update(dt){
       const to = {x:player.x - this.x, y:player.y - this.y};
@@ -2965,11 +3023,10 @@
       this.x=x; this.y=y; this.r=10; this.hp=hp;
       this.t=rand()*Math.PI*2; this.base={x,y}; this.range=40+rand()*25;
       this.omega = 2+rand()*1.5; this.speed=40; this.flying=true;
-      this.scaling = getFloorScalingFactors();
-      this.hp = Math.max(1, Math.round(this.hp * this.scaling.hp));
-      this.speed *= this.scaling.speed;
-      this.omega *= this.scaling.aggression;
-      this.aggression = this.scaling.aggression;
+      initializeEnemyStats(this, {
+        speedFields:['speed'],
+        extra:(enemy, scaling)=>{ enemy.omega *= scaling.aggression; }
+      });
     }
     update(dt){
       this.t += this.omega*dt;
@@ -3000,13 +3057,14 @@
       this.knockVx = 0;
       this.knockVy = 0;
       this.flying = false;
-      this.scaling = getFloorScalingFactors();
-      this.hp = Math.max(1, Math.round(this.hp * this.scaling.hp));
-      this.speed *= this.scaling.speed;
-      this.aggression = this.scaling.aggression;
-      this.triggerCooldownBase = Math.max(0.25, cfg.triggerCooldown / this.aggression);
-      this.triggerChance = Math.min(0.98, cfg.triggerChance * this.aggression);
-      this.fuseDuration = Math.max(0.45, cfg.fuse / this.aggression);
+      initializeEnemyStats(this, {
+        speedFields:['speed'],
+        extra:(enemy, scaling)=>{
+          enemy.triggerCooldownBase = Math.max(0.25, cfg.triggerCooldown / scaling.aggression);
+          enemy.triggerChance = Math.min(0.98, cfg.triggerChance * scaling.aggression);
+          enemy.fuseDuration = Math.max(0.45, cfg.fuse / scaling.aggression);
+        }
+      });
     }
     startFuse(){
       if(this.fuse>0) return;
@@ -3376,10 +3434,7 @@
       this.knockVx = 0;
       this.knockVy = 0;
       this.flying = true;
-      this.scaling = getFloorScalingFactors();
-      this.hp = Math.max(1, Math.round(this.hp * this.scaling.hp));
-      this.speed *= this.scaling.speed;
-      this.aggression = this.scaling.aggression;
+      initializeEnemyStats(this, {speedFields:['speed']});
     }
     update(dt){
       if(this.knock>0){
@@ -3430,14 +3485,18 @@
       this.x=x; this.y=y; this.r=13; this.hp=hp;
       const cfg = CONFIG.enemy.elderFly;
       this.speed = cfg.speed;
-      this.scaling = getFloorScalingFactors();
-      this.hp = Math.max(1, Math.round(this.hp * this.scaling.hp));
-      this.speed *= this.scaling.speed;
-      this.aggression = this.scaling.aggression;
-      this.fireInterval = Math.max(0.7, cfg.fireInterval / this.aggression);
-      this.telegraphWindow = Math.max(0.25, cfg.telegraph / this.aggression);
+      this.fireInterval = cfg.fireInterval;
+      this.telegraphWindow = cfg.telegraph;
+      this.projectileSpeed = cfg.projectileSpeed;
+      initializeEnemyStats(this, {
+        speedFields:['speed'],
+        extra:(enemy, scaling)=>{
+          enemy.fireInterval = Math.max(0.7, cfg.fireInterval / scaling.aggression);
+          enemy.telegraphWindow = Math.max(0.25, cfg.telegraph / scaling.aggression);
+          enemy.projectileSpeed = cfg.projectileSpeed * scaling.speed;
+        }
+      });
       this.fireTimer = randRange(this.telegraphWindow, this.fireInterval);
-      this.projectileSpeed = cfg.projectileSpeed * this.scaling.speed;
       this.knock = 0;
       this.knockVx = 0;
       this.knockVy = 0;
@@ -3500,6 +3559,625 @@
       const len = Math.hypot(vec.x,vec.y)||1;
       this.knockVx = (vec.x/len)*150;
       this.knockVy = (vec.y/len)*150;
+      return false;
+    }
+  }
+
+  class EnemySentry{
+    constructor(x,y,hp){
+      const cfg = CONFIG.enemy.sentry;
+      this.x=x; this.y=y; this.r=12; this.hp=hp;
+      this.rotateSpeed = cfg.rotateSpeed * randRange(0.85,1.15);
+      this.projectileSpeed = cfg.projectileSpeed;
+      this.projectileLife = cfg.projectileLife;
+      this.fireInterval = cfg.fireInterval;
+      this.fireTimer = 0;
+      this.burstShots = 0;
+      this.burstSpacing = 0;
+      this.burstSpacingBase = cfg.burstSpacing;
+      this.telegraphTimer = 0;
+      this.rotation = rand()*Math.PI*2;
+      this.knock = 0;
+      this.knockVx = 0;
+      this.knockVy = 0;
+      this.flying = false;
+      initializeEnemyStats(this, {
+        speedFields:[],
+        extra:(enemy, scaling)=>{
+          enemy.fireInterval = Math.max(0.9, cfg.fireInterval / Math.max(0.75, scaling.aggression));
+          enemy.rotateSpeed *= scaling.aggression;
+          enemy.projectileSpeed = cfg.projectileSpeed * scaling.speed;
+          enemy.burstSpacingBase = Math.max(0.12, cfg.burstSpacing / Math.max(0.7, scaling.aggression));
+        }
+      });
+      this.fireTimer = randRange(this.fireInterval*0.6, this.fireInterval*1.2);
+    }
+    update(dt){
+      const cfg = CONFIG.enemy.sentry;
+      const targetAngle = Math.atan2(player.y - this.y, player.x - this.x);
+      this.rotation = stepTowardsAngle(this.rotation, targetAngle, this.rotateSpeed * dt);
+      if(this.knock>0){
+        this.x += this.knockVx * dt;
+        this.y += this.knockVy * dt;
+        this.knock -= dt;
+        this.knockVx *= 0.86;
+        this.knockVy *= 0.86;
+      }
+      this.x = clamp(this.x, 40, CONFIG.roomW-40);
+      this.y = clamp(this.y, 46, CONFIG.roomH-46);
+      resolveEntityObstacles(this);
+      if(this.telegraphTimer>0){
+        this.telegraphTimer -= dt * this.aggression;
+        if(this.telegraphTimer<=0){
+          this.burstShots = cfg.burst;
+          this.burstSpacing = 0;
+        }
+      } else if(this.burstShots>0){
+        this.burstSpacing -= dt;
+        if(this.burstSpacing<=0){
+          const offsets = [-cfg.spread, 0, cfg.spread];
+          for(const offset of offsets){
+            const angle = this.rotation + offset;
+            runtime.enemyProjectiles.push(new EnemyProjectile(
+              this.x,
+              this.y,
+              Math.cos(angle)*this.projectileSpeed,
+              Math.sin(angle)*this.projectileSpeed,
+              this.projectileLife,
+              'needle'
+            ));
+          }
+          this.burstShots--;
+          this.burstSpacing = this.burstShots>0 ? this.burstSpacingBase : 0;
+        }
+      } else {
+        this.fireTimer -= dt * this.aggression;
+        if(this.fireTimer<=0){
+          this.telegraphTimer = cfg.telegraph;
+          this.fireTimer = this.fireInterval;
+        }
+      }
+      if(dist(this, player) < this.r + player.r){ player.hurt(1); }
+    }
+    draw(){
+      const cfg = CONFIG.enemy.sentry;
+      const telegraphing = this.telegraphTimer>0;
+      const bursting = this.burstShots>0 && this.telegraphTimer<=0;
+      const base = telegraphing ? '#fee2e2' : '#e0f2fe';
+      const edge = telegraphing ? '#f97316' : '#38bdf8';
+      drawBlob(this.x,this.y,this.r,base,edge);
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.rotate(this.rotation);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-this.r*0.45, -this.r*0.28, this.r*0.9, this.r*0.56);
+      ctx.fillStyle = telegraphing ? '#fb923c' : '#38bdf8';
+      ctx.fillRect(-this.r*0.2, -this.r*0.62, this.r*0.95, this.r*0.24);
+      if(bursting){
+        ctx.globalAlpha = 0.35;
+        ctx.fillRect(-this.r*0.2, -this.r*0.86, this.r*0.95, this.r*0.18);
+      }
+      ctx.restore();
+      if(telegraphing){
+        ctx.save();
+        ctx.globalAlpha = 0.4 + 0.35*Math.sin(performance.now()/140);
+        ctx.strokeStyle = '#fb923c';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r*1.8, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    damage(d){
+      this.hp -= d;
+      if(this.hp<=0){ this.dead=true; return true; }
+      this.knock = 0.14;
+      const vec = {x:this.x - player.x, y:this.y - player.y};
+      const len = Math.hypot(vec.x,vec.y)||1;
+      this.knockVx = (vec.x/len)*140;
+      this.knockVy = (vec.y/len)*140;
+      return false;
+    }
+  }
+
+  class EnemyDashling{
+    constructor(x,y,hp){
+      const cfg = CONFIG.enemy.dashling;
+      this.x=x; this.y=y; this.r=11; this.hp=hp;
+      this.speed = cfg.speed * randRange(0.9,1.1);
+      this.dashSpeed = cfg.dashSpeed * randRange(0.9,1.05);
+      this.dashDuration = cfg.dashDuration;
+      this.windupDuration = cfg.windup;
+      this.recoverDuration = cfg.recover;
+      this.preferredRange = cfg.preferredRange;
+      this.state='stalk';
+      this.timer = randRange(0.8,1.4);
+      this.dashDir = 0;
+      this.windupProgress = 0;
+      this.knock = 0;
+      this.knockVx = 0;
+      this.knockVy = 0;
+      this.flying = false;
+      this.strafeDir = rand()<0.5?-1:1;
+      this.strafeSwapTimer = randRange(1.1,2.1);
+      this.trail = [];
+      initializeEnemyStats(this, {
+        speedFields:['speed'],
+        extra:(enemy, scaling)=>{
+          enemy.dashSpeed = cfg.dashSpeed * scaling.speed;
+        }
+      });
+      this.windupDuration = Math.max(0.35, this.windupDuration / Math.max(0.8, this.aggression));
+      this.recoverDuration = Math.max(0.45, this.recoverDuration / Math.max(0.8, this.aggression));
+      this.timer = Math.max(0.4, this.timer / Math.max(0.8, this.aggression));
+    }
+    update(dt){
+      const cfg = CONFIG.enemy.dashling;
+      for(const t of this.trail){ t.life -= dt; }
+      this.trail = this.trail.filter(t=>t.life>0);
+      if(this.knock>0){
+        this.x += this.knockVx * dt;
+        this.y += this.knockVy * dt;
+        this.knock -= dt;
+        this.knockVx *= 0.85;
+        this.knockVy *= 0.85;
+      } else {
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const distLen = Math.hypot(dx,dy)||1;
+        if(this.state==='stalk'){
+          this.timer -= dt * this.aggression;
+          this.strafeSwapTimer -= dt;
+          if(this.strafeSwapTimer<=0){
+            this.strafeDir *= -1;
+            this.strafeSwapTimer = randRange(1.1,2.1);
+          }
+          let mx=0, my=0;
+          if(distLen > this.preferredRange + 30){ mx = dx/distLen; my = dy/distLen; }
+          else if(distLen < this.preferredRange - 40){ mx = -dx/distLen; my = -dy/distLen; }
+          else {
+            mx = -dy/distLen * this.strafeDir;
+            my = dx/distLen * this.strafeDir;
+          }
+          this.x += mx * this.speed * dt;
+          this.y += my * this.speed * dt;
+          if(this.timer<=0){
+            this.state='windup';
+            this.timer = this.windupDuration;
+            this.dashDir = Math.atan2(dy, dx);
+            this.windupProgress = 0;
+          }
+        } else if(this.state==='windup'){
+          this.timer -= dt * this.aggression;
+          this.windupProgress = clamp(1 - this.timer/Math.max(0.001,this.windupDuration), 0, 1);
+          this.x -= Math.cos(this.dashDir) * this.speed * 0.2 * dt;
+          this.y -= Math.sin(this.dashDir) * this.speed * 0.2 * dt;
+          if(this.timer<=0){
+            this.state='dash';
+            this.timer = this.dashDuration;
+            this.trail.length = 0;
+          }
+        } else if(this.state==='dash'){
+          this.x += Math.cos(this.dashDir) * this.dashSpeed * dt;
+          this.y += Math.sin(this.dashDir) * this.dashSpeed * dt;
+          this.timer -= dt;
+          this.trail.push({x:this.x, y:this.y, life:0.18});
+          if(this.timer<=0){
+            this.state='recover';
+            this.timer = this.recoverDuration;
+          }
+        } else if(this.state==='recover'){
+          this.timer -= dt * this.aggression;
+          this.x -= Math.cos(this.dashDir) * this.speed * 0.6 * dt;
+          this.y -= Math.sin(this.dashDir) * this.speed * 0.6 * dt;
+          if(this.timer<=0){
+            this.state='stalk';
+            this.timer = Math.max(0.4, randRange(0.8,1.4) / Math.max(0.8, this.aggression));
+          }
+        }
+      }
+      this.x = clamp(this.x, 34, CONFIG.roomW-34);
+      this.y = clamp(this.y, 42, CONFIG.roomH-42);
+      resolveEntityObstacles(this);
+      if(dist(this, player) < this.r + player.r){ player.hurt(1); }
+    }
+    draw(){
+      ctx.save();
+      for(const t of this.trail){
+        const alpha = clamp(t.life/0.18, 0, 1);
+        ctx.globalAlpha = alpha*0.5;
+        drawBlob(t.x, t.y, this.r*0.9, '#fed7aa', '#f97316');
+      }
+      ctx.restore();
+      const telegraphing = this.state==='windup';
+      const dashing = this.state==='dash';
+      const base = dashing ? '#fecdd3' : telegraphing ? '#fee2e2' : '#e0f2fe';
+      const edge = dashing ? '#fb7185' : telegraphing ? '#f97316' : '#60a5fa';
+      drawBlob(this.x,this.y,this.r,base,edge);
+      if(telegraphing){
+        ctx.save();
+        ctx.globalAlpha = 0.35 + 0.25*Math.sin(performance.now()/80);
+        ctx.strokeStyle = '#f97316';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r*2.1, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    damage(d){
+      this.hp -= d;
+      if(this.hp<=0){ this.dead=true; return true; }
+      this.knock = 0.16;
+      const vec = {x:this.x - player.x, y:this.y - player.y};
+      const len = Math.hypot(vec.x,vec.y)||1;
+      this.knockVx = (vec.x/len)*150;
+      this.knockVy = (vec.y/len)*150;
+      if(this.state==='dash'){ this.state='recover'; this.timer = this.recoverDuration; }
+      return false;
+    }
+  }
+
+  class EnemyBurrower{
+    constructor(x,y,hp){
+      const cfg = CONFIG.enemy.burrower;
+      this.x=x; this.y=y; this.r=13; this.hp=hp;
+      this.speed = cfg.idleSpeed * randRange(0.9,1.1);
+      this.burrowSpeed = cfg.burrowSpeed;
+      this.emergeSpeed = cfg.emergeSpeed;
+      this.burrowDuration = cfg.burrowTime;
+      this.emergeDuration = cfg.emergeDuration;
+      this.surfaceWindow = {min: cfg.surfaceMin, max: cfg.surfaceMax};
+      this.state='surface';
+      this.surfaceTimer = randRange(cfg.surfaceMin, cfg.surfaceMax);
+      this.burrowTimer = 0;
+      this.emergeTimer = 0;
+      this.dashDir = 0;
+      this.invulnerable = false;
+      this.knock = 0;
+      this.knockVx = 0;
+      this.knockVy = 0;
+      this.flying = false;
+      this.wanderAngle = rand()*Math.PI*2;
+      this.wanderTimer = randRange(0.6,1.2);
+      initializeEnemyStats(this, {
+        speedFields:['speed'],
+        extra:(enemy, scaling)=>{
+          enemy.burrowSpeed = cfg.burrowSpeed * scaling.speed;
+          enemy.emergeSpeed = cfg.emergeSpeed * scaling.speed;
+          enemy.burrowDuration = Math.max(0.5, cfg.burrowTime / Math.max(0.8, scaling.aggression));
+          enemy.emergeDuration = Math.max(0.25, cfg.emergeDuration / Math.max(0.8, scaling.aggression));
+          const min = Math.max(0.7, cfg.surfaceMin / Math.max(0.9, scaling.aggression));
+          const max = Math.max(min+0.3, cfg.surfaceMax / Math.max(0.9, scaling.aggression));
+          enemy.surfaceWindow = {min, max};
+        }
+      });
+      this.surfaceTimer = randRange(this.surfaceWindow.min, this.surfaceWindow.max);
+    }
+    update(dt){
+      if(this.knock>0){
+        this.x += this.knockVx * dt;
+        this.y += this.knockVy * dt;
+        this.knock -= dt;
+        this.knockVx *= 0.84;
+        this.knockVy *= 0.84;
+        resolveEntityObstacles(this);
+        return;
+      }
+      if(this.state==='surface'){
+        this.surfaceTimer -= dt * this.aggression;
+        this.wanderTimer -= dt;
+        if(this.wanderTimer<=0){
+          const bias = Math.atan2(player.y - this.y, player.x - this.x);
+          this.wanderAngle = bias + randRange(-1.4,1.4);
+          this.wanderTimer = randRange(0.7,1.3);
+        }
+        const mx = Math.cos(this.wanderAngle);
+        const my = Math.sin(this.wanderAngle);
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const distLen = Math.hypot(dx,dy)||1;
+        this.x += (mx*0.5 + (dx/distLen)*0.5) * this.speed * dt;
+        this.y += (my*0.5 + (dy/distLen)*0.5) * this.speed * dt;
+        resolveEntityObstacles(this);
+        if(this.surfaceTimer<=0){
+          this.state='burrow';
+          this.burrowTimer = this.burrowDuration;
+          this.invulnerable = true;
+          this.emergeTarget = {x: player.x, y: player.y};
+        }
+      } else if(this.state==='burrow'){
+        this.burrowTimer -= dt * this.aggression;
+        if(this.emergeTarget){
+          this.emergeTarget.x = clamp(this.emergeTarget.x + (player.x - this.emergeTarget.x)*dt*1.6, 38, CONFIG.roomW-38);
+          this.emergeTarget.y = clamp(this.emergeTarget.y + (player.y - this.emergeTarget.y)*dt*1.6, 44, CONFIG.roomH-44);
+          const dx = this.emergeTarget.x - this.x;
+          const dy = this.emergeTarget.y - this.y;
+          const distLen = Math.hypot(dx,dy)||1;
+          this.x += (dx/distLen) * this.burrowSpeed * dt;
+          this.y += (dy/distLen) * this.burrowSpeed * dt;
+        }
+        if(this.burrowTimer<=0){
+          this.state='emerge';
+          this.invulnerable = false;
+          const dx = player.x - this.x;
+          const dy = player.y - this.y;
+          this.dashDir = Math.atan2(dy, dx);
+          this.emergeTimer = this.emergeDuration;
+        }
+      } else if(this.state==='emerge'){
+        this.emergeTimer -= dt;
+        this.x += Math.cos(this.dashDir) * this.emergeSpeed * dt;
+        this.y += Math.sin(this.dashDir) * this.emergeSpeed * dt;
+        resolveEntityObstacles(this);
+        if(this.emergeTimer<=0){
+          this.state='surface';
+          this.surfaceTimer = randRange(this.surfaceWindow.min, this.surfaceWindow.max);
+        }
+      }
+      this.x = clamp(this.x, 34, CONFIG.roomW-34);
+      this.y = clamp(this.y, 42, CONFIG.roomH-42);
+      if(this.state!=='burrow' && dist(this, player) < this.r + player.r){ player.hurt(1); }
+    }
+    draw(){
+      if(this.state==='burrow'){
+        ctx.save();
+        const pulse = 0.6 + 0.4*Math.sin(performance.now()/90);
+        ctx.globalAlpha = 0.4 + 0.3*pulse;
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.ellipse(this.x, this.y + this.r*0.5, this.r*1.2, this.r*0.6, 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = '#f59e0b55';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r*(1.1+0.2*pulse), 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+        return;
+      }
+      const emerging = this.state==='emerge';
+      const base = emerging ? '#fde68a' : '#fef3c7';
+      const edge = emerging ? '#f97316' : '#fbbf24';
+      drawBlob(this.x,this.y,this.r,base,edge);
+      if(emerging){
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+        ctx.strokeStyle = '#f97316';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r*1.7, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    damage(d){
+      if(this.state==='burrow') return false;
+      this.hp -= d;
+      if(this.hp<=0){ this.dead=true; return true; }
+      this.knock = 0.18;
+      const vec = {x:this.x - player.x, y:this.y - player.y};
+      const len = Math.hypot(vec.x,vec.y)||1;
+      this.knockVx = (vec.x/len)*160;
+      this.knockVy = (vec.y/len)*160;
+      return false;
+    }
+  }
+
+  class EnemySpark{
+    constructor(x,y,hp){
+      const cfg = CONFIG.enemy.spark;
+      this.base = {x,y};
+      this.x=x; this.y=y; this.r=10; this.hp=hp;
+      this.theta = rand()*Math.PI*2;
+      this.range = randRange(cfg.rangeMin, cfg.rangeMax);
+      this.orbitSpeed = cfg.orbitSpeed * randRange(0.85,1.15);
+      this.driftSpeed = cfg.driftSpeed * randRange(0.85,1.1);
+      this.fireInterval = cfg.fireInterval;
+      this.burstSpacingBase = cfg.burstSpacing;
+      this.projectileSpeed = cfg.projectileSpeed;
+      this.projectileLife = cfg.projectileLife;
+      this.fireTimer = randRange(this.fireInterval*0.5, this.fireInterval*1.2);
+      this.burstShots = 0;
+      this.burstSpacing = 0;
+      this.glowOffset = rand()*Math.PI*2;
+      this.knock = 0;
+      this.knockVx = 0;
+      this.knockVy = 0;
+      this.flying = true;
+      initializeEnemyStats(this, {
+        speedFields:[],
+        extra:(enemy, scaling)=>{
+          enemy.driftSpeed = cfg.driftSpeed * scaling.speed;
+          enemy.orbitSpeed = cfg.orbitSpeed * scaling.speed;
+          enemy.projectileSpeed = cfg.projectileSpeed * scaling.speed;
+          enemy.fireInterval = Math.max(1.2, cfg.fireInterval / Math.max(0.8, scaling.aggression));
+          enemy.burstSpacingBase = Math.max(0.16, cfg.burstSpacing / Math.max(0.9, scaling.aggression));
+        }
+      });
+      this.fireTimer = randRange(this.fireInterval*0.5, this.fireInterval*1.2);
+    }
+    update(dt){
+      const cfg = CONFIG.enemy.spark;
+      this.theta += this.orbitSpeed * dt;
+      const dx = player.x - this.base.x;
+      const dy = player.y - this.base.y;
+      const distLen = Math.hypot(dx,dy)||1;
+      this.base.x += (dx/distLen) * this.driftSpeed * 0.45 * dt;
+      this.base.y += (dy/distLen) * this.driftSpeed * 0.45 * dt;
+      this.base.x = clamp(this.base.x, 44, CONFIG.roomW-44);
+      this.base.y = clamp(this.base.y, 48, CONFIG.roomH-48);
+      this.x = this.base.x + Math.cos(this.theta) * this.range;
+      this.y = this.base.y + Math.sin(this.theta) * this.range;
+      if(this.knock>0){
+        this.x += this.knockVx * dt;
+        this.y += this.knockVy * dt;
+        this.knock -= dt;
+        this.knockVx *= 0.85;
+        this.knockVy *= 0.85;
+      }
+      if(this.burstShots>0){
+        this.burstSpacing -= dt;
+        if(this.burstSpacing<=0){
+          const bolts = Math.max(4, cfg.bolts|0);
+          for(let i=0;i<bolts;i++){
+            const angle = i*(Math.PI*2/bolts) + randRange(-0.08,0.08);
+            runtime.enemyProjectiles.push(new EnemyProjectile(
+              this.x,
+              this.y,
+              Math.cos(angle)*this.projectileSpeed,
+              Math.sin(angle)*this.projectileSpeed,
+              this.projectileLife,
+              'spark'
+            ));
+          }
+          this.burstShots--;
+          this.burstSpacing = this.burstShots>0 ? this.burstSpacingBase : 0;
+        }
+      } else {
+        this.fireTimer -= dt * this.aggression;
+        if(this.fireTimer<=0){
+          this.fireTimer = this.fireInterval;
+          this.burstShots = cfg.burst;
+          this.burstSpacing = 0;
+        }
+      }
+      if(dist(this, player) < this.r + player.r){ player.hurt(1); }
+    }
+    draw(){
+      const pulse = 0.75 + 0.25*Math.sin(performance.now()/160 + this.glowOffset);
+      const radius = this.r * (0.9 + 0.15*Math.sin(performance.now()/90 + this.glowOffset));
+      const gradient = ctx.createRadialGradient(this.x, this.y, 1, this.x, this.y, radius*1.6);
+      gradient.addColorStop(0, '#fef9c3');
+      gradient.addColorStop(0.5, '#fde047cc');
+      gradient.addColorStop(1, '#fbbf24' + Math.floor(pulse*120).toString(16).padStart(2,'0'));
+      ctx.save();
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, radius, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = '#fde047';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(this.base.x, this.base.y, this.range, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    damage(d){
+      this.hp -= d;
+      if(this.hp<=0){ this.dead=true; return true; }
+      this.knock = 0.12;
+      const vec = {x:this.x - player.x, y:this.y - player.y};
+      const len = Math.hypot(vec.x,vec.y)||1;
+      this.knockVx = (vec.x/len)*140;
+      this.knockVy = (vec.y/len)*140;
+      return false;
+    }
+  }
+
+  class EnemyBrood{
+    constructor(x,y,hp){
+      const cfg = CONFIG.enemy.brood;
+      this.x=x; this.y=y; this.r=14; this.hp=hp;
+      this.speed = cfg.speed * randRange(0.9,1.1);
+      this.preferredRange = cfg.preferredRange;
+      this.spawnIntervalBase = cfg.spawnInterval;
+      this.spawnTimer = randRange(cfg.spawnInterval*0.6, cfg.spawnInterval*1.1);
+      this.maxMinions = cfg.spawnMax;
+      this.minionSpread = cfg.minionSpread;
+      this.minionRefs = [];
+      this.knock = 0;
+      this.knockVx = 0;
+      this.knockVy = 0;
+      this.flying = false;
+      this.strafeDir = rand()<0.5?-1:1;
+      initializeEnemyStats(this, {
+        speedFields:['speed'],
+        extra:(enemy, scaling)=>{
+          enemy.spawnIntervalBase = Math.max(2.6, cfg.spawnInterval / Math.max(0.9, scaling.aggression));
+          enemy.minionHp = Math.max(1, Math.round(1 * scaling.hp));
+        }
+      });
+      this.spawnTimer = randRange(this.spawnIntervalBase*0.6, this.spawnIntervalBase*1.1);
+    }
+    update(dt){
+      this.minionRefs = this.minionRefs.filter(m=>m && !m.dead);
+      if(this.knock>0){
+        this.x += this.knockVx * dt;
+        this.y += this.knockVy * dt;
+        this.knock -= dt;
+        this.knockVx *= 0.84;
+        this.knockVy *= 0.84;
+      } else {
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const distLen = Math.hypot(dx,dy)||1;
+        let mx=0, my=0;
+        if(distLen < this.preferredRange - 30){ mx = -dx/distLen; my = -dy/distLen; }
+        else if(distLen > this.preferredRange + 60){ mx = dx/distLen; my = dy/distLen; }
+        else {
+          mx = -dy/distLen * this.strafeDir;
+          my = dx/distLen * this.strafeDir;
+        }
+        this.x += mx * this.speed * dt;
+        this.y += my * this.speed * dt;
+        if(rand()<0.01){ this.strafeDir *= -1; }
+      }
+      this.x = clamp(this.x, 40, CONFIG.roomW-40);
+      this.y = clamp(this.y, 46, CONFIG.roomH-46);
+      resolveEntityObstacles(this);
+      this.spawnTimer -= dt * this.aggression;
+      if(this.spawnTimer<=0 && this.minionRefs.length < this.maxMinions){
+        if(dungeon?.current && dungeon.current.enemies.length < (CONFIG.enemy.maxPerRoom||5) + this.maxMinions){
+          const angle = rand()*Math.PI*2;
+          const radius = this.minionSpread;
+          const spawnX = clamp(this.x + Math.cos(angle)*radius, 36, CONFIG.roomW-36);
+          const spawnY = clamp(this.y + Math.sin(angle)*radius, 44, CONFIG.roomH-44);
+          const minion = new EnemyTinyFly(spawnX, spawnY, Math.max(1, this.minionHp));
+          minion.isBroodling = true;
+          this.minionRefs.push(minion);
+          queueEnemySpawn(minion);
+        }
+        this.spawnTimer = this.spawnIntervalBase;
+      }
+      if(dist(this, player) < this.r + player.r){ player.hurt(1); }
+    }
+    draw(){
+      const base = '#fde68a';
+      const edge = '#f97316';
+      drawBlob(this.x,this.y,this.r,base,edge);
+      ctx.save();
+      ctx.translate(this.x,this.y - this.r*0.2);
+      ctx.fillStyle = '#1f2937';
+      ctx.beginPath();
+      ctx.arc(-this.r*0.32, -this.r*0.05, this.r*0.18, 0, Math.PI*2);
+      ctx.arc(this.r*0.32, -this.r*0.05, this.r*0.18, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      if(this.minionRefs.length){
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+        ctx.strokeStyle = '#f97316';
+        ctx.setLineDash([4,3]);
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.minionSpread*1.2, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
+    damage(d){
+      this.hp -= d;
+      if(this.hp<=0){ this.dead=true; return true; }
+      this.knock = 0.18;
+      const vec = {x:this.x - player.x, y:this.y - player.y};
+      const len = Math.hypot(vec.x,vec.y)||1;
+      this.knockVx = (vec.x/len)*160;
+      this.knockVy = (vec.y/len)*160;
       return false;
     }
   }
@@ -6078,7 +6756,7 @@
 
   class EnemyProjectile{
     constructor(x,y,vx,vy,life,type){
-      this.x=x; this.y=y; this.vx=vx; this.vy=vy; this.life=life; this.alive=true; this.r= type==='needle'?6:7;
+      this.x=x; this.y=y; this.vx=vx; this.vy=vy; this.life=life; this.alive=true; this.r= type==='needle'?6:(type==='spark'?5:7);
       this.type=type;
     }
     update(dt){
@@ -6108,6 +6786,19 @@
         ctx.fillRect(-8,-2,16,4);
         ctx.fillStyle='#ffe4f0';
         ctx.fillRect(4,-1.2,6,2.4);
+      } else if(this.type==='spark'){
+        const g = ctx.createRadialGradient(0,0,1,0,0,this.r*2);
+        g.addColorStop(0,'#fef9c3');
+        g.addColorStop(1,'#fbbf24');
+        ctx.fillStyle=g;
+        ctx.beginPath();
+        ctx.arc(0,0,this.r*1.3,0,Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = '#fde04788';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(0,0,this.r*1.6,0,Math.PI*2);
+        ctx.stroke();
       } else {
         const g = ctx.createRadialGradient(0,0,1,0,0,this.r*1.4);
         g.addColorStop(0,'#ffe6f3');
