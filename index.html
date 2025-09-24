@@ -659,6 +659,21 @@
       }
     },
     {
+      slug:'hot-chocolate',
+      name:'热巧克力',
+      weight: WEIGHT_PRESETS.item,
+      description:'泪滴可蓄力。按住方向键蓄力，松开时按蓄力时长倍增伤害；蓄满默认射速所需时间即可回到原始伤害。额外杯数会加快蓄力并略微提高伤害成长。',
+      apply(player){
+        if(!player) return;
+        if(typeof player.enableHotChocolate === 'function'){
+          player.enableHotChocolate();
+        } else {
+          if(!player.hotChocolate) player.hotChocolate = {enabled:true};
+          else player.hotChocolate.enabled = true;
+        }
+      }
+    },
+    {
       slug:'seer-map',
       name:'透视雷达',
       weight: WEIGHT_PRESETS.item,
@@ -2795,6 +2810,7 @@
       this.brimstoneBeamTimer = 0;
       this.updateBrimstoneChargeMetrics();
       this.impactDash = this.createImpactDashState();
+      this.hotChocolate = null;
     }
     update(dt){
       this.bombCooldown = Math.max(0, this.bombCooldown - dt);
@@ -2965,76 +2981,182 @@
       const shotPressed = shotX || shotY;
       if(this.attackMode === 'brimstone'){
         this.handleBrimstoneAttack(dt, shotX, shotY, lvx, lvy, maxSpeed);
+      } else if(this.hasHotChocolate && this.hasHotChocolate()){
+        this.handleHotChocolateAttack(dt, shotX, shotY, lvx, lvy, maxSpeed);
       } else {
-        let shotDir = null;
         if(shotPressed && this.fireCd<=0){
           const l = Math.hypot(shotX,shotY)||1;
-          shotDir = {x: shotX/l, y: shotY/l};
+          const dirX = shotX/l;
+          const dirY = shotY/l;
           this.fireCd = this.fireInterval;
-        }
-        if(shotDir){
-          const combatCfg = CONFIG.combat || {};
-          const carry = combatCfg.shotCarry ?? combatCfg.shotInertia ?? 0;
-          const forwardScale = combatCfg.shotForwardBoost ?? 0;
-          const reverseScale = combatCfg.shotReverseBoost ?? 0;
-          const lateralScale = combatCfg.shotLateralInfluence ?? 0;
-          const forwardSpeed = lvx * shotDir.x + lvy * shotDir.y;
-          let dirX = shotDir.x;
-          let dirY = shotDir.y;
-          if(lateralScale>0){
-            const totalSpeed = Math.hypot(lvx, lvy);
-            const speedRef = maxSpeed>0 ? maxSpeed : Math.max(totalSpeed, 1);
-            if(speedRef>1e-5 && totalSpeed>1e-4){
-              const lateral = lvx * (-shotDir.y) + lvy * shotDir.x;
-              if(Math.abs(lateral)>1e-4){
-                const lateralNormRaw = clamp(Math.abs(lateral) / speedRef, 0, 1);
-                const curvePower = clamp(combatCfg.shotLateralCurve ?? 1, 0.1, 6);
-                const curved = Math.pow(lateralNormRaw, curvePower);
-                const smooth = curved * curved * (3 - 2 * curved);
-                const speedNorm = clamp(totalSpeed / speedRef, 0, 1);
-                const blend = smooth * (0.6 + 0.4 * Math.pow(speedNorm, 1.35));
-                const angleBaseDeg = combatCfg.shotLateralAngle ?? 28;
-                const angle = Math.sign(lateral) * (angleBaseDeg * Math.PI / 180) * lateralScale * blend;
-                if(Math.abs(angle)>1e-4){
-                  const cos = Math.cos(angle);
-                  const sin = Math.sin(angle);
-                  const ndx = dirX * cos - dirY * sin;
-                  const ndy = dirX * sin + dirY * cos;
-                  dirX = ndx;
-                  dirY = ndy;
-                  const dlen = Math.hypot(dirX, dirY) || 1;
-                  dirX /= dlen;
-                  dirY /= dlen;
-                }
-              }
-            }
-          }
-          let baseSpeed = this.tearSpeed;
-          if(forwardScale!==0 && forwardSpeed>1e-4){
-            const boost = forwardSpeed * forwardScale;
-            baseSpeed = Math.max(40, baseSpeed + boost);
-          } else if(forwardSpeed < -1e-4 && reverseScale>0){
-            const oppose = -forwardSpeed;
-            const speedRef = maxSpeed>0 ? maxSpeed : Math.max(Math.hypot(lvx, lvy), 1);
-            const norm = speedRef>0 ? clamp(oppose / speedRef, 0, 1.4) : 0;
-            const eased = norm * (0.55 + 0.45 * norm);
-            const boost = oppose * reverseScale * (0.5 + 0.5 * eased);
-            baseSpeed = Math.max(40, baseSpeed + boost);
-          }
-          let vx = dirX * baseSpeed;
-          let vy = dirY * baseSpeed;
-          if(carry!==0){
-            vx += lvx * carry;
-            vy += lvy * carry;
-          }
-          runtime.bullets.push(new Bullet(this.x, this.y, vx, vy, this.tearLife, this.damage, {
-            pierce: this.canPierceObstacles,
-            homing: this.homingTears,
-            homingStrength: this.homingStrength
-          }));
+          this.fireTearProjectile(dirX, dirY, lvx, lvy, maxSpeed);
         }
       }
       this.recalculateDamage();
+    }
+    fireTearProjectile(dirX, dirY, lvx, lvy, maxSpeed, options={}){
+      if(!Number.isFinite(dirX) || !Number.isFinite(dirY)) return;
+      let dlen = Math.hypot(dirX, dirY);
+      if(!(dlen>1e-5)) return;
+      let dirNormX = dirX / dlen;
+      let dirNormY = dirY / dlen;
+      const combatCfg = CONFIG.combat || {};
+      const carry = combatCfg.shotCarry ?? combatCfg.shotInertia ?? 0;
+      const forwardScale = combatCfg.shotForwardBoost ?? 0;
+      const reverseScale = combatCfg.shotReverseBoost ?? 0;
+      const lateralScale = combatCfg.shotLateralInfluence ?? 0;
+      const forwardSpeed = lvx * dirNormX + lvy * dirNormY;
+      if(lateralScale>0){
+        const totalSpeed = Math.hypot(lvx, lvy);
+        const speedRef = maxSpeed>0 ? maxSpeed : Math.max(totalSpeed, 1);
+        if(speedRef>1e-5 && totalSpeed>1e-4){
+          const lateral = lvx * (-dirNormY) + lvy * dirNormX;
+          if(Math.abs(lateral)>1e-4){
+            const lateralNormRaw = clamp(Math.abs(lateral) / speedRef, 0, 1);
+            const curvePower = clamp(combatCfg.shotLateralCurve ?? 1, 0.1, 6);
+            const curved = Math.pow(lateralNormRaw, curvePower);
+            const smooth = curved * curved * (3 - 2 * curved);
+            const speedNorm = clamp(totalSpeed / speedRef, 0, 1);
+            const blend = smooth * (0.6 + 0.4 * Math.pow(speedNorm, 1.35));
+            const angleBaseDeg = combatCfg.shotLateralAngle ?? 28;
+            const angle = Math.sign(lateral) * (angleBaseDeg * Math.PI / 180) * lateralScale * blend;
+            if(Math.abs(angle)>1e-4){
+              const cos = Math.cos(angle);
+              const sin = Math.sin(angle);
+              const ndx = dirNormX * cos - dirNormY * sin;
+              const ndy = dirNormX * sin + dirNormY * cos;
+              dirNormX = ndx;
+              dirNormY = ndy;
+              dlen = Math.hypot(dirNormX, dirNormY) || 1;
+              dirNormX /= dlen;
+              dirNormY /= dlen;
+            }
+          }
+        }
+      }
+      let baseSpeed = Number.isFinite(options.baseSpeed) ? options.baseSpeed : this.tearSpeed;
+      if(forwardScale!==0 && forwardSpeed>1e-4){
+        const boost = forwardSpeed * forwardScale;
+        baseSpeed = Math.max(40, baseSpeed + boost);
+      } else if(forwardSpeed < -1e-4 && reverseScale>0){
+        const oppose = -forwardSpeed;
+        const speedRef = maxSpeed>0 ? maxSpeed : Math.max(Math.hypot(lvx, lvy), 1);
+        const norm = speedRef>0 ? clamp(oppose / speedRef, 0, 1.4) : 0;
+        const eased = norm * (0.55 + 0.45 * norm);
+        const boost = oppose * reverseScale * (0.5 + 0.5 * eased);
+        baseSpeed = Math.max(40, baseSpeed + boost);
+      }
+      let vx = dirNormX * baseSpeed;
+      let vy = dirNormY * baseSpeed;
+      if(carry!==0){
+        vx += lvx * carry;
+        vy += lvy * carry;
+      }
+      let damageScale = Number.isFinite(options.damageScale) ? options.damageScale : 1;
+      damageScale = Math.max(0.01, damageScale);
+      let damage = Number.isFinite(options.damage) ? options.damage : (this.damage * damageScale);
+      damage = Math.max(0.01, damage);
+      const bulletOptions = {
+        pierce: this.canPierceObstacles,
+        homing: this.homingTears,
+        homingStrength: this.homingStrength
+      };
+      if(typeof options.color === 'string') bulletOptions.color = options.color;
+      if(typeof options.trailColor === 'string') bulletOptions.trailColor = options.trailColor;
+      runtime.bullets.push(new Bullet(this.x, this.y, vx, vy, this.tearLife, damage, bulletOptions));
+    }
+    ensureHotChocolateState(){
+      if(!this.hotChocolate){
+        this.hotChocolate = {
+          enabled: false,
+          charging: false,
+          chargeTime: 0,
+          dir: {x:0, y:-1},
+          chargeSpeedBonus: 1,
+          damageBonus: 1,
+          stacks: 0,
+        };
+      }
+      if(!this.hotChocolate.dir){
+        this.hotChocolate.dir = {x:0, y:-1};
+      }
+      return this.hotChocolate;
+    }
+    enableHotChocolate(){
+      const state = this.ensureHotChocolateState();
+      state.enabled = true;
+      if(!Number.isFinite(state.stacks) || state.stacks<=0){
+        state.stacks = Math.max(1, this.getItemStack ? this.getItemStack('hot-chocolate') : 1);
+      }
+      this.updateHotChocolateStackBonuses(state.stacks);
+    }
+    updateHotChocolateStackBonuses(countOverride){
+      const state = this.ensureHotChocolateState();
+      const stacks = Math.max(1, Number.isFinite(countOverride) ? Math.floor(countOverride) : (this.getItemStack ? this.getItemStack('hot-chocolate') : 1));
+      state.stacks = stacks;
+      const extra = Math.max(0, stacks - 1);
+      state.chargeSpeedBonus = 1 + extra * 0.18;
+      state.damageBonus = 1 + extra * 0.12;
+    }
+    hasHotChocolate(){
+      return !!(this.hotChocolate && this.hotChocolate.enabled);
+    }
+    getHotChocolateBaselineSeconds(){
+      const interval = Number.isFinite(this.fireInterval) && this.fireInterval>0 ? this.fireInterval : (CONFIG.player.fireCd || 360);
+      return Math.max(1/240, interval / 1000);
+    }
+    handleHotChocolateAttack(dt, shotX, shotY, lvx, lvy, maxSpeed){
+      const state = this.ensureHotChocolateState();
+      const shotPressed = !!(shotX || shotY);
+      if(shotPressed){
+        const len = Math.hypot(shotX, shotY) || 1;
+        const dirX = shotX / len;
+        const dirY = shotY / len;
+        const prevDir = state.dir || {x:0,y:-1};
+        const changed = state.charging && (Math.abs(dirX - prevDir.x) > 1e-4 || Math.abs(dirY - prevDir.y) > 1e-4);
+        if(changed && state.chargeTime>0){
+          this.fireHotChocolateShot(state, lvx, lvy, maxSpeed);
+        }
+        state.dir.x = dirX;
+        state.dir.y = dirY;
+        state.charging = true;
+        const bonus = Number.isFinite(state.chargeSpeedBonus) ? Math.max(0.05, state.chargeSpeedBonus) : 1;
+        state.chargeTime += dt * bonus;
+      } else if(state.charging && state.chargeTime>0){
+        this.fireHotChocolateShot(state, lvx, lvy, maxSpeed);
+      } else if(!shotPressed){
+        state.charging = false;
+        state.chargeTime = 0;
+      }
+    }
+    fireHotChocolateShot(state, lvx, lvy, maxSpeed){
+      if(!state || !state.dir) return;
+      const dirX = state.dir.x;
+      const dirY = state.dir.y;
+      const len = Math.hypot(dirX, dirY);
+      if(!(len>1e-5)){
+        state.chargeTime = 0;
+        state.charging = false;
+        return;
+      }
+      const baseline = this.getHotChocolateBaselineSeconds();
+      const stacks = Math.max(1, state.stacks || (this.getItemStack ? this.getItemStack('hot-chocolate') : 1) || 1);
+      const damageBonus = Number.isFinite(state.damageBonus) ? Math.max(0.05, state.damageBonus) : 1;
+      const rawRatio = baseline>0 ? state.chargeTime / baseline : state.chargeTime;
+      const ratio = Math.max(0.05, rawRatio);
+      const damage = Math.max(0.05, this.damage * ratio * damageBonus);
+      let color = '#fbbf24';
+      if(stacks>=3) color = '#fb923c';
+      else if(stacks>=2) color = '#f97316';
+      const trailColor = stacks>=3 ? '#facc15' : (stacks>=2 ? '#fde68a' : '#fed7aa');
+      this.fireTearProjectile(dirX, dirY, lvx, lvy, maxSpeed, {
+        damage,
+        color,
+        trailColor,
+      });
+      state.chargeTime = 0;
+      state.charging = false;
+      this.fireCd = 0;
     }
     createImpactDashState(){
       const baseRadius = this.r || CONFIG.player.radius || 12;
@@ -3670,6 +3792,22 @@
       this.pierceObstacles = !!options.pierce;
       this.homing = !!options.homing;
       this.homingStrength = Number.isFinite(options.homingStrength) ? Math.max(0, options.homingStrength) : 6;
+      this.color = typeof options.color === 'string' ? options.color : '#a6e3ff';
+      this.trailColor = typeof options.trailColor === 'string' ? options.trailColor : null;
+    }
+    destroy(options={}){
+      if(!this.alive) return;
+      this.alive = false;
+      const count = Math.max(4, Math.round(4 + Math.sqrt(Math.max(this.damage, 0.25)) * 1.5));
+      spawnBulletDisperse(this.x, this.y, {
+        color: this.color,
+        accent: this.trailColor,
+        count,
+        radius: this.r,
+        speed: 120 + this.r * 9,
+        glowStrength: 0.75 + Math.min(0.6, this.damage * 0.08),
+        ...options,
+      });
     }
     update(dt){
       if(this.homing){
@@ -3705,20 +3843,42 @@
       this.x += this.vx*dt;
       this.y += this.vy*dt;
       this.life -= dt;
-      if(this.life<=0) this.alive=false;
-      if(this.x<0||this.x>CONFIG.roomW||this.y<0||this.y>CONFIG.roomH) this.alive=false;
+      if(this.life<=0){ this.destroy(); return; }
+      if(this.x<0||this.x>CONFIG.roomW||this.y<0||this.y>CONFIG.roomH){ this.destroy(); return; }
       if(!this.pierceObstacles){
         for(const obs of dungeon.current.obstacles){
           if(obs.destroyed) continue;
-          if(circleRectOverlap(this, obs)){ this.alive=false; break; }
+          if(circleRectOverlap(this, obs)){ this.destroy({glowStrength:0.45}); break; }
         }
       }
     }
     draw(){
+      const baseColor = this.color || '#a6e3ff';
+      const highlight = shadeColor(baseColor, 0.28);
+      const shadow = shadeColor(baseColor, -0.35);
+      ctx.save();
+      const gradient = ctx.createRadialGradient(
+        this.x - this.r*0.25,
+        this.y - this.r*0.32,
+        Math.max(0.6, this.r*0.12),
+        this.x,
+        this.y,
+        this.r
+      );
+      gradient.addColorStop(0, colorWithAlpha(highlight, 0.95));
+      gradient.addColorStop(0.55, colorWithAlpha(baseColor, 0.8));
+      gradient.addColorStop(1, colorWithAlpha(shadow, 0.35));
+      ctx.fillStyle = gradient;
       ctx.beginPath();
-      ctx.fillStyle = '#a6e3ff';
       ctx.arc(this.x,this.y,this.r,0,Math.PI*2);
       ctx.fill();
+      ctx.globalAlpha = 0.95;
+      ctx.strokeStyle = colorWithAlpha(shadow, 0.88);
+      ctx.lineWidth = Math.max(1.1, this.r * 0.32);
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r*0.66, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
     }
   }
 
@@ -3843,6 +4003,9 @@
       const homingDefault = Number.isFinite(options.homingStrength) ? options.homingStrength : (owner?.homingStrength ?? 10);
       this.homingStrength = Math.max(0, homingDefault);
       this.visualSeed = rand();
+      this.sparkTimers = {start:0,end:0};
+      this.sparkStartInterval = Math.max(0.02, Number(options.sparkStartInterval) || 0.045);
+      this.sparkEndInterval = Math.max(0.025, Number(options.sparkEndInterval) || 0.055);
     }
     getWidth(){
       if(Number.isFinite(this.widthOverride)) return this.widthOverride;
@@ -3916,6 +4079,49 @@
         this.applyDamage();
         audio.play('brimstoneTick', {volume: 0.35});
       }
+      const timers = this.sparkTimers;
+      if(timers){
+        timers.start -= dt;
+        timers.end -= dt;
+        const needStart = timers.start <= 0;
+        const needEnd = timers.end <= 0;
+        if(needStart || needEnd){
+          const geom = this.getGeometry();
+          if(geom && geom.length>0){
+            const width = Math.max(6, this.getWidth());
+            if(needStart){
+              timers.start = randRange(this.sparkStartInterval*0.5, this.sparkStartInterval*1.25);
+              spawnBeamSparkBurst(geom.startX, geom.startY, {
+                dir: this.dir,
+                speed: 260,
+                count: Math.max(4, Math.round(width/6)),
+                radius: width*0.45,
+                color: '#fb923c',
+                accent: '#fde68a',
+                life: 0.32,
+                flow: 1,
+              });
+            }
+            if(needEnd){
+              timers.end = randRange(this.sparkEndInterval*0.6, this.sparkEndInterval*1.3);
+              spawnBeamSparkBurst(geom.endX, geom.endY, {
+                dir: this.dir,
+                speed: 220,
+                count: Math.max(4, Math.round(width/5)),
+                radius: width*0.55,
+                color: '#f97316',
+                accent: '#fed7aa',
+                life: 0.38,
+                flow: -0.45,
+                swirl: true,
+              });
+            }
+          } else {
+            if(needStart) timers.start = this.sparkStartInterval;
+            if(needEnd) timers.end = this.sparkEndInterval;
+          }
+        }
+      }
     }
     finish(){
       if(!this.alive) return;
@@ -3956,6 +4162,26 @@
       ctx.beginPath();
       ctx.ellipse(0, 0, rx*0.95, ry*0.85, 0, 0, Math.PI*2);
       ctx.stroke();
+      ctx.restore();
+      const flicker = 0.75 + Math.sin(performance.now()/90 + this.visualSeed * 6.18) * 0.2;
+      const startRadius = Math.max(10, width * 0.7);
+      const endRadius = Math.max(12, width * 0.8);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const startGlow = ctx.createRadialGradient(geom.startX, geom.startY, 0, geom.startX, geom.startY, startRadius);
+      startGlow.addColorStop(0, colorWithAlpha('#fde68a', 0.6 * flicker));
+      startGlow.addColorStop(1, colorWithAlpha('#f97316', 0));
+      ctx.fillStyle = startGlow;
+      ctx.beginPath();
+      ctx.arc(geom.startX, geom.startY, startRadius, 0, Math.PI*2);
+      ctx.fill();
+      const endGlow = ctx.createRadialGradient(geom.endX, geom.endY, 0, geom.endX, geom.endY, endRadius);
+      endGlow.addColorStop(0, colorWithAlpha('#fbbf24', 0.55 * flicker));
+      endGlow.addColorStop(1, colorWithAlpha('#fb923c', 0));
+      ctx.fillStyle = endGlow;
+      ctx.beginPath();
+      ctx.arc(geom.endX, geom.endY, endRadius, 0, Math.PI*2);
+      ctx.fill();
       ctx.restore();
     }
   }
@@ -4292,6 +4518,19 @@
       dash.trailSparkleLife = clamp(0.3 + extra * 0.04, 0.3, 0.6);
       dash.trailSparkleColor = count>=4 ? '#f0fdf4' : '#e0f2fe';
       dash.canBreakObstacles = count>3;
+    }
+  });
+
+  registerItemStackEffect('hot-chocolate', (player, count)=>{
+    if(!player) return;
+    if(typeof player.enableHotChocolate === 'function'){
+      player.enableHotChocolate();
+    } else {
+      if(!player.hotChocolate) player.hotChocolate = {enabled:true};
+      else player.hotChocolate.enabled = true;
+    }
+    if(typeof player.updateHotChocolateStackBonuses === 'function'){
+      player.updateHotChocolateStackBonuses(count);
     }
   });
 
@@ -7163,6 +7402,181 @@
     });
   }
 
+  function spawnBulletDisperse(x, y, options={}){
+    if(!runtime?.effects) return null;
+    const baseColor = typeof options.color === 'string' ? options.color : '#a6e3ff';
+    const accentColor = typeof options.accent === 'string' ? options.accent : shadeColor(baseColor, 0.18);
+    const ttl = Math.max(0.18, options.life ?? 0.45);
+    const particleCount = Math.max(4, Math.floor(options.count ?? 8));
+    const radiusRef = Math.max(2, options.radius ?? 6);
+    const sizeBase = Math.max(1.2, options.size ?? radiusRef * 0.38);
+    const speed = Math.max(40, options.speed ?? (120 + radiusRef * 12));
+    const scatter = Math.max(0.3, options.scatter ?? 0.9);
+    const glowStrength = clamp(options.glowStrength ?? 0.6, 0, 1.5);
+    const effect = {
+      type: 'bullet-pop',
+      x,
+      y,
+      life: ttl,
+      ttl,
+      particles: [],
+      baseColor,
+      accentColor,
+      glowStrength,
+      update(self, dt){
+        for(let i=self.particles.length-1;i>=0;i--){
+          const p = self.particles[i];
+          p.life -= dt;
+          if(p.life <= 0){
+            self.particles.splice(i,1);
+            continue;
+          }
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.vx *= 0.78;
+          p.vy *= 0.78;
+        }
+      },
+      draw(ctx){
+        if(!ctx || !this.particles.length) return;
+        ctx.save();
+        for(const p of this.particles){
+          const ratio = p.ttl>0 ? clamp(p.life / p.ttl, 0, 1) : 0;
+          if(ratio<=0) continue;
+          const alpha = (options.alpha ?? 0.9) * Math.pow(ratio, 0.7);
+          if(alpha<=0.01) continue;
+          ctx.globalAlpha = alpha;
+          const size = p.size * (0.5 + 0.6 * ratio);
+          ctx.fillStyle = colorWithAlpha(p.color, 1);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, size, 0, Math.PI*2);
+          ctx.fill();
+        }
+        const glowRatio = clamp(this.life / this.ttl, 0, 1);
+        if(glowRatio>0){
+          const glowRadius = radiusRef * (0.8 + glowRatio * 1.1);
+          const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, glowRadius);
+          gradient.addColorStop(0, colorWithAlpha(baseColor, 0.55 * glowRatio * this.glowStrength));
+          gradient.addColorStop(1, colorWithAlpha(baseColor, 0));
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, glowRadius, 0, Math.PI*2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    };
+    for(let i=0;i<particleCount;i++){
+      const angle = randRange(0, Math.PI*2);
+      const speedScale = 0.4 + rand() * scatter;
+      const life = ttl * (0.55 + rand()*0.35);
+      const color = rand()<0.35 ? accentColor : baseColor;
+      effect.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed * speedScale,
+        vy: Math.sin(angle) * speed * speedScale,
+        life,
+        ttl: life,
+        size: sizeBase * (0.65 + rand()*0.55),
+        color,
+      });
+    }
+    runtime.effects.push(effect);
+    return effect;
+  }
+
+  function spawnBeamSparkBurst(x, y, options={}){
+    if(!runtime?.effects) return null;
+    const baseColor = typeof options.color === 'string' ? options.color : '#fb923c';
+    const accentColor = typeof options.accent === 'string' ? options.accent : '#fed7aa';
+    const ttl = Math.max(0.16, options.life ?? 0.38);
+    const particleCount = Math.max(3, Math.floor(options.count ?? 6));
+    const speed = Math.max(60, options.speed ?? 200);
+    const radiusRef = Math.max(4, options.radius ?? 10);
+    const dir = options.dir || {x:0, y:-1};
+    const dirLen = Math.hypot(dir.x, dir.y) || 1;
+    const nx = dir.x / dirLen;
+    const ny = dir.y / dirLen;
+    const perpX = -ny;
+    const perpY = nx;
+    const flow = Number.isFinite(options.flow) ? options.flow : 1;
+    const swirl = !!options.swirl;
+    const effect = {
+      type: 'beam-spark',
+      x,
+      y,
+      life: ttl,
+      ttl,
+      particles: [],
+      baseColor,
+      accentColor,
+      update(self, dt){
+        for(let i=self.particles.length-1;i>=0;i--){
+          const p = self.particles[i];
+          p.life -= dt;
+          if(p.life <= 0){
+            self.particles.splice(i,1);
+            continue;
+          }
+          if(swirl){
+            const swirlStrength = p.swirlStrength;
+            const vx = p.vx;
+            const vy = p.vy;
+            p.vx += (-vy) * swirlStrength * dt;
+            p.vy += (vx) * swirlStrength * dt;
+          }
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.vx *= 0.86;
+          p.vy *= 0.86;
+        }
+      },
+      draw(ctx){
+        if(!ctx || !this.particles.length) return;
+        ctx.save();
+        for(const p of this.particles){
+          const ratio = p.ttl>0 ? clamp(p.life / p.ttl, 0, 1) : 0;
+          if(ratio<=0) continue;
+          const alpha = (options.alpha ?? 0.95) * Math.pow(ratio, 0.6);
+          if(alpha<=0.01) continue;
+          const size = p.size * (0.45 + 0.7 * ratio);
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = colorWithAlpha(p.color, 1);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, size, 0, Math.PI*2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    };
+    for(let i=0;i<particleCount;i++){
+      const lateral = (rand() - 0.5) * 1.3;
+      const forward = (0.35 + rand()*0.9) * flow;
+      const px = nx * forward + perpX * lateral;
+      const py = ny * forward + perpY * lateral;
+      const len = Math.hypot(px, py) || 1;
+      const vx = (px/len) * speed * (0.6 + rand()*0.6);
+      const vy = (py/len) * speed * (0.6 + rand()*0.6);
+      const life = ttl * (0.6 + rand()*0.35);
+      const color = rand()<0.45 ? accentColor : baseColor;
+      effect.particles.push({
+        x: x + perpX * lateral * radiusRef * 0.25,
+        y: y + perpY * lateral * radiusRef * 0.25,
+        vx,
+        vy,
+        life,
+        ttl: life,
+        size: (options.size ?? (radiusRef*0.24)) * (0.8 + rand()*0.6),
+        color,
+        swirlStrength: swirl ? randRange(4, 9) : 0,
+      });
+    }
+    runtime.effects.push(effect);
+    return effect;
+  }
+
   function updateEffects(dt){
     if(runtime.effects && runtime.effects.length){
       for(let i=runtime.effects.length-1;i>=0;i--){
@@ -7933,7 +8347,7 @@
         const dd = dist(b, e);
         if(dd < (b.r + e.r)){
           if(e.damage(b.damage)){ handleEnemyDeath(e, dungeon.current); }
-          b.alive=false; break;
+          b.destroy({glowStrength:0.5}); break;
         }
       }
     }
@@ -7941,7 +8355,7 @@
     dungeon.current.enemies = enemies.filter(e=>!e.dead);
 
     // 玩家被弹幕命中
-    for(const eb of runtime.enemyProjectiles){ if(eb.checkHit(player)){ eb.alive=false; } }
+    for(const eb of runtime.enemyProjectiles){ if(eb.checkHit(player)){ eb.destroy({glowStrength:0.45}); } }
 
     // 房间是否清空
     if(!dungeon.current.cleared && dungeon.current.enemies.length===0){
@@ -9128,17 +9542,32 @@
     constructor(x,y,vx,vy,life,type){
       this.x=x; this.y=y; this.vx=vx; this.vy=vy; this.life=life; this.alive=true; this.r= type==='needle'?6:(type==='spark'?5:7);
       this.type=type;
+      if(type==='needle') this.color='#f973a6';
+      else if(type==='spark') this.color='#fbbf24';
+      else this.color='#ff7aa9';
+    }
+    destroy(options={}){
+      if(!this.alive) return;
+      this.alive=false;
+      spawnBulletDisperse(this.x, this.y, {
+        color: this.color,
+        accent: this.type==='spark'? '#fef3c7' : undefined,
+        radius: this.r,
+        count: Math.max(4, Math.round(3 + this.r)),
+        speed: 140 + this.r * 12,
+        glowStrength: options.glowStrength ?? 0.55,
+      });
     }
     update(dt){
       this.x += this.vx*dt;
       this.y += this.vy*dt;
       this.life -= dt;
-      if(this.life<=0) this.alive=false;
-      if(this.x<20||this.x>CONFIG.roomW-20||this.y<20||this.y>CONFIG.roomH-20) this.alive=false;
+      if(this.life<=0){ this.destroy(); return; }
+      if(this.x<20||this.x>CONFIG.roomW-20||this.y<20||this.y>CONFIG.roomH-20){ this.destroy(); return; }
       if(this.alive){
         for(const obs of dungeon.current.obstacles){
           if(obs.destroyed) continue;
-          if(circleRectOverlap(this, obs)){ this.alive=false; break; }
+          if(circleRectOverlap(this, obs)){ this.destroy({glowStrength:0.4}); break; }
         }
       }
     }
@@ -9152,14 +9581,14 @@
       ctx.translate(this.x,this.y);
       ctx.rotate(Math.atan2(this.vy,this.vx));
       if(this.type==='needle'){
-        ctx.fillStyle='#f973a6';
+        ctx.fillStyle=this.color || '#f973a6';
         ctx.fillRect(-8,-2,16,4);
         ctx.fillStyle='#ffe4f0';
         ctx.fillRect(4,-1.2,6,2.4);
       } else if(this.type==='spark'){
         const g = ctx.createRadialGradient(0,0,1,0,0,this.r*2);
-        g.addColorStop(0,'#fef9c3');
-        g.addColorStop(1,'#fbbf24');
+        g.addColorStop(0,colorWithAlpha('#fef9c3',0.95));
+        g.addColorStop(1,colorWithAlpha(this.color || '#fbbf24',0.9));
         ctx.fillStyle=g;
         ctx.beginPath();
         ctx.arc(0,0,this.r*1.3,0,Math.PI*2);
@@ -9171,8 +9600,8 @@
         ctx.stroke();
       } else {
         const g = ctx.createRadialGradient(0,0,1,0,0,this.r*1.4);
-        g.addColorStop(0,'#ffe6f3');
-        g.addColorStop(1,'#ff7aa9');
+        g.addColorStop(0,colorWithAlpha('#ffe6f3',0.92));
+        g.addColorStop(1,colorWithAlpha(this.color || '#ff7aa9',0.85));
         ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,this.r,0,Math.PI*2); ctx.fill();
       }
       ctx.restore();
