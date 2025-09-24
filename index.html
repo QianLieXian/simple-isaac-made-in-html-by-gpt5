@@ -334,6 +334,150 @@
     const toHex = (c)=>c.toString(16).padStart(2,'0');
     return `#${toHex(lerp(from.r,to.r))}${toHex(lerp(from.g,to.g))}${toHex(lerp(from.b,to.b))}`;
   }
+  function createAudioSystem(){
+    const Ctor = window.AudioContext || window.webkitAudioContext;
+    if(!Ctor){
+      return {play(){}, prime(){}};
+    }
+    let ctx = null;
+    let master = null;
+    const recent = new Map();
+    const limitInterval = 0.04;
+    function ensureContext(){
+      if(!ctx){
+        ctx = new Ctor();
+        master = ctx.createGain();
+        master.gain.value = 0.28;
+        master.connect(ctx.destination);
+      }
+      if(ctx.state === 'suspended'){ ctx.resume(); }
+      return ctx;
+    }
+    function prime(){ ensureContext(); }
+    function scheduleCleanup(id, when){
+      if(!ctx) return;
+      const key = `${id}`;
+      recent.set(key, when);
+      for(const [k,v] of recent){
+        if(v + 0.6 < when){ recent.delete(k); }
+      }
+    }
+    function canPlay(id){
+      if(!ctx) return true;
+      const now = ctx.currentTime;
+      const key = `${id}`;
+      const last = recent.get(key) || -Infinity;
+      if(now - last < limitInterval){ return false; }
+      scheduleCleanup(key, now);
+      return true;
+    }
+    function tone({frequency=440, duration=0.15, type='sine', gain=0.15, slideTo=null, start=0}){
+      const context = ensureContext();
+      if(!context) return;
+      const t0 = (context.currentTime || 0) + start;
+      const osc = context.createOscillator();
+      const g = context.createGain();
+      g.gain.setValueAtTime(Math.max(0, gain), t0);
+      g.gain.linearRampToValueAtTime(0.0001, t0 + duration);
+      osc.type = type;
+      osc.frequency.setValueAtTime(Math.max(20, frequency), t0);
+      if(Number.isFinite(slideTo)){
+        osc.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t0 + duration);
+      }
+      osc.connect(g);
+      g.connect(master);
+      osc.start(t0);
+      osc.stop(t0 + duration + 0.05);
+    }
+    function noise({duration=0.2, gain=0.12, type='white', lowpass=1200, start=0}){
+      const context = ensureContext();
+      if(!context) return;
+      const length = Math.max(1, Math.floor(context.sampleRate * duration));
+      const buffer = context.createBuffer(1, length, context.sampleRate);
+      const data = buffer.getChannelData(0);
+      for(let i=0;i<length;i++){
+        data[i] = (Math.random()*2-1) * (type==='pink'? (1-(i/length)) : 1);
+      }
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      const filter = context.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = Math.max(120, lowpass);
+      const g = context.createGain();
+      const t0 = (context.currentTime || 0) + start;
+      g.gain.setValueAtTime(Math.max(0, gain), t0);
+      g.gain.linearRampToValueAtTime(0.0001, t0 + duration);
+      source.connect(filter);
+      filter.connect(g);
+      g.connect(master);
+      source.start(t0);
+      source.stop(t0 + duration + 0.05);
+    }
+    function play(name){
+      const context = ensureContext();
+      if(!context) return;
+      const now = context.currentTime || 0;
+      switch(name){
+        case 'tear-fire':{
+          if(!canPlay('tear')) return;
+          tone({frequency:420, duration:0.09, type:'triangle', gain:0.06, slideTo:360});
+          tone({frequency:240, duration:0.08, type:'square', gain:0.04, slideTo:200, start:0.02});
+          break;
+        }
+        case 'enemy-death':{
+          if(!canPlay('enemy-death')) return;
+          noise({duration:0.22, gain:0.18, lowpass:900});
+          tone({frequency:140, duration:0.18, type:'sawtooth', gain:0.06, slideTo:90});
+          break;
+        }
+        case 'item-passive':{
+          if(!canPlay('item-passive')) return;
+          tone({frequency:660, duration:0.22, type:'sine', gain:0.08});
+          tone({frequency:880, duration:0.16, type:'triangle', gain:0.06, start:0.05});
+          break;
+        }
+        case 'item-active':{
+          if(!canPlay('item-active')) return;
+          tone({frequency:520, duration:0.18, type:'square', gain:0.07, slideTo:680});
+          tone({frequency:1040, duration:0.2, type:'sine', gain:0.04, start:0.04});
+          break;
+        }
+        case 'pickup-heart':{
+          if(!canPlay('pickup-heart')) return;
+          tone({frequency:520, duration:0.12, type:'sine', gain:0.05});
+          tone({frequency:390, duration:0.16, type:'triangle', gain:0.04, start:0.04});
+          break;
+        }
+        case 'pickup-resource':{
+          if(!canPlay('pickup-resource')) return;
+          tone({frequency:480, duration:0.08, type:'square', gain:0.045});
+          break;
+        }
+        case 'active-use':{
+          if(!canPlay('active-use')) return;
+          noise({duration:0.26, gain:0.14, lowpass:1600});
+          tone({frequency:320, duration:0.24, type:'triangle', gain:0.06, slideTo:540});
+          break;
+        }
+        case 'brimstone-fire':{
+          if(!canPlay('brimstone-fire')) return;
+          noise({duration:0.32, gain:0.2, lowpass:2000});
+          tone({frequency:260, duration:0.3, type:'sawtooth', gain:0.08, slideTo:120});
+          break;
+        }
+        default:
+          break;
+      }
+    }
+    return {play, prime};
+  }
+  const SFX = createAudioSystem();
+  function playSfx(name){
+    if(!SFX || typeof SFX.play !== 'function') return;
+    SFX.play(name);
+  }
+  window.addEventListener('pointerdown', ()=>SFX.prime(), {once:true});
+  window.addEventListener('keydown', ()=>SFX.prime(), {once:true});
   function adjustFireRate(player, delta){
     if(!player) return;
     const currentRate = player.fireInterval>0 ? 1000/player.fireInterval : 0;
@@ -1151,14 +1295,12 @@
       return;
     }
     const item = cloneItemData(base);
-    if(typeof item.apply === 'function'){ item.apply(player); }
-    if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
-    registerItemDiscovery(item);
+    const result = grantItemToPlayer(item, {source:'cheat'});
     player.recalculateDamage();
     runtime.itemPickupName = item.name;
-    runtime.itemPickupDesc = item.description || '';
+    runtime.itemPickupDesc = describeItemPickup(item, result.type);
     runtime.itemPickupTimer = 2.4;
-    cheatItemResult.textContent = `已获得「${item.name}」`;  
+    cheatItemResult.textContent = `已获得「${item.name}」`;
     cheatItemResult.style.color = 'var(--accent)';
     syncCheatPanel();
   }
@@ -2242,15 +2384,48 @@
     return pickup;
   }
 
+  function grantItemToPlayer(item, options={}){
+    if(!item || !player) return {applied:false, type:null};
+    const prevActive = player.activeItem ? (player.activeItem.slug || player.activeItem.name || null) : null;
+    if(typeof item.apply === 'function'){ item.apply(player); }
+    let type = 'passive';
+    const nextActive = player.activeItem ? (player.activeItem.slug || player.activeItem.name || null) : null;
+    if(nextActive && nextActive !== prevActive){
+      type = 'active';
+    }
+    if(item.name && !player.items.includes(item.name)){ player.items.push(item.name); }
+    registerItemDiscovery(item);
+    if(options.silent){
+      return {applied:true, type};
+    }
+    if(type === 'active'){
+      spawnPlayerPickupEffect('active');
+      playSfx('item-active');
+    } else {
+      spawnPlayerPickupEffect('passive');
+      playSfx('item-passive');
+    }
+    return {applied:true, type};
+  }
+
+  function describeItemPickup(item, type){
+    const baseDesc = item?.description || '';
+    if(type === 'active'){
+      const maxCharge = Math.max(0, player?.activeMaxCharge ?? 0);
+      const current = Math.min(player?.activeCharge ?? 0, maxCharge);
+      const chargeInfo = maxCharge>0 ? `充能：${current}/${maxCharge}` : '无需充能';
+      return baseDesc ? `${baseDesc} · 主动道具（${chargeInfo}）` : `主动道具已装填（${chargeInfo}）`;
+    }
+    return baseDesc ? `被动：${baseDesc}` : '被动效果已生效。';
+  }
+
   function pickupItem(pickup){
     if(!pickup || !pickup.item) return;
     const item = pickup.item;
-    if(typeof item.apply === 'function'){ item.apply(player); }
-    if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
-    registerItemDiscovery(item);
+    const result = grantItemToPlayer(item, {source:'pickup'});
     if(pickup.room){ pickup.room.itemClaimed = true; pickup.room.itemSpawned = false; }
     runtime.itemPickupName = item.name;
-    runtime.itemPickupDesc = item.description || '';
+    runtime.itemPickupDesc = describeItemPickup(item, result.type);
     runtime.itemPickupTimer = 3.2;
     maybeSpawnCardDrop(pickup.room || dungeon?.current, {x: pickup.x, y: pickup.y});
   }
@@ -2267,11 +2442,9 @@
     }
     if(!applyLifeTradeCost(player, cost)) return false;
     const item = pickup.item;
-    if(typeof item.apply === 'function'){ item.apply(player); }
-    if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
-    registerItemDiscovery(item);
+    const result = grantItemToPlayer(item, {source:'life-trade'});
     runtime.itemPickupName = item.name;
-    runtime.itemPickupDesc = item.description || '';
+    runtime.itemPickupDesc = describeItemPickup(item, result.type);
     runtime.itemPickupTimer = 3.2;
     maybeSpawnCardDrop(pickup.room || dungeon?.current, {x: pickup.x, y: pickup.y});
     return true;
@@ -2498,6 +2671,50 @@
         beams.splice(i,1);
       }
     }
+  }
+
+  function drawCylindricalBeam(geom, width, options={}){
+    if(!geom) return;
+    const length = Math.max(8, geom.length || 0);
+    if(length<=0) return;
+    const baseWidth = Math.max(4, width || 0);
+    const alpha = Number.isFinite(options.alpha) ? options.alpha : 0.92;
+    const pulse = Number.isFinite(options.pulse) ? options.pulse : 1;
+    const actualWidth = baseWidth * pulse;
+    const angle = Math.atan2(geom.endY - geom.startY, geom.endX - geom.startX);
+    ctx.save();
+    ctx.translate(geom.startX, geom.startY);
+    ctx.rotate(angle);
+    ctx.lineCap = 'round';
+    const gradient = ctx.createLinearGradient(0,0,length,0);
+    gradient.addColorStop(0, colorWithAlpha('#fde68a', 0.65));
+    gradient.addColorStop(0.35, colorWithAlpha('#fca5a5', 0.6));
+    gradient.addColorStop(1, colorWithAlpha('#f97316', 0.55));
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = gradient;
+    ctx.lineWidth = actualWidth;
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(length,0);
+    ctx.stroke();
+    const core = ctx.createLinearGradient(0,0,length,0);
+    core.addColorStop(0, colorWithAlpha('#ffffff', 0.92));
+    core.addColorStop(1, colorWithAlpha('#fed7aa', 0.7));
+    ctx.globalAlpha = Math.max(0.24, alpha * 0.7);
+    ctx.strokeStyle = core;
+    ctx.lineWidth = actualWidth * 0.55;
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(length,0);
+    ctx.stroke();
+    ctx.globalAlpha = Math.max(0.16, alpha * 0.45);
+    ctx.strokeStyle = colorWithAlpha('#fb7185', 0.45);
+    ctx.lineWidth = actualWidth * 1.4;
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(length,0);
+    ctx.stroke();
+    ctx.restore();
   }
   function keepBombInBounds(bomb){
     const margin = bomb.r + 24;
@@ -2761,6 +2978,7 @@
             homing: this.homingTears,
             homingStrength: this.homingStrength
           }));
+          playSfx('tear-fire');
         }
       }
       this.recalculateDamage();
@@ -2899,6 +3117,7 @@
         homingStrength: this.homingStrength,
       });
       runtime.beams.push(beam);
+      playSfx('brimstone-fire');
       this.brimstoneBeam = beam;
       this.brimstoneFiring = true;
       this.brimstoneBeamTimer = duration;
@@ -3372,32 +3591,9 @@
     draw(ctx){
       const geom = this.getGeometry();
       if(!geom || geom.length<=0) return;
-      const length = Math.max(8, geom.length);
       const width = Math.max(6, this.getWidth());
-      const centerX = (geom.startX + geom.endX) / 2;
-      const centerY = (geom.startY + geom.endY) / 2;
-      const angle = Math.atan2(geom.endY - geom.startY, geom.endX - geom.startX);
-      const rx = length / 2;
-      const ry = width / 2;
-      const pulse = 0.85 + Math.sin(performance.now()/120 + this.visualSeed * Math.PI * 2) * 0.12;
-      ctx.save();
-      ctx.translate(centerX, centerY);
-      ctx.rotate(angle);
-      ctx.globalAlpha = 0.92;
-      const gradient = ctx.createRadialGradient(0, 0, Math.max(1, ry*0.3), 0, 0, Math.max(rx, ry));
-      gradient.addColorStop(0, colorWithAlpha('#fde68a', 0.55 * pulse));
-      gradient.addColorStop(0.35, colorWithAlpha('#fca5a5', 0.45 * pulse));
-      gradient.addColorStop(1, colorWithAlpha('#f97316', 0));
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI*2);
-      ctx.fill();
-      ctx.strokeStyle = colorWithAlpha('#fb7185', 0.4);
-      ctx.lineWidth = Math.max(2, ry * 0.35);
-      ctx.beginPath();
-      ctx.ellipse(0, 0, rx*0.95, ry*0.85, 0, 0, Math.PI*2);
-      ctx.stroke();
-      ctx.restore();
+      const pulse = 1 + Math.sin(performance.now()/120 + this.visualSeed * Math.PI * 2) * 0.12;
+      drawCylindricalBeam(geom, width * pulse, {alpha:0.92, pulse});
     }
   }
 
@@ -6187,6 +6383,135 @@
     ctx.restore();
   }
 
+  function deriveEnemyShardPalette(enemy){
+    if(enemy){
+      if(Array.isArray(enemy.deathPalette) && enemy.deathPalette.length){
+        return enemy.deathPalette.slice(0,3);
+      }
+      const candidates = ['deathColor','color','baseColor'];
+      for(const key of candidates){
+        const value = enemy[key];
+        if(typeof value === 'string' && value.trim()){
+          const tone = value.trim();
+          return [tone, shadeColor(tone, -0.25), shadeColor(tone, 0.18)];
+        }
+      }
+    }
+    return ['#f973a6', '#fb7185', '#ef4444'];
+  }
+
+  function spawnEnemyShatterEffect(enemy, options={}){
+    if(!enemy || !runtime?.effects) return;
+    const palette = deriveEnemyShardPalette(enemy);
+    const baseCount = Math.max(6, Math.floor((enemy.r || 12) * 0.9));
+    const count = clamp(baseCount, 6, 20);
+    const pieces = [];
+    const intensity = clamp(options.intensity || 1, 0.5, 2);
+    for(let i=0;i<count;i++){
+      const angle = rand()*Math.PI*2;
+      const speed = randRange(110, 230) * intensity;
+      pieces.push({
+        x: enemy.x,
+        y: enemy.y,
+        vx: Math.cos(angle)*speed,
+        vy: Math.sin(angle)*speed,
+        rot: rand()*Math.PI*2,
+        spin: randRange(-8,8),
+        size: randRange(3, Math.max(5, (enemy.r || 12) * 0.55)),
+        color: palette[Math.floor(rand()*palette.length)] || '#fb7185',
+      });
+    }
+    const puddleRadius = (enemy.r || 12) * randRange(0.8, 1.25);
+    spawnBloodPuddle(enemy.x, enemy.y + 6, puddleRadius, {palette});
+    runtime.effects.push({
+      type:'enemy-shatter',
+      pieces,
+      palette,
+      ttl: 0.55,
+      life: 0.55,
+      gravity: options.gravity ?? 460,
+      drag: clamp(options.drag ?? 0.84, 0.6, 0.98),
+      update(effect, dt){
+        const drag = Math.pow(effect.drag, dt*60);
+        for(const piece of effect.pieces){
+          piece.vy += (effect.gravity || 400) * dt;
+          piece.x += piece.vx * dt;
+          piece.y += piece.vy * dt;
+          piece.vx *= drag;
+          piece.vy *= drag;
+          piece.rot += piece.spin * dt;
+        }
+      },
+    });
+  }
+
+  function spawnBloodPuddle(x, y, radius, options={}){
+    if(!runtime?.effects) return;
+    const duration = Math.max(1.4, options.duration || 4.5);
+    const palette = Array.isArray(options.palette) && options.palette.length ? options.palette : ['#fb7185', '#f43f5e', '#7f1d1d'];
+    const wobble = rand()*Math.PI*2;
+    const segments = 6 + Math.floor(rand()*4);
+    const shape = [];
+    for(let i=0;i<segments;i++){
+      shape.push(randRange(0.72, 1.15));
+    }
+    runtime.effects.push({
+      type:'blood-puddle',
+      x, y,
+      radius,
+      palette,
+      ttl: duration,
+      life: duration,
+      wobble,
+      shape,
+    });
+  }
+
+  function spawnPlayerPickupEffect(kind, options={}){
+    if(!runtime?.effects || !player) return;
+    const duration = Math.max(0.3, options.duration ?? (kind==='active' ? 0.72 : 0.6));
+    const baseRadius = options.baseRadius ?? (kind==='active' ? 76 : 54);
+    runtime.effects.push({
+      type:'player-pickup',
+      kind,
+      ttl: duration,
+      life: duration,
+      baseRadius,
+      phase: 0,
+      follow: options.follow !== false,
+      x: player.x,
+      y: player.y,
+      update(effect, dt){
+        effect.phase += dt;
+        if(effect.follow !== false && player){
+          effect.x = player.x;
+          effect.y = player.y;
+        }
+      },
+    });
+  }
+
+  function spawnPlayerActiveUseEffect(options={}){
+    if(!runtime?.effects || !player) return;
+    const duration = Math.max(0.2, options.duration ?? 0.55);
+    runtime.effects.push({
+      type:'player-active-use',
+      ttl: duration,
+      life: duration,
+      phase: 0,
+      follow: options.follow !== false,
+      x: player.x,
+      y: player.y,
+      update(effect, dt){
+        effect.phase += dt;
+        if(effect.follow !== false && player){
+          effect.x = player.x;
+          effect.y = player.y;
+        }
+      },
+    });
+  }
+
   function spawnCircularEffect(x,y,radius, options={}){
     if(!runtime?.effects) return;
     const duration = Math.max(0.05, options.duration ?? 0.35);
@@ -6206,8 +6531,11 @@
     if(!runtime.effects || !runtime.effects.length) return;
     for(let i=runtime.effects.length-1;i>=0;i--){
       const effect = runtime.effects[i];
-      effect.life -= dt;
-      if(effect.life<=0){
+      if(effect && typeof effect.update === 'function'){
+        effect.update(effect, dt);
+      }
+      if(typeof effect.life === 'number'){ effect.life -= dt; }
+      if((typeof effect.life === 'number' && effect.life<=0) || effect.done){
         runtime.effects.splice(i,1);
       }
     }
@@ -6218,6 +6546,14 @@
     for(const effect of runtime.effects){
       if(effect.type==='burst'){
         drawBurstEffect(effect);
+      } else if(effect.type==='enemy-shatter'){
+        drawEnemyShatterEffect(effect);
+      } else if(effect.type==='blood-puddle'){
+        drawBloodPuddleEffect(effect);
+      } else if(effect.type==='player-pickup'){
+        drawPlayerPickupEffect(effect);
+      } else if(effect.type==='player-active-use'){
+        drawPlayerActiveUseEffect(effect);
       } else if(typeof effect.draw === 'function'){
         effect.draw(ctx, effect);
       }
@@ -6235,27 +6571,7 @@
       if(!geom || geom.length<=0) continue;
       const owner = beam?.owner;
       const width = owner?.getBrimstoneWidth?.() ?? beam?.width ?? 24;
-      const half = Math.max(4, width * 0.5);
-      ctx.save();
-      ctx.translate((geom.startX + geom.endX)/2, (geom.startY + geom.endY)/2);
-      ctx.rotate(Math.atan2(geom.endY - geom.startY, geom.endX - geom.startX));
-      const length = Math.max(8, geom.length);
-      const rx = length/2;
-      const ry = half;
-      const gradient = ctx.createRadialGradient(0,0,Math.max(1,ry*0.3),0,0,Math.max(rx,ry));
-      gradient.addColorStop(0, colorWithAlpha('#fde68a',0.55));
-      gradient.addColorStop(0.35, colorWithAlpha('#fca5a5',0.45));
-      gradient.addColorStop(1, colorWithAlpha('#f97316',0));
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI*2);
-      ctx.fill();
-      ctx.strokeStyle = colorWithAlpha('#fb7185',0.35);
-      ctx.lineWidth = Math.max(2, ry*0.35);
-      ctx.beginPath();
-      ctx.ellipse(0, 0, rx*0.95, ry*0.85, 0, 0, Math.PI*2);
-      ctx.stroke();
-      ctx.restore();
+      drawCylindricalBeam(geom, width, {alpha:0.9});
     }
   }
 
@@ -6273,6 +6589,142 @@
     ctx.beginPath();
     ctx.arc(effect.x, effect.y, radius, 0, Math.PI*2);
     ctx.fill();
+    ctx.restore();
+  }
+
+  function drawEnemyShatterEffect(effect){
+    if(!effect?.pieces || !effect.pieces.length) return;
+    const ttl = effect.ttl || 0.0001;
+    const remain = clamp(effect.life/ttl, 0, 1);
+    const alpha = Math.max(0.12, 0.9 - (1-remain)*0.6);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = alpha;
+    for(const piece of effect.pieces){
+      ctx.save();
+      ctx.translate(piece.x, piece.y);
+      ctx.rotate(piece.rot || 0);
+      const size = Math.max(3, piece.size || 6);
+      const half = size * 0.5;
+      const color = piece.color || '#fb7185';
+      const gradient = ctx.createLinearGradient(-half, -half, half, half);
+      gradient.addColorStop(0, colorWithAlpha(shadeColor(color, 0.12), 0.55));
+      gradient.addColorStop(1, colorWithAlpha(shadeColor(color, -0.25), 0.95));
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      const h = size * 0.62;
+      ctx.moveTo(0, -h);
+      ctx.lineTo(h*0.78, 0);
+      ctx.lineTo(0, h);
+      ctx.lineTo(-h*0.78, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function drawBloodPuddleEffect(effect){
+    if(!effect) return;
+    const ttl = effect.ttl || 0.0001;
+    const remain = clamp(effect.life/ttl, 0, 1);
+    const palette = effect.palette || ['#fb7185', '#f43f5e', '#7f1d1d'];
+    const radius = Math.max(10, effect.radius || 24);
+    const intensity = 1 - Math.pow(remain, 1.25);
+    ctx.save();
+    ctx.translate(effect.x, effect.y);
+    const wobble = Math.sin(performance.now()/520 + (effect.wobble || 0)) * 0.08;
+    ctx.rotate(wobble);
+    ctx.scale(1, 0.74);
+    const g = ctx.createRadialGradient(0,0,radius*0.12,0,0,radius);
+    g.addColorStop(0, colorWithAlpha(palette[0] || '#fb7185', 0.85 * (0.7 + intensity*0.3)));
+    g.addColorStop(0.6, colorWithAlpha(palette[1] || '#f43f5e', 0.55 * (0.6 + intensity*0.4)));
+    g.addColorStop(1, colorWithAlpha(palette[2] || '#7f1d1d', 0));
+    ctx.fillStyle = g;
+    const shape = effect.shape && effect.shape.length ? effect.shape : [1,1,1,1];
+    const steps = shape.length;
+    ctx.beginPath();
+    for(let i=0;i<steps;i++){
+      const angle = (Math.PI*2/steps)*i;
+      const scale = shape[i] || 1;
+      const px = Math.cos(angle) * radius * scale;
+      const py = Math.sin(angle) * radius * 0.62 * scale;
+      if(i===0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.globalAlpha = Math.max(0.14, 0.5 * (0.4 + intensity*0.6));
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawPlayerPickupEffect(effect){
+    const ttl = effect.ttl || 0.0001;
+    const remain = clamp(effect.life/ttl, 0, 1);
+    const intensity = 1 - Math.pow(remain, 2);
+    const radius = (effect.baseRadius || 60) * (0.42 + intensity*0.7);
+    const targetX = (player && effect.follow!==false) ? player.x : effect.x;
+    const targetY = (player && effect.follow!==false) ? player.y : effect.y;
+    if(targetX===undefined || targetY===undefined) return;
+    const isActive = effect.kind === 'active';
+    const outer = isActive ? '#a855f7' : '#38bdf8';
+    const inner = isActive ? '#f5d0fe' : '#bae6ff';
+    ctx.save();
+    ctx.translate(targetX, targetY);
+    ctx.globalAlpha = Math.max(0.28, 0.9 - intensity*0.35);
+    const gradient = ctx.createRadialGradient(0,0,radius*0.15,0,0,radius);
+    gradient.addColorStop(0, colorWithAlpha(inner, 0.92));
+    gradient.addColorStop(1, colorWithAlpha(outer, 0));
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(0,0,radius,0,Math.PI*2);
+    ctx.fill();
+    ctx.globalAlpha = Math.max(0.36, 0.92 - intensity*0.5);
+    ctx.strokeStyle = colorWithAlpha(isActive ? '#c4b5fd' : '#bae6ff', 0.9);
+    ctx.lineWidth = 3 + intensity*6;
+    ctx.beginPath();
+    ctx.arc(0,0,radius*0.68,0,Math.PI*2);
+    ctx.stroke();
+    const orbit = isActive ? 4 : 3;
+    ctx.globalAlpha = 0.82;
+    ctx.fillStyle = colorWithAlpha('#ffffff', 0.92);
+    const spin = effect.phase* (isActive ? 4.8 : 3.6);
+    for(let i=0;i<orbit;i++){
+      const angle = spin + (Math.PI*2/orbit)*i;
+      const dist = radius*0.58;
+      const sx = Math.cos(angle) * dist;
+      const sy = Math.sin(angle) * dist;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 4 + intensity*2.1, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawPlayerActiveUseEffect(effect){
+    const ttl = effect.ttl || 0.0001;
+    const progress = clamp(1 - (effect.life/ttl), 0, 1);
+    const targetX = (player && effect.follow!==false) ? player.x : effect.x;
+    const targetY = (player && effect.follow!==false) ? player.y : effect.y;
+    if(targetX===undefined || targetY===undefined) return;
+    const base = (player?.r || 12) * 1.4;
+    const radius = base + progress * 120;
+    ctx.save();
+    ctx.translate(targetX, targetY);
+    ctx.globalAlpha = Math.max(0.25, 0.82 - progress*0.55);
+    const gradient = ctx.createRadialGradient(0,0,radius*0.18,0,0,radius);
+    gradient.addColorStop(0, colorWithAlpha('#fde68a', 0.92));
+    gradient.addColorStop(0.45, colorWithAlpha('#fcd34d', 0.45));
+    gradient.addColorStop(1, colorWithAlpha('#f97316', 0));
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(0,0,radius,0,Math.PI*2);
+    ctx.fill();
+    ctx.globalAlpha = Math.max(0.2, 0.68 - progress*0.45);
+    ctx.strokeStyle = colorWithAlpha('#fee2e2', 0.86);
+    ctx.lineWidth = 6 + progress*9;
+    ctx.beginPath();
+    ctx.arc(0,0,radius*0.82,0,Math.PI*2);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -6428,6 +6880,7 @@
     runtime.floor = currentFloor;
     dungeon = new Dungeon();
     player = new Player(CONFIG.roomW/2, CONFIG.roomH/2);
+    SFX.prime();
     keys.clear();
     dungeon.current.visited=true;
     dungeon.revealRoom(dungeon.current);
@@ -6749,6 +7202,8 @@
           const healValue = Math.min(missing, p.heal || 1);
           if(healValue>0){
             player.hp = Math.min(player.maxHp, player.hp + healValue);
+            playSfx('pickup-heart');
+            spawnCircularEffect(player.x, player.y, 34, {innerColor:'#ffe4e6', midColor:'#fda4af', outerColor:'#fb7185', duration:0.45});
             if(typeof p.heal === 'number'){
               p.heal = Math.max(0, (p.heal || 0) - healValue);
               p.r = p.heal>1 ? 14 : 10;
@@ -6769,6 +7224,7 @@
           const amount = p.amount || 1;
           const gained = grantResource(p.type, amount);
           if(gained>0){
+            playSfx('pickup-resource');
             if(typeof p.amount === 'number'){
               p.amount = Math.max(0, amount - gained);
             }
@@ -7841,6 +8297,8 @@
     if(!enemy) return;
     if(enemy._dropHandled) return;
     enemy._dropHandled = true;
+    spawnEnemyShatterEffect(enemy);
+    playSfx('enemy-death');
     if(typeof enemy.onDeath === 'function'){
       enemy.onDeath(room);
     }
@@ -7958,6 +8416,8 @@
     const context = {runtime, dungeon, config: CONFIG};
     const outcome = player.useActiveItem(context);
     if(outcome === false) return;
+    spawnPlayerActiveUseEffect();
+    playSfx('active-use');
     if(runtime.itemPickupTimer<=0){
       let name = `${item.name || '主动道具'} 已释放`;
       let desc = item.description || '主动效果发动。';
@@ -8045,11 +8505,9 @@
     room.pickups.splice(targetIndex,1);
     if(pickup.entry.type==='item'){
       const item = pickup.entry.item;
-      if(typeof item.apply === 'function'){ item.apply(player); }
-      if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
-      registerItemDiscovery(item);
+      const result = grantItemToPlayer(item, {source:'shop'});
       runtime.itemPickupName = item.name;
-      runtime.itemPickupDesc = item.description || '';
+      runtime.itemPickupDesc = describeItemPickup(item, result.type);
       runtime.itemPickupTimer = 2.4;
       maybeSpawnCardDrop(dungeon.current, {x: pickup.x, y: pickup.y});
     } else if(pickup.entry.type==='card'){
@@ -8058,6 +8516,7 @@
       const gained = grantResource(pickup.entry.resource, pickup.entry.amount);
       const label = RESOURCE_LABELS[pickup.entry.resource] || '资源';
       if(gained>0){
+        playSfx('pickup-resource');
         runtime.itemPickupName = `${label} +${gained}`;
         runtime.itemPickupDesc = '来自商店柜台的友情价';
         runtime.itemPickupTimer = 1.5;
