@@ -3068,25 +3068,46 @@
     if(p.y < marginY){ p.y = marginY; if(p.vy<0) p.vy*=-0.35; }
     if(p.y > CONFIG.roomH - marginY){ p.y = CONFIG.roomH - marginY; if(p.vy>0) p.vy*=-0.35; }
   }
-  function resolvePickupObstacles(p){
-    if(!dungeon?.current) return;
-    if(p.spawnGrace>0) return;
+  function resolvePickupObstacles(p, dt=0){
+    if(!dungeon?.current) return false;
+    if(p.spawnGrace>0) return false;
+    const physical = isPhysicalPickup(p);
+    let collided = false;
     for(const obs of dungeon.current.obstacles){
       if(obs.destroyed) continue;
       const push = circleRectResolve(p, obs);
-      if(push){
-        p.x += push.x;
-        p.y += push.y;
-        const len = Math.hypot(push.x, push.y) || 1;
-        const nx = push.x/len;
-        const ny = push.y/len;
+      if(!push) continue;
+      collided = true;
+      p.x += push.x;
+      p.y += push.y;
+      const len = Math.hypot(push.x, push.y) || 0;
+      const nx = len ? push.x/len : 0;
+      const ny = len ? push.y/len : 0;
+      if(physical){
         const dot = p.vx*nx + p.vy*ny;
         if(dot<0){
           p.vx -= dot*nx;
           p.vy -= dot*ny;
         }
       }
+      if(dt>0 && (nx || ny)){
+        const slideTimer = Math.min(1, (p._stuckSlide || 0) + dt);
+        p._stuckSlide = slideTimer;
+        const baseSpeed = physical ? 65 : 80;
+        const slideSpeed = baseSpeed * (0.35 + slideTimer*0.65);
+        const move = slideSpeed * dt;
+        if(move>0){
+          p.x += nx * move;
+          p.y += ny * move;
+          if(physical){
+            const impulse = slideSpeed * 0.25 * dt;
+            p.vx += nx * impulse;
+            p.vy += ny * impulse;
+          }
+        }
+      }
     }
+    return collided;
   }
   function updatePickups(dt){
     const picks = dungeon?.current?.pickups;
@@ -3096,17 +3117,31 @@
       if(typeof p.spawnGrace === 'number' && p.spawnGrace>0){
         p.spawnGrace = Math.max(0, p.spawnGrace - dt);
       }
-      if(!isPhysicalPickup(p)) continue;
+      const physical = isPhysicalPickup(p);
       ensurePickupMotion(p);
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.vx *= decay;
-      p.vy *= decay;
-      if(Math.abs(p.vx) < 1e-2) p.vx = 0;
-      if(Math.abs(p.vy) < 1e-2) p.vy = 0;
-      keepPickupInBounds(p);
-      if(!(p.spawnGrace>0)){
-        resolvePickupObstacles(p);
+      if(physical){
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vx *= decay;
+        p.vy *= decay;
+        if(Math.abs(p.vx) < 1e-2) p.vx = 0;
+        if(Math.abs(p.vy) < 1e-2) p.vy = 0;
+        keepPickupInBounds(p);
+      } else {
+        p.vx = 0;
+        p.vy = 0;
+      }
+      const stuck = resolvePickupObstacles(p, dt);
+      if(!physical){
+        keepPickupInBounds(p);
+      }
+      if(!stuck && p._stuckSlide){
+        if(dt>0){
+          p._stuckSlide = Math.max(0, p._stuckSlide - dt*1.5);
+          if(p._stuckSlide <= 1e-3) delete p._stuckSlide;
+        } else {
+          delete p._stuckSlide;
+        }
       }
     }
   }
@@ -6528,6 +6563,9 @@
     brood:14,
   };
 
+  const MAX_BOSS_SUMMONS = 5;
+  const GLOBAL_BOSS_SUMMON_KEY = {tag:'global-boss-summon'};
+
   function rollEnemyType(depth){
     const floorLevel = Math.max(1, Math.floor(currentFloor || 1));
     const weights = [
@@ -6664,10 +6702,14 @@
       ensureEnemyKnockState(this);
     }
     update(dt){
+      const prevX = this.x;
+      const prevY = this.y;
       const knocked = resolveEnemyKnockback(this, dt);
       if(knocked){
-        this.base.x = this.x;
-        this.base.y = this.y;
+        const dx = this.x - prevX;
+        const dy = this.y - prevY;
+        if(Number.isFinite(dx)) this.base.x += dx;
+        if(Number.isFinite(dy)) this.base.y += dy;
       } else {
         const slowMul = this.hitSlowTimer>0 ? this.hitSlowFactor : 1;
         this.t += this.omega*dt;
@@ -8200,7 +8242,7 @@
         const pos = {x: clamp(this.x + Math.cos(angle)*radius, 70, CONFIG.roomW-70), y: clamp(this.y + Math.sin(angle)*radius, 70, CONFIG.roomH-70)};
         const minion = makeEnemy(rollEnemyType(dungeon.depth+2), pos, dungeon.depth+2);
         minion.r += 2;
-        queueEnemySpawn(minion);
+        queueEnemySpawn(minion, {bossSummon:true, summoner:this});
       }
     }
     chargeAttack(){
@@ -8431,7 +8473,7 @@
           x: clamp(this.x + Math.cos(ang)*distLen, 80, CONFIG.roomW-80),
           y: clamp(this.y + Math.sin(ang)*distLen, 90, CONFIG.roomH-90)
         };
-        queueEnemySpawn(makeEnemy('spider', pos, dungeon.depth+1));
+        queueEnemySpawn(makeEnemy('spider', pos, dungeon.depth+1), {bossSummon:true, summoner:this});
       }
       this.state='wave';
       this.recoverTimer = (this.enraged ? 0.8 : 1.0);
@@ -10002,8 +10044,9 @@
         const mx = clamp(this.x + Math.cos(angle)*radius, 70, CONFIG.roomW-70);
         const my = clamp(this.y + Math.sin(angle)*radius, 80, CONFIG.roomH-80);
         const minion = new EnemyShadowEcho(mx, my, this);
-        this.minions.add(minion);
-        queueEnemySpawn(minion);
+        if(queueEnemySpawn(minion, {bossSummon:true, summoner:this})){
+          this.minions.add(minion);
+        }
       }
     }
     removeMinion(minion){
@@ -10293,8 +10336,9 @@
         const ex = clamp(this.x + Math.cos(angle)*radius, 90, CONFIG.roomW-90);
         const ey = clamp(this.y + Math.sin(angle)*radius, 100, CONFIG.roomH-100);
         const minion = new EnemyShadowEcho(ex, ey, this);
-        this.minions.add(minion);
-        queueEnemySpawn(minion);
+        if(queueEnemySpawn(minion, {bossSummon:true, summoner:this})){
+          this.minions.add(minion);
+        }
       }
     }
     castShardStorm(){
@@ -10305,8 +10349,9 @@
         const sx = clamp(this.x + Math.cos(angle)*radius, 80, CONFIG.roomW-80);
         const sy = clamp(this.y + Math.sin(angle)*radius, 90, CONFIG.roomH-90);
         const shard = new EnemyParadoxShard(sx, sy, this);
-        this.shards.add(shard);
-        queueEnemySpawn(shard);
+        if(queueEnemySpawn(shard, {bossSummon:true, summoner:this})){
+          this.shards.add(shard);
+        }
       }
     }
     castTimeSnare(){
@@ -10778,6 +10823,19 @@
     }
   }
 
+  function getRoomKey(room = dungeon?.current){
+    if(!room) return null;
+    if(Number.isFinite(room.i) && Number.isFinite(room.j)){
+      return `${room.i},${room.j}`;
+    }
+    return null;
+  }
+
+  function clearRoomDecals(){
+    if(Array.isArray(runtime.decals)) runtime.decals.length = 0;
+    else runtime.decals = [];
+  }
+
   function addFloorStain(x, y, radius=32, color='#991b1b', options={}){
     if(!runtime.decals) runtime.decals = [];
     const ttl = Math.max(3, options.life ?? 24);
@@ -10790,6 +10848,7 @@
       baseAlpha: options.alpha ?? 0.38,
       life: ttl,
       ttl,
+      roomKey: getRoomKey(),
     });
   }
 
@@ -11033,6 +11092,8 @@
     }
     if(!exchange.portal){ exchange.portal = spawnReturnPortal(exchange, sourceRoom); }
     dungeon.current = exchange;
+    clearBossSummonTracker();
+    clearRoomDecals();
     exchange.visited = true;
     exchange.cleared = true;
     exchange.combatRoom = false;
@@ -11069,6 +11130,8 @@
     const targetRoom = entry?.room || portal?.originRoom || dungeon.current || dungeon.start;
     if(!targetRoom){ return false; }
     dungeon.current = targetRoom;
+    clearBossSummonTracker();
+    clearRoomDecals();
     targetRoom.visited = true;
     player.handleRoomChange(targetRoom);
     const fallback = targetRoom.center ? targetRoom.center() : {x: CONFIG.roomW/2, y: CONFIG.roomH/2};
@@ -11242,6 +11305,7 @@
     floor: currentFloor,
     effects: [],
     decals: [],
+    bossSummons: new Map(),
     screenShake: {intensity:0, duration:0, offsetX:0, offsetY:0},
     timeStopTimer: 0,
     timeStopDuration: 0,
@@ -11338,7 +11402,8 @@
     runtime.roomStack.length = 0;
     runtime.exchangeRoom = null;
     runtime.effects.length = 0;
-    if(Array.isArray(runtime.decals)) runtime.decals.length = 0;
+    clearRoomDecals();
+    clearBossSummonTracker();
     runtime.timeStopTimer = 0;
     runtime.timeStopDuration = 0;
     runtime.timeStopSource = null;
@@ -11396,7 +11461,8 @@
     runtime.roomStack.length = 0;
     runtime.exchangeRoom = null;
     runtime.effects.length = 0;
-    if(Array.isArray(runtime.decals)) runtime.decals.length = 0;
+    clearRoomDecals();
+    clearBossSummonTracker();
     runtime.timeStopTimer = 0;
     runtime.timeStopDuration = 0;
     runtime.timeStopSource = null;
@@ -11452,7 +11518,8 @@
     runtime.roomStack.length = 0;
     runtime.exchangeRoom = null;
     runtime.effects.length = 0;
-    if(Array.isArray(runtime.decals)) runtime.decals.length = 0;
+    clearRoomDecals();
+    clearBossSummonTracker();
     runtime.timeStopTimer = 0;
     runtime.timeStopDuration = 0;
     runtime.timeStopSource = null;
@@ -11550,6 +11617,8 @@
       if(!nr.visited){ dungeon.depth++; }
       nr.visited = true;
       dungeon.revealRoom(nr);
+      clearBossSummonTracker();
+      clearRoomDecals();
       player.handleRoomChange(nr);
       // 入口位置
       if(d.dir==='up'){ player.x=CONFIG.roomW/2; player.y=CONFIG.roomH-60; }
@@ -11705,7 +11774,13 @@
     if(!timeStopActive && runtime.pendingEnemySpawns.length){
       while(runtime.pendingEnemySpawns.length){
         const spawn = prepareEnemy(runtime.pendingEnemySpawns.shift());
-        if(spawn){ enemies.push(spawn); }
+        if(spawn){
+          if(spawn.isBossSummon && !spawn.bossSummoner && spawn.master && spawn.master.isBossEntity){
+            spawn.bossSummoner = spawn.master;
+          }
+          if(spawn.isBossSummon){ registerBossSummon(spawn); }
+          enemies.push(spawn);
+        }
       }
     }
     updateBeams(dt);
@@ -11736,7 +11811,15 @@
       }
     }
     // 清理死亡
-    dungeon.current.enemies = enemies.filter(e=>!e.dead);
+    const survivors = [];
+    for(const e of enemies){
+      if(e.dead){
+        if(e.isBossSummon){ unregisterBossSummon(e); }
+        continue;
+      }
+      survivors.push(e);
+    }
+    dungeon.current.enemies = survivors;
 
     // 玩家被弹幕命中
     if(!timeStopActive){
@@ -13174,6 +13257,7 @@
     if(!enemy) return;
     if(enemy._dropHandled) return;
     enemy._dropHandled = true;
+    if(enemy.isBossSummon){ unregisterBossSummon(enemy); }
     triggerEnemyDeathEffects(enemy);
     if(typeof enemy.onDeath === 'function'){
       enemy.onDeath(room);
@@ -13184,6 +13268,7 @@
       room.cleared = true;
       spawnBossRewards(room, enemy.x, enemy.y);
       spawnBossPortal(room);
+      if(runtime.bossSummons){ runtime.bossSummons.delete(enemy); }
     } else {
       if(rand() < CONFIG.drops.heartPerEnemy){
         const heal = rand() < CONFIG.drops.doubleHeartChance ? 2 : 1;
@@ -13418,7 +13503,99 @@
     return pickup;
   }
 
-  function queueEnemySpawn(enemy){ runtime.pendingEnemySpawns.push(prepareEnemy(enemy)); }
+  function ensureBossSummonTracker(){
+    if(!runtime.bossSummons || typeof runtime.bossSummons.clear !== 'function'){
+      runtime.bossSummons = new Map();
+    }
+    return runtime.bossSummons;
+  }
+
+  function clearBossSummonTracker(){
+    if(runtime.bossSummons && typeof runtime.bossSummons.clear === 'function'){
+      runtime.bossSummons.clear();
+    } else {
+      runtime.bossSummons = new Map();
+    }
+  }
+
+  function getBossSummonKey(summoner){
+    return summoner || GLOBAL_BOSS_SUMMON_KEY;
+  }
+
+  function countActiveBossSummons(summoner){
+    const tracker = ensureBossSummonTracker();
+    const key = getBossSummonKey(summoner);
+    const set = tracker.get(key);
+    if(!set) return 0;
+    let count = 0;
+    for(const entry of Array.from(set)){
+      if(entry && !entry.dead){
+        count++;
+      } else {
+        set.delete(entry);
+      }
+    }
+    if(set.size===0){ tracker.delete(key); }
+    return count;
+  }
+
+  function countPendingBossSummons(summoner){
+    const pending = runtime.pendingEnemySpawns;
+    if(!Array.isArray(pending) || pending.length===0) return 0;
+    const key = getBossSummonKey(summoner);
+    let total = 0;
+    for(const spawn of pending){
+      if(!spawn?.isBossSummon) continue;
+      const spawnKey = getBossSummonKey(spawn.bossSummoner);
+      if(spawnKey !== key) continue;
+      total++;
+    }
+    return total;
+  }
+
+  function registerBossSummon(enemy){
+    if(!enemy?.isBossSummon) return;
+    const tracker = ensureBossSummonTracker();
+    const key = getBossSummonKey(enemy.bossSummoner);
+    let set = tracker.get(key);
+    if(!set){
+      set = new Set();
+      tracker.set(key, set);
+    }
+    set.add(enemy);
+  }
+
+  function unregisterBossSummon(enemy){
+    if(!enemy?.isBossSummon) return;
+    const tracker = runtime.bossSummons;
+    if(!tracker) return;
+    const key = getBossSummonKey(enemy.bossSummoner);
+    const set = tracker.get(key);
+    if(!set) return;
+    set.delete(enemy);
+    if(set.size===0){ tracker.delete(key); }
+  }
+
+  function queueEnemySpawn(enemy, options={}){
+    if(!enemy) return false;
+    const opts = options || {};
+    const flagged = !!(opts.bossSummon || enemy.isBossSummon);
+    let summoner = opts.summoner || enemy.bossSummoner;
+    if(!summoner && enemy?.master && enemy.master.isBossEntity){
+      summoner = enemy.master;
+    }
+    if(flagged){
+      const totalActive = countActiveBossSummons(summoner);
+      const totalPending = countPendingBossSummons(summoner);
+      if(totalActive + totalPending >= MAX_BOSS_SUMMONS){
+        return false;
+      }
+      enemy.isBossSummon = true;
+      enemy.bossSummoner = summoner || null;
+    }
+    runtime.pendingEnemySpawns.push(prepareEnemy(enemy));
+    return true;
+  }
 
   function placeBomb(){
     if(!player || !dungeon?.current) return;
