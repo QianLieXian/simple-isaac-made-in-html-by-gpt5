@@ -125,6 +125,14 @@
           <p>按 <b>R</b> 重开，或者 <b>Enter</b> 回到主菜单准备再战。</p>
         </div>
       </div>
+      <div class="overlay" id="ending">
+        <div class="card">
+          <h2 id="ending-title">轮回终章</h2>
+          <p id="ending-summary">你跨越了未知的地窖。</p>
+          <p id="ending-detail">按 <b>Enter</b> 返回主菜单，或 <b>R</b> 立刻再来一遍。</p>
+          <a class="btn" href="#" id="ending-loop-btn">继续轮回</a>
+        </div>
+      </div>
     </div>
     <div class="panel hud">
       <div id="hud-left" class="hud-section"></div>
@@ -290,6 +298,7 @@
   function randRange(min,max){return min + (max-min)*rand()}
   function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
   function dist(a,b){const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy)}
+  const PICKUP_BANNER_TIME_SCALE = 1.6;
   function isTimeStopActive(){
     return !!(runtime && runtime.timeStopTimer>0);
   }
@@ -339,6 +348,82 @@
     const lerp = (a,b)=>Math.round(a + (b-a)*mix);
     const toHex = (c)=>c.toString(16).padStart(2,'0');
     return `#${toHex(lerp(from.r,to.r))}${toHex(lerp(from.g,to.g))}${toHex(lerp(from.b,to.b))}`;
+  }
+
+  function createRunTimer(){
+    const pauseSources = new Set();
+    const scaleSources = new Map();
+    let elapsed = 0;
+    let started = false;
+
+    function totalScale(){
+      if(scaleSources.size===0) return 1;
+      let scale = 1;
+      for(const value of scaleSources.values()){
+        if(!Number.isFinite(value)) continue;
+        scale *= value;
+      }
+      return Math.max(0, scale);
+    }
+
+    return {
+      reset(){
+        elapsed = 0;
+        started = false;
+        pauseSources.clear();
+        scaleSources.clear();
+      },
+      start(){ started = true; },
+      stop(){ started = false; },
+      setPauseSource(source, active){
+        if(!source) return;
+        if(active){ pauseSources.add(source); }
+        else { pauseSources.delete(source); }
+      },
+      setScaleSource(source, factor){
+        if(!source) return;
+        if(!Number.isFinite(factor) || factor===1){
+          scaleSources.delete(source);
+        } else {
+          scaleSources.set(source, Math.max(0, factor));
+        }
+      },
+      tick(dt){
+        if(!started) return;
+        if(pauseSources.size>0) return;
+        if(!Number.isFinite(dt)) return;
+        if(dt===0) return;
+        const scale = totalScale();
+        if(scale<=0) return;
+        const delta = dt * scale;
+        if(!Number.isFinite(delta) || delta===0) return;
+        elapsed = Math.max(0, elapsed + delta);
+      },
+      rewind(amount){
+        if(Number.isFinite(amount) && amount>0){
+          elapsed = Math.max(0, elapsed - amount);
+        }
+        return elapsed;
+      },
+      addTime(amount){
+        if(Number.isFinite(amount) && amount!==0){
+          elapsed = Math.max(0, elapsed + amount);
+        }
+        return elapsed;
+      },
+      getElapsed(){ return elapsed; },
+      isRunning(){ return started && pauseSources.size===0; },
+      format(){
+        const total = Math.max(0, elapsed);
+        const minutes = Math.floor(total / 60);
+        const seconds = Math.floor(total % 60);
+        const fraction = Math.floor((total - Math.floor(total)) * 100);
+        return `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}.${String(fraction).padStart(2,'0')}`;
+      },
+      snapshot(){
+        return {elapsed, started, pauseCount: pauseSources.size};
+      },
+    };
   }
 
   function createAudioManager(){
@@ -469,14 +554,25 @@
     {di:0,dj:1,key:'right',opp:'left'}
   ];
   const BOSS_TYPES = [
-    {id:'idol', name:'哭泣塑像 · 社畜蛹'},
-    {id:'master', name:'余烬教官 · Master'},
-    {id:'hydra', name:'缠鳞九首 · 海德拉'},
-    {id:'seer', name:'裂隙先知 · 星瞳使者'},
-    {id:'titan', name:'震颤机偶 · 玄铁执事'},
+    {id:'idol', name:'哭泣塑像 · 社畜蛹', tier:'default'},
+    {id:'master', name:'余烬教官 · Master', tier:'default'},
+    {id:'hydra', name:'缠鳞九首 · 海德拉', tier:'default'},
+    {id:'seer', name:'裂隙先知 · 星瞳使者', tier:'default'},
+    {id:'titan', name:'震颤机偶 · 玄铁执事', tier:'default'},
+    {id:'umbra', name:'黯影穿梭者 · 深渊夜行', tier:'penultimate'},
+    {id:'paradox', name:'终焉织主 · 循环之心', tier:'final'},
   ];
+  const FINAL_FLOOR = 7;
   function rollBossType(){
-    return BOSS_TYPES[Math.floor(rand()*BOSS_TYPES.length)];
+    if(currentFloor >= FINAL_FLOOR){
+      return getBossMeta('paradox');
+    }
+    if(currentFloor === FINAL_FLOOR - 1){
+      return getBossMeta('umbra');
+    }
+    const pool = BOSS_TYPES.filter(b=>!b.tier || b.tier==='default');
+    const base = pool.length ? pool[Math.floor(rand()*pool.length)] : BOSS_TYPES[0];
+    return base;
   }
   function getBossMeta(id){
     return BOSS_TYPES.find(b=>b.id===id) || BOSS_TYPES[0];
@@ -1979,18 +2075,43 @@
   const overlayMenu = document.getElementById('menu');
   const overlayPaused = document.getElementById('paused');
   const overlayOver = document.getElementById('gameover');
-  const overlayManager = createOverlayManager({ menu: overlayMenu, paused: overlayPaused, over: overlayOver });
+  const overlayEnding = document.getElementById('ending');
+  const endingTitleNode = document.getElementById('ending-title');
+  const endingSummaryNode = document.getElementById('ending-summary');
+  const endingDetailNode = document.getElementById('ending-detail');
+  const overlayManager = createOverlayManager({ menu: overlayMenu, paused: overlayPaused, over: overlayOver, ending: overlayEnding });
   document.getElementById('startBtn').addEventListener('click', (e)=>{e.preventDefault(); audio.unlock(); startGame();});
+
+  const endingLoopBtn = document.getElementById('ending-loop-btn');
+  if(endingLoopBtn){
+    endingLoopBtn.addEventListener('click', (ev)=>{
+      ev.preventDefault();
+      startLoopRun({fromEnding:true});
+    });
+  }
 
   const STATE = { MENU:0, PLAY:1, PAUSE:2, OVER:3 };
   let state = STATE.MENU;
 
   function showMenu(){ state=STATE.MENU; overlayManager.setActive('menu'); }
   function togglePause(){
-    if(state===STATE.PLAY){ state=STATE.PAUSE; overlayManager.setActive('paused'); }
-    else if(state===STATE.PAUSE){ state=STATE.PLAY; overlayManager.clear(); lastTime = performance.now(); }
+    if(state===STATE.PLAY){
+      state=STATE.PAUSE;
+      overlayManager.setActive('paused');
+      runtime.runTimer?.setPauseSource('pause', true);
+    }
+    else if(state===STATE.PAUSE){
+      state=STATE.PLAY;
+      overlayManager.clear();
+      runtime.runTimer?.setPauseSource('pause', false);
+      lastTime = performance.now();
+    }
   }
-  function gameOver(){ state=STATE.OVER; overlayManager.setActive('over'); }
+  function gameOver(){
+    state=STATE.OVER;
+    runtime.runTimer?.setPauseSource('gameover', true);
+    overlayManager.setActive('over');
+  }
 
   // ======= 地图/房间生成 =======
   class Room{
@@ -3262,6 +3383,7 @@
       this.activeCharge = 0;
       this.activeMaxCharge = this.baseActiveMaxCharge;
       this.singleUseItem = null;
+      this.timeScaleModifiers = new Map();
       this.bombRadiusMultiplier = 1;
       this.bombDamageMultiplier = 1;
       this.bombShakeStrength = 0;
@@ -4312,6 +4434,40 @@
     setEnemySpawnFactor(factor){
       if(!Number.isFinite(factor)) return;
       this.enemySpawnFactor = clamp(factor, 0.2, 1);
+    }
+    getWorldTimeScale(){
+      if(!this.timeScaleModifiers || this.timeScaleModifiers.size===0) return 1;
+      let scale = 1;
+      for(const value of this.timeScaleModifiers.values()){
+        if(!Number.isFinite(value)) continue;
+        scale *= value;
+      }
+      return clamp(scale, 0, 4);
+    }
+    setTimeScaleModifier(tag, factor){
+      if(!tag) return;
+      if(!this.timeScaleModifiers || !(this.timeScaleModifiers instanceof Map)){
+        this.timeScaleModifiers = new Map();
+      }
+      if(!Number.isFinite(factor) || factor===1){
+        this.timeScaleModifiers.delete(tag);
+      } else {
+        this.timeScaleModifiers.set(tag, clamp(factor, 0, 4));
+      }
+    }
+    clearTimeScaleModifier(tag){
+      if(!tag || !this.timeScaleModifiers) return;
+      this.timeScaleModifiers.delete(tag);
+    }
+    rewindRunTimer(seconds){
+      if(runtime?.runTimer && Number.isFinite(seconds) && seconds>0){
+        runtime.runTimer.rewind(seconds);
+      }
+    }
+    adjustRunTimer(delta){
+      if(runtime?.runTimer && Number.isFinite(delta) && delta!==0){
+        runtime.runTimer.addTime(delta);
+      }
     }
     getIFrameMultiplier(){
       return Math.max(0.1, this.ifrBoostMultiplier || 1);
@@ -6217,6 +6373,12 @@
         break;
       case 'titan':
         boss = new EnemyBossTitan(pos.x, pos.y, bossName);
+        break;
+      case 'umbra':
+        boss = new EnemyBossUmbra(pos.x, pos.y, bossName);
+        break;
+      case 'paradox':
+        boss = new EnemyBossParadox(pos.x, pos.y, bossName);
         break;
       default:
         boss = new EnemyBoss(pos.x, pos.y, bossName);
@@ -8979,6 +9141,542 @@
     ctx.restore();
   }
 
+  class EnemyShadowEcho{
+    constructor(x,y,master){
+      this.x=x; this.y=y; this.r=11;
+      this.baseHp = 8;
+      this.hp = this.baseHp;
+      this.speed = 140;
+      this.master = master || null;
+      this.teleportTimer = randRange(1.4, 2.2);
+      this.invuln = 0.25;
+      this.tint = '#a855f7';
+      this.tintLight = '#d8b4fe';
+      this.flying = true;
+      this.preventDrops = true;
+      initializeEnemyStats(this, {hpBase:this.baseHp, speedFields:['speed']});
+      ensureEnemyKnockState(this);
+    }
+    update(dt){
+      if(this.invuln>0){ this.invuln = Math.max(0, this.invuln - dt); }
+      this.teleportTimer -= dt * (this.master && this.master.enraged ? 1.3 : 1);
+      if(this.teleportTimer<=0){ this.performTeleport(); }
+      const anchor = (this.master && !this.master.dead) ? this.master : player;
+      if(anchor){
+        const dx = anchor.x - this.x;
+        const dy = anchor.y - this.y;
+        const len = Math.hypot(dx,dy)||1;
+        const speed = this.speed * getEnemyGlobalSpeedMultiplier() * 0.9;
+        this.x += (dx/len) * speed * dt;
+        this.y += (dy/len) * speed * dt;
+      }
+      this.x = clamp(this.x, 50, CONFIG.roomW-50);
+      this.y = clamp(this.y, 60, CONFIG.roomH-60);
+      resolveEntityObstacles(this);
+      if(player && dist(this, player) < this.r + player.r - 1){ player.hurt(1); }
+    }
+    performTeleport(){
+      this.teleportTimer = randRange(1.6, 2.4);
+      this.invuln = 0.28;
+      const anchor = player || {x:CONFIG.roomW/2, y:CONFIG.roomH/2};
+      const radius = randRange(80, 150);
+      const angle = rand()*Math.PI*2;
+      this.x = clamp(anchor.x + Math.cos(angle)*radius, 60, CONFIG.roomW-60);
+      this.y = clamp(anchor.y + Math.sin(angle)*radius, 70, CONFIG.roomH-70);
+      spawnCircularEffect(this.x, this.y, 36, {
+        innerColor: colorWithAlpha('#ede9fe', 0.95),
+        midColor: colorWithAlpha('#a855f7', 0.4),
+        outerColor: colorWithAlpha('#1e1b4b', 0),
+      });
+    }
+    damage(d){
+      if(this.invuln>0) return false;
+      this.hp -= d;
+      if(this.hp<=0){ this.dead=true; return true; }
+      const px = player ? player.x : this.x;
+      const py = player ? player.y : this.y;
+      applyEnemyKnockback(this, this.x - px, this.y - py, {power:130, duration:0.16});
+      return false;
+    }
+    onDeath(){
+      if(this.master && typeof this.master.removeMinion === 'function'){ this.master.removeMinion(this); }
+    }
+    draw(){
+      const outer = this.invuln>0 ? '#ede9fe' : this.tintLight;
+      drawBlob(this.x, this.y, this.r, outer, this.tint);
+    }
+  }
+
+  class EnemyParadoxShard{
+    constructor(x,y,master){
+      this.x=x; this.y=y; this.r=12;
+      this.baseHp = 10;
+      this.hp = this.baseHp;
+      this.master = master || null;
+      this.orbitRadius = randRange(90, 150);
+      this.orbitAngle = rand()*Math.PI*2;
+      this.orbitSpeed = randRange(0.55, 1.05);
+      this.fireTimer = randRange(1.1, 1.9);
+      this.speed = 80;
+      this.flying = true;
+      this.preventDrops = true;
+      this.tint = '#f0abfc';
+      this.tintEdge = '#a855f7';
+      initializeEnemyStats(this, {hpBase:this.baseHp});
+      ensureEnemyKnockState(this);
+    }
+    update(dt){
+      const masterAlive = this.master && !this.master.dead;
+      const aggression = masterAlive && this.master.enraged ? 1.4 : 1;
+      if(masterAlive){
+        this.orbitAngle += this.orbitSpeed * dt * aggression;
+        const radius = this.orbitRadius * (this.master.phase===2 ? 0.85 : 1);
+        this.x = clamp(this.master.x + Math.cos(this.orbitAngle)*radius, 60, CONFIG.roomW-60);
+        this.y = clamp(this.master.y + Math.sin(this.orbitAngle)*radius, 70, CONFIG.roomH-70);
+      } else if(player){
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const len = Math.hypot(dx,dy)||1;
+        this.x += (dx/len) * this.speed * dt;
+        this.y += (dy/len) * this.speed * dt;
+      }
+      this.fireTimer -= dt * aggression;
+      if(this.fireTimer<=0){
+        this.fireTimer = randRange(1.2, 1.8);
+        this.shoot();
+      }
+      resolveEntityObstacles(this);
+      if(player && dist(this, player) < this.r + player.r - 1){ player.hurt(1); }
+    }
+    shoot(){
+      if(!player) return;
+      const angle = Math.atan2(player.y - this.y, player.x - this.x);
+      const speed = 170 + (this.master && this.master.enraged ? 50 : 0);
+      runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 3.8, 'spark'));
+    }
+    damage(d){
+      this.hp -= d;
+      if(this.hp<=0){ this.dead=true; return true; }
+      return false;
+    }
+    onDeath(){
+      if(this.master && typeof this.master.removeShard === 'function'){ this.master.removeShard(this); }
+    }
+    draw(){
+      drawBlob(this.x, this.y, this.r, this.tint, this.tintEdge);
+    }
+  }
+
+  class EnemyBossUmbra{
+    constructor(x,y,name){
+      this.x=x; this.y=y; this.r=30;
+      this.hp=80; this.maxHp=this.hp;
+      this.name=name;
+      this.state='stalk';
+      this.teleportTimer=2.2;
+      this.attackTimer=1.6;
+      this.teleportDuration=0.45;
+      this.teleportProgress=0;
+      this.invulnerableTimer=0;
+      this.enraged=false;
+      this.hitFlash=0;
+      this.minions=new Set();
+      this.isBossEntity=true;
+      this.scaling=getFloorScalingFactors();
+      this.hp=Math.round(this.hp*this.scaling.hp);
+      this.maxHp=this.hp;
+      this.speedScale=this.scaling.speed;
+      this.aggression=this.scaling.aggression;
+    }
+    update(dt){
+      this.hitFlash = Math.max(0, this.hitFlash - dt*3.4);
+      if(this.invulnerableTimer>0){ this.invulnerableTimer = Math.max(0, this.invulnerableTimer - dt); }
+      if(!this.enraged && this.hp <= this.maxHp*0.55){
+        this.enraged = true;
+        this.teleportTimer = Math.min(this.teleportTimer, 1.3);
+      }
+      if(this.state==='vanish'){
+        this.teleportProgress += dt * this.aggression / this.teleportDuration;
+        if(this.teleportProgress>=1){ this.performTeleport(); }
+        return;
+      }
+      if(this.state==='reappear'){
+        this.teleportProgress += dt * this.aggression / (this.teleportDuration*0.8);
+        if(this.teleportProgress>=1){ this.state='stalk'; this.teleportProgress=0; }
+      }
+      this.floatMovement(dt);
+      this.teleportTimer -= dt * this.aggression;
+      if(this.teleportTimer<=0){ this.beginTeleport(); }
+      this.attackTimer -= dt * this.aggression;
+      if(this.attackTimer<=0){ this.chooseAttack(); }
+    }
+    floatMovement(dt){
+      const baseSpeed = (this.enraged?125:100) * this.speedScale;
+      if(player){
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const len = Math.hypot(dx,dy)||1;
+        this.x += (dx/len) * baseSpeed * dt * 0.82;
+        this.y += (dy/len) * baseSpeed * dt * 0.82;
+      }
+      this.x += Math.cos(performance.now()/420) * 18 * dt;
+      this.y += Math.sin(performance.now()/360) * 16 * dt;
+      this.x = clamp(this.x, 80, CONFIG.roomW-80);
+      this.y = clamp(this.y, 90, CONFIG.roomH-90);
+      resolveEntityObstacles(this);
+      if(player && dist(this, player) < this.r + player.r - 2){ player.hurt(1); }
+    }
+    beginTeleport(){
+      this.state='vanish';
+      this.teleportProgress = 0;
+      this.teleportTimer = randRange(1.8, 2.4);
+      this.invulnerableTimer = Math.max(this.invulnerableTimer, 0.6);
+      spawnCircularEffect(this.x, this.y, this.r+24, {
+        innerColor: colorWithAlpha('#ede9fe', 0.85),
+        midColor: colorWithAlpha('#a855f7', 0.35),
+        outerColor: colorWithAlpha('#312e81', 0),
+      });
+    }
+    performTeleport(){
+      const anchor = player || {x:CONFIG.roomW/2, y:CONFIG.roomH/2};
+      const radius = randRange(120, 220);
+      const angle = rand()*Math.PI*2;
+      this.x = clamp(anchor.x + Math.cos(angle)*radius, 70, CONFIG.roomW-70);
+      this.y = clamp(anchor.y + Math.sin(angle)*radius, 80, CONFIG.roomH-80);
+      spawnCircularEffect(this.x, this.y, this.r+40, {
+        innerColor: colorWithAlpha('#f0abfc', 0.95),
+        midColor: colorWithAlpha('#6366f1', 0.45),
+        outerColor: colorWithAlpha('#1e1b4b', 0),
+      });
+      this.state='reappear';
+      this.teleportProgress = 0;
+      this.invulnerableTimer = Math.max(this.invulnerableTimer, 0.25);
+      this.launchShadowFan(true);
+    }
+    chooseAttack(){
+      const roll = rand();
+      if(roll < 0.45){
+        this.launchShadowFan();
+        this.attackTimer = (this.enraged?1.2:1.7);
+      } else if(roll < 0.75){
+        this.spawnShadowMinions();
+        this.attackTimer = (this.enraged?1.9:2.5);
+      } else {
+        this.launchChasingBlades();
+        this.attackTimer = (this.enraged?1.4:2.1);
+      }
+    }
+    launchShadowFan(forceLarge=false){
+      const waves = forceLarge ? 2 : (this.enraged ? 2 : 1);
+      const base = rand()*Math.PI*2;
+      for(let w=0; w<waves; w++){
+        const count = (this.enraged?18:14) + w*4;
+        for(let i=0;i<count;i++){
+          const angle = base + (Math.PI*2/count)*i + w*0.08;
+          const speed = 150 + w*30 + (this.enraged?35:0);
+          runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.6, 'needle'));
+        }
+      }
+    }
+    launchChasingBlades(){
+      const shots = this.enraged ? 6 : 4;
+      for(let i=0;i<shots;i++){
+        if(!player) break;
+        const angle = Math.atan2(player.y - this.y, player.x - this.x) + randRange(-0.22,0.22);
+        const speed = 220 + (this.enraged?60:0);
+        runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 3.6, 'spark'));
+      }
+    }
+    spawnShadowMinions(){
+      const count = this.enraged ? 3 : 2;
+      for(let i=0;i<count;i++){
+        const angle = rand()*Math.PI*2;
+        const radius = randRange(90, 160);
+        const mx = clamp(this.x + Math.cos(angle)*radius, 70, CONFIG.roomW-70);
+        const my = clamp(this.y + Math.sin(angle)*radius, 80, CONFIG.roomH-80);
+        const minion = new EnemyShadowEcho(mx, my, this);
+        this.minions.add(minion);
+        queueEnemySpawn(minion);
+      }
+    }
+    removeMinion(minion){
+      if(this.minions) this.minions.delete(minion);
+    }
+    damage(d){
+      if(this.invulnerableTimer>0 && (this.state==='vanish' || this.state==='reappear')) return false;
+      this.hp -= d;
+      this.hitFlash = 0.25;
+      if(this.hp<=0){ this.dead=true; return true; }
+      return false;
+    }
+    onDeath(){
+      if(this.minions){
+        for(const minion of this.minions){ if(minion) minion.dead = true; }
+        this.minions.clear();
+      }
+    }
+    draw(){
+      ctx.save();
+      let alpha = 1;
+      if(this.state==='vanish'){ alpha = Math.max(0.2, 1 - this.teleportProgress*0.85); }
+      else if(this.state==='reappear'){ alpha = Math.max(0.35, this.teleportProgress); }
+      if(this.invulnerableTimer>0){ alpha *= 0.8 + 0.2*Math.sin(performance.now()/90); }
+      ctx.globalAlpha = alpha;
+      const base = this.hitFlash>0 ? '#fdf2f8' : '#d8b4fe';
+      const edge = this.hitFlash>0 ? '#fde68a' : '#a855f7';
+      drawBlob(this.x, this.y, this.r, base, edge);
+      ctx.restore();
+      if(this.invulnerableTimer>0){
+        ctx.save();
+        ctx.globalAlpha = 0.25 + 0.15*Math.sin(performance.now()/120);
+        ctx.strokeStyle = '#c084fc';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r*1.45, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  class EnemyBossParadox{
+    constructor(x,y,name){
+      this.x=x; this.y=y; this.r=34;
+      this.hp=110; this.maxHp=this.hp;
+      this.name=name;
+      this.state='float';
+      this.teleportTimer=2.1;
+      this.attackTimer=1.5;
+      this.warpProgress=0;
+      this.warpDuration=0.5;
+      this.invulnerableTimer=0;
+      this.hitFlash=0;
+      this.phase=1;
+      this.enraged=false;
+      this.rotation=rand()*Math.PI*2;
+      this.timeSlowTimer=0;
+      this.minions=new Set();
+      this.shards=new Set();
+      this.isBossEntity=true;
+      this.scaling=getFloorScalingFactors();
+      this.hp=Math.round(this.hp*this.scaling.hp);
+      this.maxHp=this.hp;
+      this.speedScale=this.scaling.speed;
+      this.aggression=this.scaling.aggression;
+    }
+    update(dt){
+      this.hitFlash = Math.max(0, this.hitFlash - dt*4);
+      if(this.invulnerableTimer>0){ this.invulnerableTimer = Math.max(0, this.invulnerableTimer - dt); }
+      if(this.timeSlowTimer>0){
+        this.timeSlowTimer = Math.max(0, this.timeSlowTimer - dt);
+        if(this.timeSlowTimer<=0 && player){ player.clearTimeScaleModifier('paradox'); }
+      }
+      this.cleanupSummons();
+      if(!this.enraged && this.hp <= this.maxHp*0.52){ this.enterPhaseTwo(); }
+      if(this.state==='warp-out'){
+        this.warpProgress += dt * this.aggression / this.warpDuration;
+        if(this.warpProgress>=1){ this.performWarp(); }
+        return;
+      }
+      if(this.state==='warp-in'){
+        this.warpProgress += dt * this.aggression / (this.warpDuration*0.75);
+        if(this.warpProgress>=1){ this.state='float'; this.warpProgress=0; }
+      }
+      this.rotation += dt * (0.6 + 0.25*this.aggression);
+      this.x += Math.cos(this.rotation) * 24 * dt;
+      this.y += Math.sin(this.rotation*0.85) * 20 * dt;
+      this.x = clamp(this.x, 90, CONFIG.roomW-90);
+      this.y = clamp(this.y, 100, CONFIG.roomH-100);
+      resolveEntityObstacles(this);
+      if(player && dist(this, player) < this.r + player.r - 3){ player.hurt(1); }
+      this.teleportTimer -= dt * this.aggression;
+      if(this.teleportTimer<=0){ this.beginWarp(); }
+      this.attackTimer -= dt * this.aggression;
+      if(this.attackTimer<=0){ this.performAttack(); }
+    }
+    cleanupSummons(){
+      if(this.minions){ for(const minion of Array.from(this.minions)){ if(!minion || minion.dead){ this.minions.delete(minion); } } }
+      if(this.shards){ for(const shard of Array.from(this.shards)){ if(!shard || shard.dead){ this.shards.delete(shard); } } }
+    }
+    enterPhaseTwo(){
+      this.phase = 2;
+      this.enraged = true;
+      this.teleportTimer = Math.min(this.teleportTimer, 1.4);
+      const room = dungeon?.current;
+      if(room){ room.sceneVariant = 'void'; }
+      spawnCircularEffect(this.x, this.y, this.r+50, {
+        innerColor: colorWithAlpha('#fef3c7',0.95),
+        midColor: colorWithAlpha('#fb923c',0.45),
+        outerColor: colorWithAlpha('#0f172a',0),
+      });
+      addScreenShake(6,0.4);
+      runtime.itemPickupName = '终焉织主暴走';
+      runtime.itemPickupDesc = '场景与时间全数扭曲。';
+      runtime.itemPickupTimer = 2.8;
+    }
+    beginWarp(){
+      this.state='warp-out';
+      this.warpProgress=0;
+      this.teleportTimer = randRange(1.6, 2.2);
+      this.invulnerableTimer = Math.max(this.invulnerableTimer, 0.55);
+      spawnCircularEffect(this.x, this.y, this.r+28, {
+        innerColor: colorWithAlpha('#bae6fd',0.8),
+        midColor: colorWithAlpha('#38bdf8',0.4),
+        outerColor: colorWithAlpha('#0f172a',0),
+      });
+    }
+    performWarp(){
+      const anchor = player || {x:CONFIG.roomW/2, y:CONFIG.roomH/2};
+      const radius = randRange(100, 200);
+      const angle = rand()*Math.PI*2;
+      this.x = clamp(anchor.x + Math.cos(angle)*radius, 90, CONFIG.roomW-90);
+      this.y = clamp(anchor.y + Math.sin(angle)*radius, 100, CONFIG.roomH-100);
+      spawnCircularEffect(this.x, this.y, this.r+44, {
+        innerColor: colorWithAlpha('#fee2e2',0.95),
+        midColor: colorWithAlpha('#fb7185',0.5),
+        outerColor: colorWithAlpha('#0f172a',0),
+      });
+      this.state='warp-in';
+      this.warpProgress = 0;
+      this.invulnerableTimer = Math.max(this.invulnerableTimer, 0.3);
+      this.castSpiral(true);
+    }
+    performAttack(){
+      if(this.phase===1){
+        const roll = rand();
+        if(roll < 0.4){ this.castSpiral(); this.attackTimer = 1.6; }
+        else if(roll < 0.75){ this.castCrossfire(); this.attackTimer = 1.8; }
+        else { this.summonEcho(); this.attackTimer = 2.3; }
+      } else {
+        const roll = rand();
+        if(roll < 0.33){ this.castShardStorm(); this.attackTimer = 1.7; }
+        else if(roll < 0.66){ this.castTimeSnare(); this.attackTimer = 2.1; }
+        else { this.castRewind(); this.attackTimer = 2.4; }
+      }
+    }
+    castSpiral(extraDense=false){
+      const waves = extraDense ? 3 : (this.enraged?3:2);
+      const base = rand()*Math.PI*2;
+      for(let w=0; w<waves; w++){
+        const count = (this.enraged?18:14) + (extraDense?4:0) + w*2;
+        for(let i=0;i<count;i++){
+          const angle = base + (Math.PI*2/count)*i + w*0.12;
+          const speed = 160 + w*25 + (this.enraged?40:0);
+          runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 5.2, 'tear'));
+        }
+      }
+    }
+    castCrossfire(){
+      if(!player) return;
+      const lanes = this.enraged ? 6 : 4;
+      const base = Math.atan2(player.y - this.y, player.x - this.x);
+      for(let i=0;i<lanes;i++){
+        const offset = (i - (lanes-1)/2) * 0.22;
+        const angle = base + offset;
+        const speed = 240 + (this.enraged?60:0);
+        runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 4.2, 'needle'));
+      }
+    }
+    summonEcho(){
+      const count = this.enraged ? 2 : 1;
+      for(let i=0;i<count;i++){
+        const angle = rand()*Math.PI*2;
+        const radius = randRange(100, 180);
+        const ex = clamp(this.x + Math.cos(angle)*radius, 90, CONFIG.roomW-90);
+        const ey = clamp(this.y + Math.sin(angle)*radius, 100, CONFIG.roomH-100);
+        const minion = new EnemyShadowEcho(ex, ey, this);
+        this.minions.add(minion);
+        queueEnemySpawn(minion);
+      }
+    }
+    castShardStorm(){
+      const count = this.enraged ? 3 : 2;
+      for(let i=0;i<count;i++){
+        const angle = rand()*Math.PI*2;
+        const radius = randRange(90, 140);
+        const sx = clamp(this.x + Math.cos(angle)*radius, 80, CONFIG.roomW-80);
+        const sy = clamp(this.y + Math.sin(angle)*radius, 90, CONFIG.roomH-90);
+        const shard = new EnemyParadoxShard(sx, sy, this);
+        this.shards.add(shard);
+        queueEnemySpawn(shard);
+      }
+    }
+    castTimeSnare(){
+      this.timeSlowTimer = 3.4;
+      if(player){ player.setTimeScaleModifier('paradox', 0.62); }
+      spawnCircularEffect(this.x, this.y, this.r+54, {
+        innerColor: colorWithAlpha('#bfdbfe',0.95),
+        midColor: colorWithAlpha('#38bdf8',0.45),
+        outerColor: colorWithAlpha('#0f172a',0),
+      });
+      const arcs = this.enraged ? 3 : 2;
+      for(let a=0;a<arcs;a++){
+        const count = 12 + a*3;
+        const base = rand()*Math.PI*2;
+        for(let i=0;i<count;i++){
+          const angle = base + (Math.PI*2/count)*i;
+          const speed = 110 + a*25;
+          runtime.enemyProjectiles.push(new EnemyProjectile(this.x, this.y, Math.cos(angle)*speed, Math.sin(angle)*speed, 5, 'spark'));
+        }
+      }
+    }
+    castRewind(){
+      const rewind = this.enraged ? 4 : 3;
+      if(player && typeof player.rewindRunTimer === 'function'){
+        player.rewindRunTimer(rewind);
+      } else if(runtime.runTimer){
+        runtime.runTimer.rewind(rewind);
+      }
+      runtime.itemPickupName = '时间倒流';
+      runtime.itemPickupDesc = `计时器被倒回了 ${rewind.toFixed(0)} 秒。`;
+      runtime.itemPickupTimer = 2.6;
+      spawnCircularEffect(this.x, this.y, this.r+46, {
+        innerColor: colorWithAlpha('#fee2e2',0.95),
+        midColor: colorWithAlpha('#f97316',0.45),
+        outerColor: colorWithAlpha('#0f172a',0),
+      });
+      this.castCrossfire();
+      addScreenShake(6,0.35);
+    }
+    removeMinion(minion){ if(this.minions) this.minions.delete(minion); }
+    removeShard(shard){ if(this.shards) this.shards.delete(shard); }
+    damage(d){
+      if(this.invulnerableTimer>0 && (this.state==='warp-out' || this.state==='warp-in')) return false;
+      this.hp -= d;
+      this.hitFlash = 0.3;
+      if(this.hp<=0){ this.dead=true; return true; }
+      return false;
+    }
+    onDeath(room){
+      if(player){ player.clearTimeScaleModifier('paradox'); }
+      if(room && room.sceneVariant === 'void'){ delete room.sceneVariant; }
+      for(const minion of this.minions){ if(minion) minion.dead = true; }
+      for(const shard of this.shards){ if(shard) shard.dead = true; }
+      this.minions.clear();
+      this.shards.clear();
+    }
+    draw(){
+      ctx.save();
+      let alpha = 1;
+      if(this.state==='warp-out'){ alpha = Math.max(0.2, 1 - this.warpProgress); }
+      else if(this.state==='warp-in'){ alpha = Math.max(0.35, this.warpProgress); }
+      if(this.invulnerableTimer>0){ alpha *= 0.85 + 0.15*Math.sin(performance.now()/80); }
+      ctx.globalAlpha = alpha;
+      const base = this.phase===2 ? '#fef9c3' : '#bae6fd';
+      const edge = this.hitFlash>0 ? '#f97316' : (this.phase===2 ? '#fb7185' : '#60a5fa');
+      drawBlob(this.x, this.y, this.r, base, edge);
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = 0.25 + (this.phase===2 ? 0.15 : 0.1)*Math.sin(performance.now()/140);
+      ctx.strokeStyle = this.phase===2 ? '#facc15' : '#93c5fd';
+      ctx.lineWidth = this.phase===2 ? 3.2 : 2.4;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r*1.55, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   function spawnCircularEffect(x,y,radius, options={}){
     if(!runtime?.effects) return;
     const duration = Math.max(0.05, options.duration ?? 0.35);
@@ -9717,7 +10415,10 @@
 
     ctx.save();
     ctx.globalAlpha = 0.35 + highlight*0.15;
-    const baseColor = portal.type === 'exchange' ? '#1e3a8a' : (portal.type === 'return' ? '#064e3b' : '#0f172a');
+    const baseColor = portal.type === 'exchange' ? '#1e3a8a'
+      : (portal.type === 'return' ? '#064e3b'
+      : (portal.type === 'loop' ? '#1e1b4b'
+      : (portal.type === 'ending' ? '#421010' : '#0f172a')));
     ctx.fillStyle = `${baseColor}cc`;
     ctx.beginPath();
     ctx.ellipse(portal.x, portal.y + radius*0.45, radius*0.9, radius*0.32, 0, 0, Math.PI*2);
@@ -9738,6 +10439,16 @@
       gradient.addColorStop(0, `rgba(134,239,172,${0.8 + 0.2*highlight})`);
       gradient.addColorStop(0.55, 'rgba(74,222,128,0.5)');
       gradient.addColorStop(1, 'rgba(22,163,74,0.2)');
+    } else if(portal.type === 'loop'){
+      gradient = ctx.createRadialGradient(0,0, outerR*0.18, 0,0, outerR);
+      gradient.addColorStop(0, `rgba(165,180,252,${0.85 + 0.2*highlight})`);
+      gradient.addColorStop(0.55, 'rgba(99,102,241,0.55)');
+      gradient.addColorStop(1, 'rgba(59,37,188,0.25)');
+    } else if(portal.type === 'ending'){
+      gradient = ctx.createRadialGradient(0,0, outerR*0.18, 0,0, outerR);
+      gradient.addColorStop(0, `rgba(254,226,226,${0.85 + 0.2*highlight})`);
+      gradient.addColorStop(0.55, 'rgba(248,113,113,0.55)');
+      gradient.addColorStop(1, 'rgba(127,29,29,0.25)');
     } else {
       gradient = ctx.createRadialGradient(0,0, outerR*0.18, 0,0, outerR);
       gradient.addColorStop(0, `rgba(110,231,255,${0.8 + 0.2*highlight})`);
@@ -9750,7 +10461,12 @@
     ctx.fill();
 
     ctx.lineWidth = 2.5 + highlight*2.2;
-    const strokeColor = portal.type === 'exchange' ? `rgba(96,165,250,${0.65 + 0.25*highlight})` : (portal.type === 'return' ? `rgba(134,239,172,${0.65 + 0.25*highlight})` : `rgba(125,211,252,${0.65 + 0.25*highlight})`);
+    let strokeColor;
+    if(portal.type === 'exchange'){ strokeColor = `rgba(96,165,250,${0.65 + 0.25*highlight})`; }
+    else if(portal.type === 'return'){ strokeColor = `rgba(134,239,172,${0.65 + 0.25*highlight})`; }
+    else if(portal.type === 'loop'){ strokeColor = `rgba(129,140,248,${0.65 + 0.25*highlight})`; }
+    else if(portal.type === 'ending'){ strokeColor = `rgba(248,113,113,${0.65 + 0.25*highlight})`; }
+    else { strokeColor = `rgba(125,211,252,${0.65 + 0.25*highlight})`; }
     ctx.strokeStyle = strokeColor;
     ctx.beginPath();
     ctx.ellipse(0,0, outerR*0.78, outerR*0.5, 0, 0, Math.PI*2);
@@ -9800,6 +10516,9 @@
     exchangePortalChance: 1,
     roomStack: [],
     exchangeRoom: null,
+    runTimer: createRunTimer(),
+    loopCount: 0,
+    endingStats: null,
   };
   function resetScreenShake(){
     if(!runtime.screenShake) runtime.screenShake = {intensity:0, duration:0, offsetX:0, offsetY:0};
@@ -9809,6 +10528,16 @@
       runtime.screenShake.offsetX = 0;
       runtime.screenShake.offsetY = 0;
     }
+  }
+
+  function updateRunClock(dt, options={}){
+    const timer = runtime.runTimer;
+    if(!timer) return;
+    const pausedByStop = !!options.timeStop;
+    timer.setPauseSource('timeStop', pausedByStop);
+    const scale = player?.getWorldTimeScale ? player.getWorldTimeScale() : 1;
+    timer.setScaleSource('player', Number.isFinite(scale) ? scale : 1);
+    timer.tick(dt);
   }
   function addScreenShake(power=4, duration=0.3){
     if(!runtime.screenShake) resetScreenShake();
@@ -9846,6 +10575,12 @@
     recentItemHistory.length = 0;
     recentShopItemHistory.length = 0;
     recentCardHistory.length = 0;
+    runtime.loopCount = 0;
+    runtime.endingStats = null;
+    if(runtime.runTimer){
+      runtime.runTimer.reset();
+      runtime.runTimer.start();
+    }
     currentFloor = 1;
     runtime.floor = currentFloor;
     dungeon = new Dungeon();
@@ -9935,6 +10670,92 @@
     keys.clear();
     for(const code of preservedKeys){ keys.add(code); }
     syncCheatPanel();
+  }
+
+  function startLoopRun(options={}){
+    if(!player) return false;
+    const preservedKeys = new Set(keys);
+    runtime.loopCount = (runtime.loopCount || 0) + 1;
+    runtime.endingStats = null;
+    const hadVision = !!player.fullMapVision;
+    currentFloor = 1;
+    runtime.floor = currentFloor;
+    dungeon = new Dungeon();
+    dungeon.depth = 1;
+    dungeon.current.visited = true;
+    dungeon.revealRoom(dungeon.current);
+    if(hadVision){
+      if(typeof player.enableFullMapVision === 'function'){
+        player.enableFullMapVision(dungeon);
+      } else if(typeof dungeon.revealAllRooms === 'function'){
+        dungeon.revealAllRooms();
+      }
+    }
+    dungeon.current.spawnEnemies(dungeon.depth);
+    player.handleRoomChange(dungeon.current);
+    player.x = CONFIG.roomW/2;
+    player.y = CONFIG.roomH/2;
+    player.knockVel.x = 0; player.knockVel.y = 0; player.knockTimer = 0;
+    if(player.vel){ player.vel.x = 0; player.vel.y = 0; }
+    player.moveDir.x = 0; player.moveDir.y = 0;
+    player.lastDisplacement.x = 0; player.lastDisplacement.y = 0;
+    if(player.lastVelocity){ player.lastVelocity.x = 0; player.lastVelocity.y = 0; }
+    player.ifr = 0;
+    if(typeof player.interruptBrimstoneBeam === 'function'){ player.interruptBrimstoneBeam(); }
+    runtime.bullets.length = 0;
+    runtime.enemyProjectiles.length = 0;
+    runtime.pendingEnemySpawns.length = 0;
+    runtime.beams = [];
+    runtime.bossIntroTimer = 0;
+    runtime.bossIntroText = '';
+    const cycleLabel = runtime.loopCount + 1;
+    runtime.itemPickupName = `轮回 ${cycleLabel} 开启`;
+    runtime.itemPickupDesc = '携带全部装备重返第一层。';
+    runtime.itemPickupTimer = 2.4;
+    runtime.exchangePortalChance = 1;
+    runtime.roomStack.length = 0;
+    runtime.exchangeRoom = null;
+    runtime.effects.length = 0;
+    if(Array.isArray(runtime.decals)) runtime.decals.length = 0;
+    runtime.timeStopTimer = 0;
+    runtime.timeStopDuration = 0;
+    runtime.timeStopSource = null;
+    runtime.timeStopFlash = 0;
+    resetScreenShake();
+    keys.clear();
+    for(const code of preservedKeys){ keys.add(code); }
+    syncCheatPanel();
+    if(options.fromEnding){
+      runtime.runTimer?.setPauseSource('gameover', false);
+      runtime.runTimer?.setPauseSource('ending', false);
+      runtime.runTimer?.setPauseSource('pause', false);
+      runtime.runTimer?.start();
+      lastTime = performance.now();
+      overlayManager.clear();
+      state = STATE.PLAY;
+    }
+    return true;
+  }
+
+  function triggerRunEnding(){
+    const timer = runtime.runTimer;
+    if(timer){ timer.setPauseSource('ending', true); }
+    const timeText = timer ? timer.format() : '00:00.00';
+    const loops = runtime.loopCount || 0;
+    const cycleIndex = loops + 1;
+    const summary = loops>0
+      ? `你完成了第 ${cycleIndex} 次轮回，累计耗时 ${timeText}。`
+      : `你用 ${timeText} 穿越了全部 ${FINAL_FLOOR} 层。`;
+    const detail = loops>0
+      ? '若还不满足，轮回之门仍在等待你的脚步。'
+      : '带着力量迈入轮回，或留在此刻歇息片刻。';
+    if(endingTitleNode){ endingTitleNode.textContent = loops>0 ? '轮回仍未终止' : '终局小憩'; }
+    if(endingSummaryNode){ endingSummaryNode.textContent = summary; }
+    if(endingDetailNode){ endingDetailNode.textContent = detail; }
+    runtime.endingStats = {time: timeText, loops, floor: currentFloor};
+    runtime.itemPickupTimer = 0;
+    state = STATE.OVER;
+    overlayManager.setActive('ending');
   }
 
   // ======= 门与换房 =======
@@ -10099,6 +10920,7 @@
         runtime.timeStopDuration = 0;
       }
     }
+    updateRunClock(dt, {timeStop: timeStopActive});
     const worldDt = timeStopActive ? 0 : dt;
     player.update(dt);
 
@@ -10265,7 +11087,7 @@
     // 更新 HUD
     renderHUD();
     runtime.bossIntroTimer = Math.max(0, runtime.bossIntroTimer - dt);
-    runtime.itemPickupTimer = Math.max(0, runtime.itemPickupTimer - dt);
+    runtime.itemPickupTimer = Math.max(0, runtime.itemPickupTimer - dt / PICKUP_BANNER_TIME_SCALE);
     if(runtime.itemPickupTimer<=0){ runtime.itemPickupName=''; runtime.itemPickupDesc=''; }
   }
 
@@ -10273,7 +11095,8 @@
     const redHearts = '❤'.repeat(Math.max(0,player.hp));
     const emptyHearts = '·'.repeat(Math.max(0, player.maxHp - player.hp));
     const soulDisplay = player.soulHearts>0 ? `<span class="kbd" style="color:#60a5fa">💙 ${player.soulHearts}</span>` : '';
-    HUDL.innerHTML = `生命：<span style="letter-spacing:1px">${redHearts}${emptyHearts}</span>${soulDisplay}<span class="kbd">💣 ${player.bombs}</span><span class="kbd">🔑 ${player.keys}</span><span class="kbd">🪙 ${player.coins}</span>`;
+    const runClock = runtime.runTimer ? runtime.runTimer.format() : '00:00.00';
+    HUDL.innerHTML = `生命：<span style="letter-spacing:1px">${redHearts}${emptyHearts}</span>${soulDisplay}<span class="kbd">💣 ${player.bombs}</span><span class="kbd">🔑 ${player.keys}</span><span class="kbd">🪙 ${player.coins}</span><span class="kbd">⏱ ${runClock}</span>`;
     const fireRate = player.fireInterval>0 ? (1000/player.fireInterval).toFixed(2) : '∞';
     const damage = Number.isInteger(player.damage) ? player.damage : player.damage.toFixed(1);
     const moveSpeed = Math.round(player.speed);
@@ -10290,6 +11113,8 @@
     HUDS.innerHTML = statItems.map(({label,value,unit})=>`<span>${label}：<strong>${value}</strong>${unit?`<small>${unit}</small>`:''}</span>`).join('');
     const itemsText = player.items.length ? player.items.join('、') : '空手上阵';
     const floorLevel = runtime.floor || currentFloor || 1;
+    const loopCycle = (runtime.loopCount || 0) + 1;
+    const cycleText = loopCycle>1 ? ` · 第${loopCycle}轮` : '';
     const maxCharge = Math.max(0, player.activeMaxCharge ?? 0);
     const chargeValue = clamp(Math.floor(player.activeCharge ?? 0), 0, maxCharge);
     const ready = maxCharge>0 && chargeValue >= maxCharge && player.activeItem && typeof player.activeItem.use === 'function';
@@ -10301,9 +11126,9 @@
     const singleUseReady = !!(singleUseItem && typeof singleUseItem.use === 'function');
     const singleUseBadge = singleUseReady ? `<span class="kbd" style="color:var(--accent)">Q 就绪</span>` : `<span class="kbd">Q --</span>`;
     if(dungeon.current.isBoss && dungeon.current.bossEntity && !dungeon.current.bossEntity.dead){
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`;
+      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel}${cycleText} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`;
     } else {
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`;
+      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel}${cycleText} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`;
     }
     if(cheatPanelNode?.classList.contains('show')){ syncCheatPanel(); }
   }
@@ -10403,17 +11228,47 @@
 
   function drawRoomBackdrop(){
     const w=CONFIG.roomW, h=CONFIG.roomH;
-    // 地砖
     const isBoss = dungeon.current.isBoss && !dungeon.current.cleared;
+    const variant = dungeon.current.sceneVariant || null;
     const g = ctx.createLinearGradient(0,0,0,h);
-    if(isBoss){ g.addColorStop(0,'#1b0f19'); g.addColorStop(1,'#120913'); }
-    else { g.addColorStop(0,'#10141d'); g.addColorStop(1,'#0d121a'); }
+    if(variant === 'void'){
+      g.addColorStop(0,'#0b1120');
+      g.addColorStop(1,'#020617');
+    } else if(isBoss){
+      g.addColorStop(0,'#1b0f19');
+      g.addColorStop(1,'#120913');
+    } else {
+      g.addColorStop(0,'#10141d');
+      g.addColorStop(1,'#0d121a');
+    }
     ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
     // 边框
-    ctx.strokeStyle = isBoss ? '#663355' : '#2a3142'; ctx.lineWidth=14; ctx.strokeRect(10,10,w-20,h-20);
+    let borderColor = isBoss ? '#663355' : '#2a3142';
+    if(variant === 'void'){ borderColor = '#f97316aa'; }
+    ctx.strokeStyle = borderColor; ctx.lineWidth=14; ctx.strokeRect(10,10,w-20,h-20);
     // 裂纹/污渍
-    ctx.globalAlpha = isBoss ? 0.12 : 0.06; ctx.fillStyle=isBoss ? '#ff88b1' : '#bcd';
-    for(let i=0;i<22;i++){ const x=randRange(30,w-30), y=randRange(30,h-30), r=randRange(8,38); ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); }
+    if(variant === 'void'){
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = '#fbbf24';
+      for(let i=0;i<26;i++){
+        const x = randRange(24, w-24);
+        const y = randRange(28, h-28);
+        const r = randRange(6, 32);
+        ctx.beginPath();
+        ctx.arc(x,y,r,0,Math.PI*2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = '#0f172a';
+      for(let i=0;i<10;i++){
+        ctx.beginPath();
+        ctx.ellipse(randRange(40,w-40), randRange(40,h-40), randRange(40,160), randRange(12,42), randRange(0,Math.PI), 0, Math.PI*2);
+        ctx.fill();
+      }
+    } else {
+      ctx.globalAlpha = isBoss ? 0.12 : 0.06; ctx.fillStyle=isBoss ? '#ff88b1' : '#bcd';
+      for(let i=0;i<22;i++){ const x=randRange(30,w-30), y=randRange(30,h-30), r=randRange(8,38); ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); }
+    }
     ctx.globalAlpha = 1;
   }
   function drawDoors(){
@@ -11619,6 +12474,9 @@
 
   function spawnBossPortal(room){
     if(!room) return null;
+    if(currentFloor >= FINAL_FLOOR){
+      return spawnFinalPortals(room);
+    }
     const cfg = CONFIG.portal || {};
     const center = typeof room.center === 'function' ? room.center() : {x: CONFIG.roomW/2, y: CONFIG.roomH/2};
     const offsetY = cfg.offsetY ?? 60;
@@ -11659,6 +12517,53 @@
     }
     runtime.exchangePortalChance = spawnedExchange ? 1 : 0;
     return portal;
+  }
+
+  function spawnFinalPortals(room){
+    if(!room) return null;
+    const cfg = CONFIG.portal || {};
+    const center = typeof room.center === 'function' ? room.center() : {x: CONFIG.roomW/2, y: CONFIG.roomH/2};
+    const offset = Math.max(120, cfg.finalOffset ?? 150);
+    const baseY = clamp(center.y + (cfg.offsetY ?? 60), 120, CONFIG.roomH-110);
+    const radius = cfg.radius ?? 34;
+    const interactRadius = cfg.interactRadius ?? (radius + 18);
+    const spawnDelay = Math.max(0, cfg.spawnDelay ?? 0);
+    const endingPortal = {
+      type:'ending',
+      x: clamp(center.x - offset, 90, CONFIG.roomW-90),
+      y: baseY,
+      r: radius,
+      interactRadius,
+      spawnDelay,
+      phase: rand()*Math.PI*2,
+      active: false,
+      used: false,
+      highlight: 0,
+      hint: '按 F 踏入终点',
+    };
+    const loopPortal = {
+      type:'loop',
+      x: clamp(center.x + offset, 90, CONFIG.roomW-90),
+      y: baseY,
+      r: radius,
+      interactRadius,
+      spawnDelay,
+      phase: rand()*Math.PI*2,
+      active: false,
+      used: false,
+      highlight: 0,
+      hint: '按 F 再次轮回',
+    };
+    room.portal = endingPortal;
+    if(!Array.isArray(room.extraPortals)) room.extraPortals = [];
+    room.extraPortals.push(loopPortal);
+    repelPickupsFromPortal(room, endingPortal, {forcePower: 160});
+    repelPickupsFromPortal(room, loopPortal, {forcePower: 160});
+    runtime.exchangePortalChance = 0;
+    runtime.itemPickupName = '命运双门敞开';
+    runtime.itemPickupDesc = '左侧归于终章，右侧再入轮回。';
+    runtime.itemPickupTimer = 3.2;
+    return endingPortal;
   }
 
   function makeHeartPickup(x,y,heal){
@@ -11883,6 +12788,18 @@
     if(portal.type === 'return'){
       if(leaveExchangeRoom(portal)){ return {consume:false}; }
       return null;
+    }
+    if(portal.type === 'ending'){
+      triggerRunEnding();
+      return {consume:true};
+    }
+    if(portal.type === 'loop'){
+      const looped = startLoopRun();
+      return looped ? {consume:true} : null;
+    }
+    if(currentFloor >= FINAL_FLOOR){
+      triggerRunEnding();
+      return {consume:true};
     }
     advanceToNextFloor();
     return {consume:true};
