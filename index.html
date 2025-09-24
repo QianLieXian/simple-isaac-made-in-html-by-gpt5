@@ -66,6 +66,7 @@
     .codex-info{display:flex;flex-direction:column}
     .codex-name{font-size:13px;font-weight:600;color:var(--ink);letter-spacing:.2px}
     .codex-desc{margin-top:4px;font-size:12px;color:var(--muted);line-height:1.5}
+    .codex-remark{margin-top:4px;font-size:11px;color:var(--accent2);letter-spacing:.3px}
     .codex-empty{grid-column:1/-1;text-align:center;padding:28px 18px;border:1px dashed #293347;border-radius:12px;color:var(--muted);font-size:13px;background:rgba(12,15,22,.65)}
     .cheat-feedback{margin-top:6px;font-size:12px;color:var(--muted);min-height:18px}
     @media (max-width:720px){
@@ -930,6 +931,29 @@
       weight: WEIGHT_PRESETS.item,
       description:'射程 x3，泪滴追踪最近的敌人。',
       apply(player){ player.tearLife*=3; player.homingTears = true; player.homingStrength = Math.max(player.homingStrength||0, 8); }
+    },
+    {
+      slug:'younger-cousin',
+      name:'表弟',
+      weight: WEIGHT_PRESETS.item,
+      description:'跟班：发射普通子弹，伤害 4，射速 3 次/秒，射程与弹速为自身的 1.5 倍。',
+      setTag:'宝宝套装',
+      apply(player){ grantYoungerCousinFollower(player); }
+    },
+    {
+      slug:'aunt-brimstone',
+      name:'大姨妈',
+      weight: WEIGHT_PRESETS.item,
+      description:'跟班：蓄力 2 秒释放持续 1.5 秒的细束硫磺火，每 8 帧造成 0.75 伤害。',
+      setTag:'宝宝套装',
+      apply(player){ grantAuntFollower(player); }
+    },
+    {
+      slug:'black-buddy',
+      name:'黑屁股',
+      weight: WEIGHT_PRESETS.item,
+      description:'跟班：寻找并拾取附近红心，拾取 3 枚后会奖励随机资源。',
+      apply(player){ grantCollectorFollower(player); }
     }
   ];
   const ITEM_REF_OUTDOOR_POUCH = ITEM_POOL.find(item=>item.slug==='outdoor-pouch');
@@ -1072,6 +1096,30 @@
           player.recalculateDamage?.();
         }
       }
+    },
+    {
+      slug:'brother',
+      name:'兄弟',
+      weight: WEIGHT_PRESETS.lifeTrade,
+      description:'跟班：复制玩家的所有射击效果与升级，总是紧贴玩家左右姐妹之后。',
+      setTag:'宝宝套装',
+      apply(player){ grantBrotherFollower(player); }
+    },
+    {
+      slug:'sister',
+      name:'姐妹',
+      weight: WEIGHT_PRESETS.lifeTrade,
+      description:'双生跟班：左右各有 1 名，以 0.75 倍伤害复制玩家的射击。',
+      setTag:'宝宝套装',
+      apply(player){ grantSisterFollowers(player); }
+    },
+    {
+      slug:'cousin',
+      name:'表哥',
+      weight: WEIGHT_PRESETS.lifeTrade,
+      description:'跟班：发射追踪弹，伤害 5，射速 2 次/秒，射程与弹速为玩家的 2 倍。',
+      setTag:'宝宝套装',
+      apply(player){ grantCousinFollower(player); }
     },
     {
       slug:'abaddon',
@@ -1322,6 +1370,50 @@
       handler(target, count, item);
     }
   }
+  const SET_EFFECTS = {
+    '宝宝套装': {
+      key:'baby-super',
+      threshold:3,
+      apply(player, context={}){
+        if(player && typeof player.activateSetBonus === 'function'){
+          player.activateSetBonus('baby-super', {
+            damageScale:0.95,
+            spread:0.2,
+            completions: context.completions || 1,
+          });
+        }
+      }
+    }
+  };
+
+  function ensureSetProgressStorage(target){
+    if(!target) return null;
+    if(!target.itemSets || typeof target.itemSets !== 'object'){
+      target.itemSets = Object.create(null);
+    }
+    return target.itemSets;
+  }
+
+  function recordSetAcquired(player, item){
+    if(!player || !item || !item.setTag) return;
+    const tag = item.setTag;
+    if(!tag) return;
+    const store = ensureSetProgressStorage(player);
+    if(!store) return;
+    const state = store[tag] || (store[tag] = {count:0, completions:0});
+    state.count += 1;
+    const effect = SET_EFFECTS[tag];
+    if(!effect) return;
+    const threshold = Math.max(1, Math.floor(effect.threshold || 3));
+    const completions = Math.floor(state.count / threshold);
+    if(completions > state.completions){
+      state.completions = completions;
+      if(typeof effect.apply === 'function'){
+        effect.apply(player, {tag, key: effect.key, completions});
+      }
+    }
+  }
+
   function recordItemAcquired(player, item){
     if(!player || !item) return 0;
     const slug = item.slug || null;
@@ -1330,6 +1422,7 @@
       stackCount = incrementItemStack(player, slug, 1);
       applyItemStackEffect(player, slug, stackCount, item);
     }
+    recordSetAcquired(player, item);
     if(item.name && !player.items.includes(item.name)){
       player.items.push(item.name);
     }
@@ -1427,6 +1520,12 @@
       desc.textContent=item.description || '暂无描述';
       info.appendChild(title);
       info.appendChild(desc);
+      if(item.setTag){
+        const remark=document.createElement('div');
+        remark.className='codex-remark';
+        remark.textContent=`套装：${item.setTag}`;
+        info.appendChild(remark);
+      }
       card.appendChild(iconWrap);
       card.appendChild(info);
       CODEX_GRID.appendChild(card);
@@ -3196,6 +3295,9 @@
       this.brimstoneFiring = false;
       this.brimstoneBeamTimer = 0;
       this.updateBrimstoneChargeMetrics();
+      this.setBonuses = {};
+      this.followers = [];
+      this.followerOrderCounter = 0;
       this.impactDash = this.createImpactDashState();
       this.hotChocolate = null;
     }
@@ -3393,6 +3495,7 @@
           this.fireTearProjectile(dirX, dirY, lvx, lvy, maxSpeed);
         }
       }
+      this.updateFollowers(dt);
       this.recalculateDamage();
     }
     fireTearProjectile(dirX, dirY, lvx, lvy, maxSpeed, options={}){
@@ -3401,6 +3504,12 @@
       if(!(dlen>1e-5)) return;
       let dirNormX = dirX / dlen;
       let dirNormY = dirY / dlen;
+      const originX = Number.isFinite(options.originX)
+        ? options.originX
+        : (options.origin && Number.isFinite(options.origin.x) ? options.origin.x : this.x);
+      const originY = Number.isFinite(options.originY)
+        ? options.originY
+        : (options.origin && Number.isFinite(options.origin.y) ? options.origin.y : this.y);
       const combatCfg = CONFIG.combat || {};
       const carry = combatCfg.shotCarry ?? combatCfg.shotInertia ?? 0;
       const forwardScale = combatCfg.shotForwardBoost ?? 0;
@@ -3455,8 +3564,8 @@
       }
       let damageScale = Number.isFinite(options.damageScale) ? options.damageScale : 1;
       damageScale = Math.max(0.01, damageScale);
-      let damage = Number.isFinite(options.damage) ? options.damage : (this.damage * damageScale);
-      damage = Math.max(0.01, damage);
+      const life = Number.isFinite(options.life) ? options.life : this.tearLife;
+      const baseDamageValue = Number.isFinite(options.damage) ? options.damage : (this.damage * damageScale);
       const bulletOptions = {
         pierce: this.canPierceObstacles,
         homing: this.homingTears,
@@ -3468,7 +3577,115 @@
       if(typeof options.pierceEnemies === 'boolean') bulletOptions.pierceEnemies = options.pierceEnemies;
       if(typeof options.homing === 'boolean') bulletOptions.homing = options.homing;
       if(Number.isFinite(options.homingStrength)) bulletOptions.homingStrength = Math.max(0, options.homingStrength);
-      runtime.bullets.push(new Bullet(this.x, this.y, vx, vy, this.tearLife, damage, bulletOptions));
+      const shots=[];
+      const baseSpeedMag = Math.hypot(vx, vy) || 0;
+      const tripleBonus = this.getSetBonus ? this.getSetBonus('baby-super') : (this.setBonuses?.['baby-super'] || null);
+      const tripleActive = !!(tripleBonus && (tripleBonus.active ?? true));
+      const damageMultiplier = tripleActive ? Math.max(0.05, tripleBonus.damageScale ?? 0.95) : 1;
+      const spread = tripleActive ? clamp(tripleBonus.spread ?? 0.2, 0, Math.PI/2) : 0;
+      const baseAngle = Math.atan2(vy, vx);
+      const offsets = tripleActive ? [-spread, 0, spread] : [0];
+      for(const offset of offsets){
+        let outVx = vx;
+        let outVy = vy;
+        if(baseSpeedMag>0 && Math.abs(offset)>1e-6){
+          const angle = baseAngle + offset;
+          outVx = Math.cos(angle) * baseSpeedMag;
+          outVy = Math.sin(angle) * baseSpeedMag;
+        }
+        const shotDamage = Math.max(0.01, baseDamageValue * damageMultiplier);
+        const shotOptions = {...bulletOptions};
+        const speedLen = Math.hypot(outVx, outVy) || 1;
+        shots.push({
+          originX,
+          originY,
+          vx: outVx,
+          vy: outVy,
+          dirX: outVx / speedLen,
+          dirY: outVy / speedLen,
+          life,
+          damage: shotDamage,
+          options: shotOptions,
+        });
+      }
+      for(const shot of shots){
+        runtime.bullets.push(new Bullet(shot.originX, shot.originY, shot.vx, shot.vy, shot.life, shot.damage, shot.options));
+        this.dispatchFollowerShot?.('tear', shot);
+      }
+    }
+    getSetBonus(key){
+      if(!key) return null;
+      if(!this.setBonuses || typeof this.setBonuses !== 'object') return null;
+      return this.setBonuses[key] || null;
+    }
+    activateSetBonus(key, options={}){
+      if(!key) return;
+      if(!this.setBonuses || typeof this.setBonuses !== 'object'){
+        this.setBonuses = Object.create(null);
+      }
+      const existing = this.setBonuses[key] || {};
+      const next = {...existing, ...options, active:true};
+      if(key==='baby-super'){
+        next.damageScale = Math.max(0.01, Number.isFinite(next.damageScale) ? next.damageScale : (existing.damageScale ?? 0.95));
+        next.spread = Number.isFinite(next.spread) ? next.spread : (existing.spread ?? 0.2);
+      }
+      this.setBonuses[key] = next;
+    }
+    ensureFollowerList(){
+      if(!Array.isArray(this.followers)){
+        this.followers = [];
+      }
+      return this.followers;
+    }
+    dispatchFollowerShot(type, payload){
+      const list = this.followers;
+      if(!Array.isArray(list) || !list.length) return;
+      const shots = Array.isArray(payload) ? payload : [payload];
+      for(const follower of list){
+        if(!follower || typeof follower.onPlayerShot !== 'function') continue;
+        for(const shot of shots){
+          follower.onPlayerShot(type, shot, this);
+        }
+      }
+    }
+    addFollower(config){
+      const list = this.ensureFollowerList();
+      const follower = createFollowerEntity(this, config);
+      if(!follower) return null;
+      follower.order = this.followerOrderCounter++;
+      list.push(follower);
+      this.rebuildFollowerOrder();
+      return follower;
+    }
+    rebuildFollowerOrder(){
+      const list = this.followers;
+      if(!Array.isArray(list) || !list.length) return;
+      list.sort((a,b)=>{
+        const pa = Number.isFinite(a?.priority) ? a.priority : 10;
+        const pb = Number.isFinite(b?.priority) ? b.priority : 10;
+        if(pa!==pb) return pa-pb;
+        const oa = Number.isFinite(a?.order) ? a.order : 0;
+        const ob = Number.isFinite(b?.order) ? b.order : 0;
+        return oa - ob;
+      });
+      let previous = this;
+      for(const follower of list){
+        if(!follower) continue;
+        if(follower.anchorToPlayer){
+          follower.leader = this;
+        } else {
+          follower.leader = previous;
+        }
+        previous = follower;
+      }
+    }
+    updateFollowers(dt){
+      const list = this.followers;
+      if(!Array.isArray(list) || !list.length) return;
+      for(const follower of list){
+        if(!follower || typeof follower.update !== 'function') continue;
+        follower.update(dt, this);
+      }
     }
     ensureHotChocolateState(){
       if(!this.hotChocolate){
@@ -4146,7 +4363,10 @@
       return this.brimstoneCharged ? 1 : ratio;
     }
     interruptBrimstoneBeam(){
-      if(this.brimstoneBeam){ endBeam(this.brimstoneBeam); }
+      if(this.brimstoneBeam){
+        endBeam(this.brimstoneBeam);
+        this.dispatchFollowerShot?.('brimstone-stop', {reason:'interrupt'});
+      }
     }
     handleBrimstoneAttack(dt, sx, sy, lvx, lvy, maxSpeed){
       const pressed = !!(sx || sy);
@@ -4244,6 +4464,7 @@
       if(!Array.isArray(runtime.beams)){ runtime.beams = []; }
       if(this.brimstoneBeam){
         endBeam(this.brimstoneBeam);
+        this.dispatchFollowerShot?.('brimstone-stop', {reason:'restart'});
       }
       const beam = new BrimstoneProjectile(this, dir, {
         duration,
@@ -4260,6 +4481,7 @@
       this.brimstoneCharge = 0;
       this.brimstoneCharged = false;
       this.brimstoneCharging = false;
+      this.dispatchFollowerShot?.('brimstone-start', {dir, duration, tickFrames, damageScale, width: widthOverride});
       return true;
     }
     applyImpulse(dx,dy,strength){
@@ -4447,6 +4669,470 @@
       this.damage = +(Math.max(0.4, dmg) * this.damageMultiplier).toFixed(2);
     }
   }
+
+  function acquireNearestEnemy(source){
+    const room = dungeon?.current;
+    if(!room) return null;
+    let best=null;
+    let bestDist=Infinity;
+    for(const enemy of room.enemies){
+      if(!enemy || enemy.dead) continue;
+      const dx = enemy.x - source.x;
+      const dy = enemy.y - source.y;
+      const dist = dx*dx + dy*dy;
+      if(dist < bestDist){
+        bestDist = dist;
+        best = enemy;
+      }
+    }
+    return best;
+  }
+
+  function followerDefaultDraw(follower, ctx){
+    const radius = follower.r || 6;
+    const baseColor = follower.color || '#e0f2fe';
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    const glow = ctx.createRadialGradient(follower.x, follower.y, radius*0.2, follower.x, follower.y, radius*1.4);
+    glow.addColorStop(0, colorWithAlpha(baseColor, 0.85));
+    glow.addColorStop(1, colorWithAlpha(baseColor, 0));
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(follower.x, follower.y, radius*1.4, 0, Math.PI*2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = baseColor;
+    ctx.beginPath();
+    ctx.arc(follower.x, follower.y, radius, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = shadeColor(baseColor, -0.25);
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function followerMirrorShotHandler(options={}){
+    const damageMultiplier = Number.isFinite(options.damageMultiplier) ? options.damageMultiplier : 1;
+    const enableBrimstone = options.brimstone !== false;
+    return function(follower, type, shot){
+      if(type === 'tear'){
+        if(!shot) return;
+        const cloneOptions = {...(shot.options || {})};
+        const damage = Math.max(0.01, shot.damage * damageMultiplier);
+        runtime.bullets.push(new Bullet(follower.x, follower.y, shot.vx, shot.vy, shot.life, damage, cloneOptions));
+      } else if(type === 'brimstone-start' && enableBrimstone){
+        if(!shot) return;
+        if(follower.brimstoneBeam){ endBeam(follower.brimstoneBeam); }
+        const dir = shot.dir || {x:0,y:-1};
+        const beam = new BrimstoneProjectile(follower, dir, {
+          duration: shot.duration,
+          tickFrames: shot.tickFrames,
+          damageScale: shot.damageScale ?? 1,
+          width: shot.width,
+        });
+        follower.brimstoneBeam = beam;
+        if(!Array.isArray(runtime.beams)){ runtime.beams = []; }
+        runtime.beams.push(beam);
+      } else if(type === 'brimstone-stop' && follower.brimstoneBeam){
+        endBeam(follower.brimstoneBeam);
+        follower.brimstoneBeam = null;
+      }
+    };
+  }
+
+  function computePlayerRange(playerRef){
+    const speed = playerRef?.tearSpeed ?? CONFIG.player.tearSpeed;
+    const life = playerRef?.tearLife ?? CONFIG.player.tearLife;
+    return Math.max(90, speed * life);
+  }
+
+  function findNearestRedHeart(playerRef){
+    const room = dungeon?.current;
+    if(!room) return null;
+    const range = computePlayerRange(playerRef) * 0.5;
+    const rangeSq = range * range;
+    let best=null;
+    let bestDist=Infinity;
+    for(const pickup of room.pickups){
+      if(!pickup || pickup.type!=='heart' || pickup.kind==='soul') continue;
+      const dx = pickup.x - playerRef.x;
+      const dy = pickup.y - playerRef.y;
+      const distSq = dx*dx + dy*dy;
+      if(distSq <= rangeSq && distSq < bestDist){
+        bestDist = distSq;
+        best = pickup;
+      }
+    }
+    return best;
+  }
+
+  function spawnCollectorReward(follower){
+    const room = dungeon?.current;
+    if(!room) return;
+    const choices = ['soul','card','key','bomb','coin'];
+    const choice = choices[Math.floor(rand()*choices.length)] || 'coin';
+    let pickup=null;
+    if(choice==='soul'){
+      pickup = makeSoulHeartPickup(follower.x, follower.y, 1);
+    } else if(choice==='card'){
+      const card = rollCard();
+      if(card){ pickup = makeCardPickup(follower.x, follower.y, card); }
+    } else {
+      const amount = choice==='coin' ? 4 : 1;
+      pickup = makeResourcePickup(choice, follower.x, follower.y, amount);
+    }
+    if(!pickup){
+      pickup = makeResourcePickup('coin', follower.x, follower.y, 3);
+    }
+    if(pickup){
+      pickup.spawnGrace = CONFIG.pickupSpawnGrace ?? 0;
+      room.pickups.push(pickup);
+    }
+  }
+
+  function createFollowerEntity(player, config={}){
+    if(!player) return null;
+    const scale = Number.isFinite(config.sizeScale) ? config.sizeScale : (1/3);
+    const radius = Math.max(4, (player.r || CONFIG.player.radius || 12) * scale);
+    const follower = {
+      player,
+      slug: config.slug || 'follower',
+      name: config.name || '跟班',
+      priority: Number.isFinite(config.priority) ? config.priority : 10,
+      anchorToPlayer: !!config.anchorToPlayer,
+      spacingMultiplier: Number.isFinite(config.spacingMultiplier) ? config.spacingMultiplier : 1,
+      followSpeed: Number.isFinite(config.followSpeed) ? config.followSpeed : (player.speed * 1.1 + 60),
+      damageMultiplier: Number.isFinite(config.damageMultiplier) ? config.damageMultiplier : 1,
+      color: config.color || '#e0f2fe',
+      behavior: config.behavior || {},
+      x: player.x + (config.initialOffset?.x ?? randRange(-6,6)),
+      y: player.y + (config.initialOffset?.y ?? randRange(-6,6)),
+      r: radius,
+    };
+    follower.baseSpacing = Math.max(6, (player.r || CONFIG.player.radius || 12) * 0.5 * follower.spacingMultiplier);
+    follower.draw = function(ctx){
+      if(follower.behavior && typeof follower.behavior.draw === 'function'){
+        follower.behavior.draw(follower, ctx, player);
+        return;
+      }
+      followerDefaultDraw(follower, ctx);
+    };
+    follower.getDesiredPosition = function(owner, dt){
+      if(follower.behavior && typeof follower.behavior.getAnchorPosition === 'function'){
+        const pos = follower.behavior.getAnchorPosition(follower, owner, dt);
+        if(pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)){
+          return {x:pos.x, y:pos.y};
+        }
+      }
+      const leader = follower.anchorToPlayer ? owner : (follower.leader || owner);
+      if(!leader){
+        return {x:follower.x, y:follower.y};
+      }
+      const dx = leader.x - follower.x;
+      const dy = leader.y - follower.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const desired = Math.max(6, follower.baseSpacing);
+      return {
+        x: leader.x - (dx/dist) * desired,
+        y: leader.y - (dy/dist) * desired,
+      };
+    };
+    follower.onPlayerShot = function(type, shot, owner){
+      if(follower.behavior && typeof follower.behavior.onPlayerShot === 'function'){
+        follower.behavior.onPlayerShot(follower, type, shot, owner);
+      }
+    };
+    follower.update = function(dt, owner){
+      follower.damage = (owner?.damage ?? 1) * follower.damageMultiplier;
+      let handled = false;
+      if(follower.behavior && typeof follower.behavior.update === 'function'){
+        handled = follower.behavior.update(follower, owner, dt) === true;
+      }
+      if(!handled){
+        const target = follower.getDesiredPosition(owner, dt) || {x:follower.x,y:follower.y};
+        const toX = target.x - follower.x;
+        const toY = target.y - follower.y;
+        const dist = Math.hypot(toX, toY);
+        const speed = Math.max(40, follower.followSpeed);
+        if(dist>1e-3){
+          const step = Math.min(dist, speed * dt);
+          follower.x += (toX/dist) * step;
+          follower.y += (toY/dist) * step;
+        }
+      }
+      if(follower.behavior && typeof follower.behavior.afterUpdate === 'function'){
+        follower.behavior.afterUpdate(follower, owner, dt);
+      }
+    };
+    return follower;
+  }
+
+  function createSideAnchorBehavior(side='left', damageMultiplier=0.75){
+    const sideDir = side==='left' ? -1 : 1;
+    return {
+      getAnchorPosition(follower, owner){
+        let nx = owner?.moveDir?.x ?? 0;
+        let ny = owner?.moveDir?.y ?? -1;
+        const len = Math.hypot(nx, ny);
+        if(!(len>1e-4)){
+          nx = 0; ny = -1;
+        } else {
+          nx /= len; ny /= len;
+        }
+        const perpX = -ny;
+        const perpY = nx;
+        const body = owner?.r || CONFIG.player.radius || 12;
+        const sideDist = body * 1.15;
+        const forward = body * 0.35;
+        return {
+          x: owner.x + perpX * sideDist * sideDir + nx * forward,
+          y: owner.y + perpY * sideDist * sideDir + ny * forward,
+        };
+      },
+      onPlayerShot: followerMirrorShotHandler({damageMultiplier}),
+    };
+  }
+
+  function createShooterBehavior(options={}){
+    const rate = Math.max(0.1, options.rate || 1);
+    const cooldown = 1 / rate;
+    const speedMultiplier = Number.isFinite(options.speedMultiplier) ? options.speedMultiplier : 1;
+    const rangeMultiplier = Number.isFinite(options.rangeMultiplier) ? options.rangeMultiplier : 1;
+    const homing = !!options.homing;
+    const homingStrength = Number.isFinite(options.homingStrength) ? options.homingStrength : (homing ? 12 : 6);
+    const damage = Number.isFinite(options.damage) ? options.damage : 3;
+    return {
+      afterUpdate(follower, owner, dt){
+        follower.fireTimer = Math.max(0, (follower.fireTimer || 0) - dt);
+        if(follower.fireTimer>0) return;
+        const target = acquireNearestEnemy(follower);
+        if(!target) return;
+        const dx = target.x - follower.x;
+        const dy = target.y - follower.y;
+        const len = Math.hypot(dx, dy);
+        if(!(len>1e-4)) return;
+        const baseSpeed = (owner?.tearSpeed ?? CONFIG.player.tearSpeed) * speedMultiplier;
+        const vx = (dx/len) * baseSpeed;
+        const vy = (dy/len) * baseSpeed;
+        const life = Math.max(0.2, (owner?.tearLife ?? CONFIG.player.tearLife) * rangeMultiplier);
+        const options = {homing, homingStrength};
+        runtime.bullets.push(new Bullet(follower.x, follower.y, vx, vy, life, damage, options));
+        follower.fireTimer = cooldown;
+      }
+    };
+  }
+
+  function createAuntBehavior(){
+    return {
+      update(follower, owner, dt){
+        if(follower.brimstoneBeam && follower.brimstoneBeam.alive === false){
+          follower.brimstoneBeam = null;
+        }
+        if(follower.brimstoneBeam){
+          follower.beamTimer = Math.max(0, (follower.beamTimer || 0) - dt);
+          if(follower.beamTimer<=0){
+            endBeam(follower.brimstoneBeam);
+            follower.brimstoneBeam = null;
+          }
+          return false;
+        }
+        follower.chargeTimer = (follower.chargeTimer || 0) + dt;
+        if(follower.chargeTimer >= 2){
+          follower.chargeTimer = 0;
+          follower.pendingBeam = true;
+        }
+        return false;
+      },
+      afterUpdate(follower, owner){
+        if(!follower.pendingBeam || follower.brimstoneBeam){
+          return;
+        }
+        follower.pendingBeam = false;
+        let dirX = owner?.moveDir?.x ?? 0;
+        let dirY = owner?.moveDir?.y ?? -1;
+        const target = acquireNearestEnemy(follower);
+        if(target){
+          dirX = target.x - follower.x;
+          dirY = target.y - follower.y;
+        }
+        const len = Math.hypot(dirX, dirY) || 1;
+        const dir = {x: dirX/len, y: dirY/len};
+        follower.damage = 1;
+        const beam = new BrimstoneProjectile(follower, dir, {
+          duration: 1.5,
+          tickFrames: 8,
+          damageScale: 0.75,
+          width: (owner?.r || CONFIG.player.radius || 12) * 1.1,
+        });
+        follower.brimstoneBeam = beam;
+        follower.beamTimer = 1.5;
+        if(!Array.isArray(runtime.beams)){ runtime.beams = []; }
+        runtime.beams.push(beam);
+      },
+      draw(follower, ctx){
+        const radius = follower.r || 6;
+        ctx.save();
+        ctx.fillStyle = '#fca5a5';
+        ctx.beginPath();
+        ctx.arc(follower.x, follower.y, radius, 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = '#7f1d1d';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+        ctx.restore();
+      }
+    };
+  }
+
+  function createCollectorBehavior(){
+    return {
+      update(follower, owner, dt){
+        const room = dungeon?.current;
+        if(!room) return false;
+        if(follower.collectTarget && !room.pickups.includes(follower.collectTarget)){
+          follower.collectTarget = null;
+        }
+        if(!follower.collectTarget){
+          follower.collectTarget = findNearestRedHeart(owner);
+        }
+        if(follower.collectTarget){
+          const target = follower.collectTarget;
+          const dx = target.x - follower.x;
+          const dy = target.y - follower.y;
+          const dist = Math.hypot(dx, dy);
+          const speed = Math.max(60, owner.speed * 0.75);
+          if(dist>1e-3){
+            const step = Math.min(dist, speed * dt);
+            follower.x += (dx/dist) * step;
+            follower.y += (dy/dist) * step;
+          }
+          if(dist <= (follower.r + (target.r || 10) + 2)){
+            const wasteEnabled = true;
+            const result = tryPlayerCollectHeart(target, {allowWaste:wasteEnabled});
+            if(result && result.collected){
+              if(result.consumed){
+                const arr = room.pickups;
+                const idx = arr.indexOf(target);
+                if(idx>=0) arr.splice(idx,1);
+              }
+              if(result.gained || wasteEnabled){
+                follower.collectedHearts = (follower.collectedHearts || 0) + 1;
+                if(follower.collectedHearts >= 3){
+                  spawnCollectorReward(follower);
+                  follower.collectedHearts = 0;
+                }
+              }
+            }
+            follower.collectTarget = null;
+          }
+          return true;
+        }
+        return false;
+      },
+      draw(follower, ctx){
+        const radius = follower.r || 6;
+        ctx.save();
+        ctx.fillStyle = '#1f2937';
+        ctx.beginPath();
+        ctx.arc(follower.x, follower.y, radius, 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.restore();
+      }
+    };
+  }
+
+  function grantBrotherFollower(player){
+    if(!player?.addFollower) return;
+    player.addFollower({
+      slug:'brother',
+      name:'兄弟',
+      priority:1,
+      anchorToPlayer:true,
+      spacingMultiplier:0.9,
+      damageMultiplier:1,
+      color:'#fde68a',
+      behavior:{
+        onPlayerShot: followerMirrorShotHandler({damageMultiplier:1}),
+      }
+    });
+  }
+
+  function grantSisterFollowers(player){
+    if(!player?.addFollower) return;
+    player.addFollower({
+      slug:'sister-left',
+      name:'姐妹',
+      priority:0,
+      anchorToPlayer:true,
+      spacingMultiplier:0.8,
+      damageMultiplier:0.75,
+      color:'#fda4af',
+      behavior: createSideAnchorBehavior('left', 0.75),
+    });
+    player.addFollower({
+      slug:'sister-right',
+      name:'姐妹',
+      priority:0,
+      anchorToPlayer:true,
+      spacingMultiplier:0.8,
+      damageMultiplier:0.75,
+      color:'#bfdbfe',
+      behavior: createSideAnchorBehavior('right', 0.75),
+    });
+    player.rebuildFollowerOrder();
+  }
+
+  function grantCousinFollower(player){
+    if(!player?.addFollower) return;
+    player.addFollower({
+      slug:'cousin',
+      name:'表哥',
+      priority:2,
+      spacingMultiplier:1.1,
+      color:'#a5b4fc',
+      behavior: createShooterBehavior({damage:5, rate:2, speedMultiplier:2, rangeMultiplier:2, homing:true, homingStrength:14}),
+    });
+  }
+
+  function grantYoungerCousinFollower(player){
+    if(!player?.addFollower) return;
+    player.addFollower({
+      slug:'younger-cousin',
+      name:'表弟',
+      priority:3,
+      spacingMultiplier:1.2,
+      color:'#bbf7d0',
+      behavior: createShooterBehavior({damage:4, rate:3, speedMultiplier:1.5, rangeMultiplier:1.5, homing:false}),
+    });
+  }
+
+  function grantAuntFollower(player){
+    if(!player?.addFollower) return;
+    player.addFollower({
+      slug:'aunt-brimstone',
+      name:'大姨妈',
+      priority:3,
+      spacingMultiplier:1.2,
+      color:'#fca5a5',
+      behavior: createAuntBehavior(),
+    });
+  }
+
+  function grantCollectorFollower(player){
+    if(!player?.addFollower) return;
+    player.addFollower({
+      slug:'black-buddy',
+      name:'黑屁股',
+      priority:4,
+      spacingMultiplier:1.2,
+      color:'#1f2937',
+      behavior: createCollectorBehavior(),
+    });
+  }
+
 
   const TEAR_RADIUS_BASE = 5;
   const TEAR_RADIUS_GROWTH = 3.2;
@@ -9533,27 +10219,13 @@
         const movement = Math.hypot(player.lastDisplacement.x, player.lastDisplacement.y);
         const shove = 170 + movement * 420;
         if(p.type==='heart'){
-          if(p.kind === 'soul'){
-            const gained = player.addSoulHearts(p.amount || p.heal || 1);
-            if(gained>0){
+          const result = tryPlayerCollectHeart(p);
+          if(result.collected){
+            if(result.consumed){
               picks.splice(i,1);
-            } else {
-              pushPickup(p, player, shove);
             }
           } else {
-            const missing = Math.max(0, player.maxHp - player.hp);
-            const healValue = Math.min(missing, p.heal || 1);
-            if(healValue>0){
-              player.hp = Math.min(player.maxHp, player.hp + healValue);
-              if(typeof p.heal === 'number'){
-                p.heal = Math.max(0, (p.heal || 0) - healValue);
-                p.r = p.heal>1 ? 14 : 10;
-              }
-              if(!p.heal || p.heal<=0){ picks.splice(i,1); }
-              player.recalculateDamage();
-            } else {
-              pushPickup(p, player, shove);
-            }
+            pushPickup(p, player, shove);
           }
         } else if(p.type==='life-trade'){
           if(attemptLifeTradePickup(p)){
@@ -9680,6 +10352,7 @@
 
     for(const b of runtime.bullets){ b.draw(); }
 
+    drawFollowers();
     drawPlayer();
     ctx.restore();
 
@@ -9915,6 +10588,14 @@
       ctx.textAlign='center';
       ctx.fillText(`x${p.amount}`, p.x, p.y + 30);
       ctx.restore();
+    }
+  }
+
+  function drawFollowers(){
+    if(!player || !Array.isArray(player.followers) || !player.followers.length) return;
+    for(const follower of player.followers){
+      if(!follower || typeof follower.draw !== 'function') continue;
+      follower.draw(ctx);
     }
   }
 
@@ -10251,6 +10932,47 @@
       g.beginPath(); g.arc(0,0,r*0.95,0,Math.PI*2); g.stroke();
       g.fillStyle='#34d399';
       g.beginPath(); g.arc(0,r*0.05,r*0.18,0,Math.PI*2); g.fill();
+    } else if(id==='brother'){
+      g.fillStyle = '#fde68a';
+      g.beginPath(); g.arc(-r*0.35,0,r*0.35,0,Math.PI*2); g.fill();
+      g.beginPath(); g.arc(r*0.35,0,r*0.35,0,Math.PI*2); g.fill();
+      g.fillStyle = '#f97316';
+      g.fillRect(-r*0.45,-r*0.15,r*0.9,r*0.3);
+    } else if(id==='sister'){
+      g.fillStyle = '#fda4af';
+      g.beginPath(); g.arc(-r*0.45,0,r*0.3,0,Math.PI*2); g.fill();
+      g.fillStyle = '#bfdbfe';
+      g.beginPath(); g.arc(r*0.45,0,r*0.3,0,Math.PI*2); g.fill();
+      g.strokeStyle = '#fef3c7';
+      g.lineWidth = 2;
+      g.beginPath(); g.moveTo(-r*0.15,-r*0.35); g.lineTo(r*0.15,-r*0.35); g.stroke();
+    } else if(id==='cousin' || id==='younger-cousin'){
+      const baseColor = id==='cousin' ? '#93c5fd' : '#86efac';
+      g.fillStyle = baseColor;
+      g.beginPath(); g.arc(0,0,r*0.5,0,Math.PI*2); g.fill();
+      g.strokeStyle = shadeColor(baseColor,-0.2);
+      g.lineWidth = 2;
+      g.beginPath(); g.arc(0,0,r*0.65,0,Math.PI*2); g.stroke();
+      g.fillStyle = '#0f172a';
+      g.beginPath(); g.arc(0,0,r*0.2,0,Math.PI*2); g.fill();
+    } else if(id==='aunt-brimstone'){
+      const grad = g.createLinearGradient(-r,r,r,-r);
+      grad.addColorStop(0,'#fee2e2');
+      grad.addColorStop(1,'#f87171');
+      g.fillStyle = grad;
+      g.beginPath(); g.roundRect?.(-r*0.4,-r*0.8,r*0.8,r*1.6,r*0.2);
+      if(!g.roundRect){ g.fillRect(-r*0.4,-r*0.8,r*0.8,r*1.6); }
+      else { g.fill(); }
+      g.fillStyle = '#7f1d1d';
+      g.fillRect(-r*0.18,-r*0.75,r*0.36,r*1.5);
+    } else if(id==='black-buddy'){
+      g.fillStyle = '#111827';
+      g.beginPath(); g.arc(0,0,r*0.55,0,Math.PI*2); g.fill();
+      g.strokeStyle = '#fbbf24';
+      g.lineWidth = 2;
+      g.beginPath(); g.arc(0,0,r*0.7,0,Math.PI*2); g.stroke();
+      g.fillStyle = '#f97316';
+      g.beginPath(); g.arc(0,r*0.2,r*0.2,0,Math.PI*2); g.fill();
     } else if(id==='brimstone'){
       g.save();
       const glow = g.createRadialGradient(0,0,r*0.15,0,0,r*0.9);
@@ -10957,6 +11679,79 @@
       solid:true,
       spawnGrace:CONFIG.pickupSpawnGrace,
     };
+  }
+
+  function tryPlayerCollectHeart(pickup, options={}){
+    const playerRef = options.player || player;
+    const allowWaste = !!options.allowWaste;
+    const result = {
+      collected:false,
+      gained:false,
+      consumed:false,
+      amount:0,
+    };
+    if(!playerRef || !pickup) return result;
+    if(pickup.kind === 'soul'){
+      const amount = pickup.amount || pickup.heal || 1;
+      const gained = typeof playerRef.addSoulHearts === 'function'
+        ? playerRef.addSoulHearts(amount)
+        : 0;
+      if(gained>0){
+        result.collected = true;
+        result.gained = true;
+        result.amount = gained;
+        if(typeof pickup.amount === 'number'){
+          pickup.amount = Math.max(0, amount - gained);
+          pickup.r = pickup.amount>1 ? 14 : 11;
+        }
+        result.consumed = !pickup.amount;
+        return result;
+      }
+      if(allowWaste){
+        result.collected = true;
+        result.gained = false;
+        result.amount = amount;
+        result.consumed = true;
+        if(typeof pickup.amount === 'number'){
+          pickup.amount = 0;
+          pickup.r = 11;
+        }
+      }
+      return result;
+    }
+    const healValue = pickup.heal || 1;
+    const maxHp = Number.isFinite(playerRef.maxHp)
+      ? playerRef.maxHp
+      : (playerRef.maxHpCap ?? 0);
+    const missing = Math.max(0, maxHp - playerRef.hp);
+    let applied = Math.min(missing, healValue);
+    if(applied>0){
+      const clampMax = maxHp>0 ? maxHp : playerRef.hp + applied;
+      playerRef.hp = Math.min(clampMax, playerRef.hp + applied);
+      if(typeof pickup.heal === 'number'){
+        pickup.heal = Math.max(0, healValue - applied);
+        pickup.r = pickup.heal>1 ? 14 : 10;
+      }
+      if(typeof playerRef.recalculateDamage === 'function'){
+        playerRef.recalculateDamage();
+      }
+      result.collected = true;
+      result.gained = true;
+      result.amount = applied;
+      result.consumed = !pickup.heal || pickup.heal<=0;
+      return result;
+    }
+    if(allowWaste){
+      result.collected = true;
+      result.gained = false;
+      result.amount = healValue;
+      result.consumed = true;
+      if(typeof pickup.heal === 'number'){
+        pickup.heal = 0;
+        pickup.r = 10;
+      }
+    }
+    return result;
   }
 
   function makeExchangeSupplyPickup(x,y){
