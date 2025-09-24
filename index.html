@@ -565,81 +565,103 @@
     if(Math.abs(diff) <= maxStep) return target;
     return current + Math.sign(diff || 1) * maxStep;
   }
+  const WEIGHT_PRESETS = {
+    item: 10,
+    shop: 10,
+    boss: 10,
+    lifeTrade: 10,
+  };
+
   const ITEM_POOL = [
     {
       slug:'onion',
       name:'洋葱',
-      weight:50,
+      weight: WEIGHT_PRESETS.item,
       description:'泪腺更发达，射速 +0.75 次/秒',
       apply(player){ adjustFireRate(player, 0.75); }
     },
     {
       slug:'tar',
       name:'焦油抹布',
-      weight:30,
+      weight: WEIGHT_PRESETS.item,
       description:'伤害 +0.5，泪滴更厚重',
       apply(player){ player.addDamage(0.5); }
     },
     {
       slug:'sneaker',
       name:'小短跑鞋',
-      weight:50,
+      weight: WEIGHT_PRESETS.item,
       description:'移动速度 +35，轻盈不少',
       apply(player){ player.speed += 35; }
     },
     {
       slug:'pepper-steak',
       name:'胡椒牛排',
-      weight:5,
+      weight: WEIGHT_PRESETS.item,
       description:'全身沸腾，伤害 +1，攻速 +1，射程 x1.5，血上限 +1',
       apply(player){ player.addDamage(1); adjustFireRate(player,1); player.tearLife*=1.5; if(typeof player.adjustMaxHp==='function'){ player.adjustMaxHp(1); } else { player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); } }
     },
     {
       slug:'rope',
       name:'绳子',
-      weight:20,
+      weight: WEIGHT_PRESETS.item,
       description:'轻盈漂浮，飞行不再畏惧地形',
       apply(player){ player.flying = true; }
     },
     {
       slug:'spirit-date',
       name:'酒枣',
-      weight:20,
+      weight: WEIGHT_PRESETS.item,
       description:'射程 x1.5，泪滴可穿透障碍',
       apply(player){ player.tearLife*=1.5; player.canPierceObstacles = true; }
     },
     {
       slug:'betrayal-hound',
       name:'伙伴倒戈犬',
-      weight:1,
+      weight: WEIGHT_PRESETS.item,
       description:'狂暴背叛，伤害 x2 +1.5，射速 -0.25 次/秒',
       apply(player){ player.damageMultiplier *= 2; player.addDamage(1.5); adjustFireRate(player,-0.25); }
     },
     {
       slug:'despair-shout',
       name:'绝望呐喊',
-      weight:40,
+      weight: WEIGHT_PRESETS.item,
       description:'撕裂呐喊，射程 x5',
       apply(player){ player.tearLife*=5; }
     },
     {
       slug:'bad-thing',
       name:'坏东西',
-      weight:50,
+      weight: WEIGHT_PRESETS.item,
       description:'速度有点危险，子弹速度 x1.1',
       apply(player){ player.tearSpeed*=1.1; }
     },
     {
       slug:'good-thing',
       name:'好东西',
-      weight:20,
+      weight: WEIGHT_PRESETS.item,
       description:'越看越顺眼，子弹速度 x0.75，射速 +0.75，射程 x1.25',
       apply(player){ player.tearSpeed*=0.75; adjustFireRate(player,0.75); player.tearLife*=1.25; }
     },
     {
+      slug:'impact-chocolate',
+      name:'冲击巧克力',
+      weight: WEIGHT_PRESETS.item,
+      description:'被动：双击同方向键即可高速冲刺，冲刺期间无敌并留下一道造成高额伤害的冲击光带。',
+      apply(player){
+        if(!player) return;
+        if(typeof player.enableImpactDash === 'function'){
+          player.enableImpactDash();
+        } else {
+          if(!player.impactDash) player.impactDash = {};
+          player.impactDash.unlocked = true;
+        }
+      }
+    },
+    {
       slug:'seer-map',
       name:'透视雷达',
-      weight:28,
+      weight: WEIGHT_PRESETS.item,
       description:'被动：当前与未来楼层地图全开，显示所有房间、商店和道具房。',
       apply(player){
         if(!player) return;
@@ -654,7 +676,7 @@
     {
       slug:'outdoor-pouch',
       name:'户外腰包',
-      weight:6,
+      weight: WEIGHT_PRESETS.item,
       description:'主动道具 · 5 充能。翻找出 1 把钥匙、1 颗炸弹与 3 枚金币。',
       apply(player){
         const active = {
@@ -677,7 +699,7 @@
     {
       slug:'adrenaline',
       name:'肾上腺素',
-      weight:6,
+      weight: WEIGHT_PRESETS.item,
       description:'主动道具 · 3 充能。本房间内：伤害 +2，射速 +2，射程 x5，弹速 x2，生命 -1。',
       apply(player){
         const active = {
@@ -715,28 +737,28 @@
     {
       slug:'bomb-cousin',
       name:'炸弹表舅',
-      weight:18,
+      weight: WEIGHT_PRESETS.item,
       description:'炸弹 +5，爆炸范围 x2，伤害 x2。',
       apply(player){ grantResource('bomb',5); player.bombRadiusMultiplier*=2; player.bombDamageMultiplier*=2; }
     },
     {
       slug:'bomb-uncle',
       name:'炸弹舅爷',
-      weight:6,
+      weight: WEIGHT_PRESETS.item,
       description:'炸弹 +99，爆炸范围 x5，伤害 x5，爆炸伴随震动。',
       apply(player){ grantResource('bomb',99); player.bombRadiusMultiplier*=5; player.bombDamageMultiplier*=5; player.bombShakeStrength = Math.max(player.bombShakeStrength||0, 14); }
     },
     {
       slug:'bomb-grandpa',
       name:'炸弹爷爷',
-      weight:6,
+      weight: WEIGHT_PRESETS.item,
       description:'免疫炸弹伤害，受到爆炸时反而恢复生命。',
       apply(player){ player.bombImmunity = true; player.explosionHealAmount = Math.max(player.explosionHealAmount||0, 1); }
     },
     {
       slug:'magic-bullet',
       name:'魔术子弹',
-      weight:20,
+      weight: WEIGHT_PRESETS.item,
       description:'射程 x3，泪滴追踪最近的敌人。',
       apply(player){ player.tearLife*=3; player.homingTears = true; player.homingStrength = Math.max(player.homingStrength||0, 8); }
     }
@@ -751,42 +773,42 @@
     {
       slug:'blood-power',
       name:'血之力',
-      weight:50,
+      weight: WEIGHT_PRESETS.shop,
       description:'血越厚，伤害越高',
       apply(player){ player.effects.bloodPower = true; player.recalculateDamage(); }
     },
     {
       slug:'money-power',
       name:'钱之力',
-      weight:50,
+      weight: WEIGHT_PRESETS.shop,
       description:'财源滚滚，伤害随金币提升',
       apply(player){ player.effects.moneyPower = true; player.recalculateDamage(); }
     },
     {
       slug:'despair-power',
       name:'绝望之力',
-      weight:20,
+      weight: WEIGHT_PRESETS.shop,
       description:'血越少，越要反击',
       apply(player){ player.effects.despairPower = true; player.recalculateDamage(); }
     },
     {
       slug:'bomb-cousin',
       name: ITEM_REF_BOMB_COUSIN?.name || '炸弹表舅',
-      weight:18,
+      weight: WEIGHT_PRESETS.shop,
       description: ITEM_REF_BOMB_COUSIN?.description || '炸弹 +5，爆炸范围 x2，伤害 x2。',
       apply(player){ ITEM_REF_BOMB_COUSIN?.apply?.(player); }
     },
     {
       slug:'bomb-uncle',
       name: ITEM_REF_BOMB_UNCLE?.name || '炸弹舅爷',
-      weight:6,
+      weight: WEIGHT_PRESETS.shop,
       description: ITEM_REF_BOMB_UNCLE?.description || '炸弹 +99，爆炸范围 x5，伤害 x5，爆炸伴随震动。',
       apply(player){ ITEM_REF_BOMB_UNCLE?.apply?.(player); }
     },
     {
       slug:'bomb-grandpa',
       name: ITEM_REF_BOMB_GRANDPA?.name || '炸弹爷爷',
-      weight:6,
+      weight: WEIGHT_PRESETS.shop,
       description: ITEM_REF_BOMB_GRANDPA?.description || '免疫炸弹伤害，受到爆炸时反而恢复生命。',
       apply(player){ ITEM_REF_BOMB_GRANDPA?.apply?.(player); }
     }
@@ -795,49 +817,49 @@
     {
       slug:'dog-food',
       name:'狗粮',
-      weight:50,
+      weight: WEIGHT_PRESETS.boss,
       description:'血量上限 +1',
       apply(player){ if(typeof player.adjustMaxHp==='function'){ player.adjustMaxHp(1); } else { player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); } }
     },
     {
       slug:'ending-note',
       name:'结束纸条',
-      weight:50,
+      weight: WEIGHT_PRESETS.boss,
       description:'射速 +0.75 次/秒，射程 x1.1',
       apply(player){ adjustFireRate(player,0.75); player.tearLife*=1.1; }
     },
     {
       slug:'kettle',
       name:'热水壶',
-      weight:50,
+      weight: WEIGHT_PRESETS.boss,
       description:'伤害 +1',
       apply(player){ player.addDamage(1); }
     },
     {
       slug:'outdoor-pouch',
       name: ITEM_REF_OUTDOOR_POUCH?.name || '户外腰包',
-      weight:6,
+      weight: WEIGHT_PRESETS.boss,
       description: ITEM_REF_OUTDOOR_POUCH?.description || '主动道具 · 5 充能。翻找出 1 把钥匙、1 颗炸弹与 3 枚金币。',
       apply(player){ ITEM_REF_OUTDOOR_POUCH?.apply?.(player); }
     },
     {
       slug:'adrenaline',
       name: ITEM_REF_ADRENALINE?.name || '肾上腺素',
-      weight:6,
+      weight: WEIGHT_PRESETS.boss,
       description: ITEM_REF_ADRENALINE?.description || '主动道具 · 3 充能。本房间内强化并消耗 1 点生命。',
       apply(player){ ITEM_REF_ADRENALINE?.apply?.(player); }
     },
     {
       slug:'bomb-grandpa',
       name: ITEM_REF_BOMB_GRANDPA?.name || '炸弹爷爷',
-      weight:6,
+      weight: WEIGHT_PRESETS.boss,
       description: ITEM_REF_BOMB_GRANDPA?.description || '免疫炸弹伤害，受到爆炸时反而恢复生命。',
       apply(player){ ITEM_REF_BOMB_GRANDPA?.apply?.(player); }
     },
     {
       slug:'magic-bullet',
       name: ITEM_REF_MAGIC_BULLET?.name || '魔术子弹',
-      weight:20,
+      weight: WEIGHT_PRESETS.boss,
       description: ITEM_REF_MAGIC_BULLET?.description || '射程 x3，泪滴追踪最近的敌人。',
       apply(player){ ITEM_REF_MAGIC_BULLET?.apply?.(player); }
     }
@@ -846,7 +868,7 @@
     {
       slug:'brimstone',
       name:'硫磺火',
-      weight:3,
+      weight: WEIGHT_PRESETS.lifeTrade,
       description:'被动：蓄力释放贯穿障碍的血色激光。蓄力时间随射速缩短，束宽随拾取次数递增。每 8 帧造成相当于当前攻击力 70% 的伤害，持续 2 秒。拾取后仅保留 1 点生命上限。',
       lifeTradeCost:{type:'set-to-one'},
       apply(player){
@@ -1545,6 +1567,10 @@
       markKeyOrder(code);
     }
     if(!firstPress) return;
+    if(state===STATE.PLAY && player && typeof player.handleDirectionalKeyTap === 'function'){
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      player.handleDirectionalKeyTap(code, now);
+    }
     if(state===STATE.MENU && code==='Enter') startGame();
     if(state===STATE.PLAY && code==='KeyP') togglePause();
     if(state===STATE.PAUSE && code==='KeyP') togglePause();
@@ -2700,15 +2726,36 @@
       this.brimstoneFiring = false;
       this.brimstoneBeamTimer = 0;
       this.updateBrimstoneChargeMetrics();
+      this.impactDash = this.createImpactDashState();
     }
     update(dt){
       this.bombCooldown = Math.max(0, this.bombCooldown - dt);
+      const dash = this.ensureImpactDashState();
+      if(dash){
+        if(dash.cooldown>0){
+          const prevCooldown = dash.cooldown;
+          dash.cooldown = Math.max(0, dash.cooldown - dt);
+          if(prevCooldown>0 && dash.cooldown===0){
+            dash.readyPulse = Math.max(dash.readyPulse, 1.1);
+          }
+        } else if(dash.readyPulse>0){
+          dash.readyPulse = Math.max(0, dash.readyPulse - dt);
+        }
+        if(dash.trail && dash.trail.alive === false){
+          dash.trail = null;
+        }
+      }
       const startX = this.x;
       const startY = this.y;
-      const rawMoveX = resolveAxis('KeyA','KeyD');
-      const rawMoveY = resolveAxis('KeyW','KeyS');
+      let dashing = !!(dash && dash.active);
+      const rawMoveX = dashing ? dash.dashDir.x : resolveAxis('KeyA','KeyD');
+      const rawMoveY = dashing ? dash.dashDir.y : resolveAxis('KeyW','KeyS');
       let mv = {x:0,y:0};
-      if(rawMoveX !== 0 || rawMoveY !== 0){
+      if(dashing){
+        const len = Math.hypot(rawMoveX, rawMoveY) || 1;
+        mv.x = rawMoveX / len;
+        mv.y = rawMoveY / len;
+      } else if(rawMoveX !== 0 || rawMoveY !== 0){
         const len = Math.hypot(rawMoveX, rawMoveY) || 1;
         mv.x = rawMoveX / len;
         mv.y = rawMoveY / len;
@@ -2717,6 +2764,7 @@
       const decelTime = Math.max(0, this.decelTime ?? CONFIG.player.decelTime ?? 0.6);
       const maxSpeedScale = (this.maxSpeedScale ?? CONFIG.player.maxSpeedScale ?? 1.1);
       const accelRate = accelTime > 0 ? (this.speed / accelTime) : Infinity;
+      let maxSpeed = this.speed * maxSpeedScale;
       const approachAxis = (current, target, rate)=>{
         if(!Number.isFinite(rate) || rate <= 0) return target;
         const maxStep = rate * dt;
@@ -2725,46 +2773,58 @@
         if(Math.abs(delta) <= maxStep) return target;
         return current + Math.sign(delta) * maxStep;
       };
-      if(mv.x !== 0 || mv.y !== 0){
+      if(dashing){
         this.moveDir.x = mv.x;
         this.moveDir.y = mv.y;
-        const targetSpeed = this.speed;
-        const targetX = mv.x * targetSpeed;
-        const targetY = mv.y * targetSpeed;
-        this.vel.x = approachAxis(this.vel.x, targetX, accelRate);
-        this.vel.y = approachAxis(this.vel.y, targetY, accelRate);
+        const dashSpeed = Number.isFinite(dash.dashSpeed) && dash.dashSpeed>0 ? dash.dashSpeed : ((this.r || CONFIG.player.radius || 12) * 16) / Math.max(0.08, dash.dashDuration || 0.18);
+        dash.dashSpeed = dashSpeed;
+        this.vel.x = mv.x * dashSpeed;
+        this.vel.y = mv.y * dashSpeed;
       } else {
-        const vmag = Math.hypot(this.vel.x, this.vel.y);
-        if(vmag>1e-3){
-          this.moveDir.x = this.vel.x / vmag;
-          this.moveDir.y = this.vel.y / vmag;
+        if(mv.x !== 0 || mv.y !== 0){
+          this.moveDir.x = mv.x;
+          this.moveDir.y = mv.y;
+          const targetSpeed = this.speed;
+          const targetX = mv.x * targetSpeed;
+          const targetY = mv.y * targetSpeed;
+          this.vel.x = approachAxis(this.vel.x, targetX, accelRate);
+          this.vel.y = approachAxis(this.vel.y, targetY, accelRate);
         } else {
-          this.moveDir.x = 0;
-          this.moveDir.y = 0;
+          const vmag = Math.hypot(this.vel.x, this.vel.y);
+          if(vmag>1e-3){
+            this.moveDir.x = this.vel.x / vmag;
+            this.moveDir.y = this.vel.y / vmag;
+          } else {
+            this.moveDir.x = 0;
+            this.moveDir.y = 0;
+          }
+          if(vmag>0){
+            const basePlayerSpeed = CONFIG && CONFIG.player ? CONFIG.player.speed : 0;
+            const decelRef = Math.max(this.speed, basePlayerSpeed || 0, vmag);
+            const decelRate = decelTime > 0 ? (decelRef / decelTime) : Infinity;
+            this.vel.x = approachAxis(this.vel.x, 0, decelRate);
+            this.vel.y = approachAxis(this.vel.y, 0, decelRate);
+          }
         }
-        if(vmag>0){
-          const basePlayerSpeed = CONFIG && CONFIG.player ? CONFIG.player.speed : 0;
-          const decelRef = Math.max(this.speed, basePlayerSpeed || 0, vmag);
-          const decelRate = decelTime > 0 ? (decelRef / decelTime) : Infinity;
-          this.vel.x = approachAxis(this.vel.x, 0, decelRate);
-          this.vel.y = approachAxis(this.vel.y, 0, decelRate);
+        const curSpeed = Math.hypot(this.vel.x, this.vel.y);
+        if(curSpeed > maxSpeed){
+          const scale = maxSpeed / curSpeed;
+          this.vel.x *= scale;
+          this.vel.y *= scale;
         }
-      }
-      const maxSpeed = this.speed * maxSpeedScale;
-      const curSpeed = Math.hypot(this.vel.x, this.vel.y);
-      if(curSpeed > maxSpeed){
-        const scale = maxSpeed / curSpeed;
-        this.vel.x *= scale;
-        this.vel.y *= scale;
       }
       this.x += this.vel.x * dt;
       this.y += this.vel.y * dt;
-      if(this.knockTimer>0){
+      if(this.knockTimer>0 && !dashing){
         this.x += this.knockVel.x * dt;
         this.y += this.knockVel.y * dt;
         this.knockVel.x *= 0.86;
         this.knockVel.y *= 0.86;
         this.knockTimer = Math.max(0, this.knockTimer - dt);
+      } else if(dashing){
+        this.knockTimer = 0;
+        this.knockVel.x = 0;
+        this.knockVel.y = 0;
       }
       // 边界
       const minX = 30;
@@ -2787,7 +2847,21 @@
       const preResolveX = this.x;
       const preResolveY = this.y;
       resolveEntityObstacles(this);
-      if(this.x!==preResolveX || this.y!==preResolveY){
+      if(dashing){
+        if(dash && dash.trail && typeof dash.trail.addPoint === 'function'){
+          dash.trail.addPoint(this.x, this.y);
+        }
+        dash.dashTimer = Math.max(0, dash.dashTimer - dt);
+        const forwardMove = (this.x - startX) * mv.x + (this.y - startY) * mv.y;
+        const expectedStep = Math.abs(dash.dashSpeed || 0) * dt * 0.35;
+        const blocked = forwardMove <= expectedStep && dash.dashTimer > 0;
+        if(blocked || dash.dashTimer <= 0){
+          this.endImpactDash({blocked});
+          if(!dash.active){
+            dashing = false;
+          }
+        }
+      } else if(this.x!==preResolveX || this.y!==preResolveY){
         const corrX = this.x - preResolveX;
         const corrY = this.y - preResolveY;
         const corrLen = Math.hypot(corrX, corrY);
@@ -2883,7 +2957,110 @@
       }
       this.recalculateDamage();
     }
+    createImpactDashState(){
+      const baseRadius = this.r || CONFIG.player.radius || 12;
+      return {
+        unlocked: false,
+        cooldown: 0,
+        cooldownDuration: 5,
+        tapThreshold: 0.25,
+        dashDuration: 0.18,
+        dashTimer: 0,
+        dashDir: {x:0,y:0},
+        dashSpeed: 0,
+        keyTimes: {KeyW:-Infinity, KeyA:-Infinity, KeyS:-Infinity, KeyD:-Infinity},
+        readyPulse: 0,
+        trail: null,
+        minStep: Math.max(6, baseRadius * 0.6),
+      };
+    }
+    ensureImpactDashState(){
+      if(!this.impactDash){
+        this.impactDash = this.createImpactDashState();
+      }
+      return this.impactDash;
+    }
+    enableImpactDash(){
+      const dash = this.ensureImpactDashState();
+      dash.unlocked = true;
+      return dash;
+    }
+    handleDirectionalKeyTap(code, timestampMs){
+      const dash = this.ensureImpactDashState();
+      if(!dash.unlocked) return;
+      if(code!=='KeyW' && code!=='KeyA' && code!=='KeyS' && code!=='KeyD') return;
+      if(dash.active) return;
+      const nowMs = Number.isFinite(timestampMs) ? timestampMs : (typeof performance!=='undefined' && performance.now ? performance.now() : Date.now());
+      const now = nowMs / 1000;
+      const prev = dash.keyTimes?.[code] ?? -Infinity;
+      if(dash.keyTimes){ dash.keyTimes[code] = now; }
+      const threshold = Math.max(0.05, dash.tapThreshold ?? 0.25);
+      if(now - prev <= threshold){
+        const dirs = {KeyW:{x:0,y:-1}, KeyS:{x:0,y:1}, KeyA:{x:-1,y:0}, KeyD:{x:1,y:0}};
+        const dir = dirs[code];
+        if(dir && this.tryStartImpactDash(dir, code)){
+          if(dash.keyTimes){ dash.keyTimes[code] = -Infinity; }
+        }
+      }
+    }
+    tryStartImpactDash(dir, code){
+      const dash = this.ensureImpactDashState();
+      if(!dash.unlocked) return false;
+      if(dash.active) return false;
+      if(dash.cooldown>0) return false;
+      const len = Math.hypot(dir?.x ?? 0, dir?.y ?? 0);
+      if(!(len>1e-5)) return false;
+      const nx = (dir.x ?? 0) / len;
+      const ny = (dir.y ?? 0) / len;
+      const radius = this.r || CONFIG.player.radius || 12;
+      const dashDistance = radius * 2 * 8;
+      const duration = Math.max(0.12, dash.dashDuration ?? 0.18);
+      dash.dashDir.x = nx;
+      dash.dashDir.y = ny;
+      dash.dashDuration = duration;
+      dash.dashTimer = duration;
+      dash.dashSpeed = dashDistance / duration;
+      dash.active = true;
+      dash.cooldown = Math.max(0, dash.cooldownDuration ?? 5);
+      dash.readyPulse = 0;
+      if(dash.keyTimes && code && code in dash.keyTimes){
+        dash.keyTimes[code] = -Infinity;
+      }
+      if(dash.trail && typeof dash.trail.finish === 'function'){
+        dash.trail.finish();
+      }
+      const trail = createImpactDashTrail(this, {
+        radius: radius * 2,
+        minStep: dash.minStep,
+        tickInterval: 20/60,
+        lifetime: 1,
+        damageScale: 4,
+      });
+      dash.trail = trail;
+      if(trail && typeof trail.addPoint === 'function'){
+        trail.addPoint(this.x, this.y);
+      }
+      if(Array.isArray(runtime.beams)){ runtime.beams.push(trail); }
+      else { runtime.beams = [trail]; }
+      return true;
+    }
+    endImpactDash(options={}){
+      const dash = this.ensureImpactDashState();
+      if(!dash.active) return;
+      dash.active = false;
+      dash.dashTimer = 0;
+      dash.dashSpeed = 0;
+      dash.dashDir.x = 0;
+      dash.dashDir.y = 0;
+      if(dash.trail && typeof dash.trail.finalize === 'function'){
+        dash.trail.finalize();
+      }
+    }
+    isImpactDashing(){
+      return !!(this.impactDash && this.impactDash.active);
+    }
     hurt(dmg, options={}){
+      if(this.isImpactDashing && this.isImpactDashing()) return;
       const amount = Math.max(0, Number(dmg)||0);
       if(amount<=0) return;
       const cause = options.cause || null;
@@ -3025,6 +3202,7 @@
       this.brimstoneCharging = false;
     }
     applyImpulse(dx,dy,strength){
+      if(this.isImpactDashing && this.isImpactDashing()) return;
       const len = Math.hypot(dx,dy) || 1;
       const power = strength || CONFIG.bomb.knock;
       this.knockVel.x += (dx/len) * power;
@@ -3518,6 +3696,184 @@
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  function createImpactDashTrail(owner, options={}){
+    const radius = Math.max(6, Number(options.radius) || ((owner?.r || 12) * 2));
+    const lifetime = Math.max(0.2, Number(options.lifetime) || 1);
+    const tickInterval = Math.max(1/120, Number(options.tickInterval) || (20/60));
+    const damageScale = Number.isFinite(options.damageScale) ? options.damageScale : 4;
+    const minStep = Math.max(2, Number(options.minStep) || radius * 0.4);
+    const trail = {
+      type:'impact-dash',
+      owner,
+      alive: true,
+      follow: true,
+      radius,
+      ttl: lifetime,
+      life: lifetime,
+      tickInterval,
+      tickTimer: tickInterval,
+      damageScale,
+      minStep,
+      points: [],
+      segmentLengths: [],
+      totalLength: 0,
+      finalLength: 0,
+      addPoint(x,y){
+        if(!Number.isFinite(x) || !Number.isFinite(y)) return;
+        const pts = this.points;
+        if(!pts.length){
+          pts.push({x,y});
+          return;
+        }
+        const last = pts[pts.length-1];
+        const dx = x - last.x;
+        const dy = y - last.y;
+        const dist = Math.hypot(dx, dy);
+        if(dist < 1e-4){
+          return;
+        }
+        if(dist < this.minStep && pts.length>1){
+          last.x = x;
+          last.y = y;
+          const prev = pts[pts.length-2];
+          const newLen = Math.hypot(last.x - prev.x, last.y - prev.y);
+          const idx = this.segmentLengths.length - 1;
+          if(idx>=0){
+            this.totalLength -= this.segmentLengths[idx];
+            this.segmentLengths[idx] = newLen;
+            this.totalLength += newLen;
+          }
+          return;
+        }
+        pts.push({x,y});
+        const segLen = pts.length>1 ? Math.hypot(x - pts[pts.length-2].x, y - pts[pts.length-2].y) : 0;
+        this.segmentLengths.push(segLen);
+        this.totalLength += segLen;
+      },
+      distanceToPath(x,y){
+        const pts = this.points;
+        if(pts.length===0) return Infinity;
+        if(pts.length===1) return Math.hypot(x - pts[0].x, y - pts[0].y);
+        let best = Infinity;
+        for(let i=0;i<pts.length-1;i++){
+          const p0 = pts[i];
+          const p1 = pts[i+1];
+          const res = pointSegmentDistance(x,y,p0.x,p0.y,p1.x,p1.y);
+          if(res.distance < best) best = res.distance;
+        }
+        return best;
+      },
+      applyDamage(){
+        const room = dungeon?.current;
+        if(!room || !Array.isArray(room.enemies)) return;
+        const ownerDamage = Number.isFinite(this.owner?.damage) ? this.owner.damage : 1;
+        const damageValue = Math.max(0, ownerDamage * this.damageScale);
+        if(damageValue<=0) return;
+        for(const enemy of room.enemies){
+          if(enemy.dead) continue;
+          const threshold = this.radius + (enemy.r || 12);
+          if(this.distanceToPath(enemy.x, enemy.y) <= threshold){
+            if(enemy.damage(damageValue)){ handleEnemyDeath(enemy, room); }
+          }
+        }
+      },
+      pruneToLength(target){
+        target = Math.max(0, target);
+        let length = this.totalLength;
+        if(length <= target) return;
+        while(this.points.length > 1 && length - (this.segmentLengths[0] || 0) >= target){
+          const removed = this.segmentLengths.shift() || 0;
+          this.points.shift();
+          length -= removed;
+        }
+        this.totalLength = length;
+        if(this.points.length <= 1){
+          this.segmentLengths.length = Math.max(0, this.points.length - 1);
+          return;
+        }
+        if(length > target){
+          const excess = length - target;
+          const firstSeg = this.segmentLengths[0] || 0;
+          if(firstSeg > 1e-6 && excess < firstSeg){
+            const p0 = this.points[0];
+            const p1 = this.points[1];
+            const nx = (p1.x - p0.x) / firstSeg;
+            const ny = (p1.y - p0.y) / firstSeg;
+            p0.x += nx * excess;
+            p0.y += ny * excess;
+            this.segmentLengths[0] = firstSeg - excess;
+            this.totalLength = target;
+          } else {
+            this.segmentLengths.shift();
+            this.points.shift();
+            this.totalLength = Math.max(0, length - firstSeg);
+          }
+        }
+      },
+      finalize(){
+        if(!this.follow) return;
+        this.follow = false;
+        this.life = this.ttl;
+        this.finalLength = this.totalLength;
+      },
+      finish(){
+        this.alive = false;
+        this.follow = false;
+      },
+      update(dt){
+        if(!this.alive) return;
+        if(this.follow){
+          this.life = this.ttl;
+          this.finalLength = this.totalLength;
+        } else {
+          this.life = Math.max(0, this.life - dt);
+          const ratio = this.ttl>0 ? clamp(this.life / this.ttl, 0, 1) : 0;
+          this.pruneToLength(this.finalLength * ratio);
+          if(this.life<=0 || this.points.length<=1){
+            this.alive = false;
+          }
+        }
+        this.tickTimer -= dt;
+        if(this.tickTimer <= 0){
+          this.tickTimer += this.tickInterval;
+          this.applyDamage();
+        }
+      },
+      draw(ctx){
+        if(!ctx) return;
+        const pts = this.points;
+        if(pts.length<2) return;
+        const alpha = this.follow ? 0.92 : clamp(this.life / this.ttl, 0, 1);
+        if(alpha<=0) return;
+        ctx.save();
+        ctx.globalAlpha *= alpha;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = colorWithAlpha('#0ea5e9', 0.55);
+        ctx.lineWidth = this.radius * 1.35;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for(let i=1;i<pts.length;i++){ ctx.lineTo(pts[i].x, pts[i].y); }
+        ctx.stroke();
+        ctx.strokeStyle = colorWithAlpha('#38bdf8', 0.7);
+        ctx.lineWidth = this.radius;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for(let i=1;i<pts.length;i++){ ctx.lineTo(pts[i].x, pts[i].y); }
+        ctx.stroke();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = colorWithAlpha('#ecfeff', 0.9);
+        ctx.lineWidth = this.radius * 0.6;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for(let i=1;i<pts.length;i++){ ctx.lineTo(pts[i].x, pts[i].y); }
+        ctx.stroke();
+        ctx.restore();
+      }
+    };
+    return trail;
   }
 
   function onObstacleDestroyed(room, obs){
@@ -8051,6 +8407,8 @@
     // 身体
     let baseColor = '#e1e7ff';
     let edgeColor = '#a78bfa';
+    const dashState = player.impactDash;
+    const dashActive = typeof player.isImpactDashing === 'function' ? player.isImpactDashing() : false;
     if(player.attackMode === 'brimstone'){
       const ratio = typeof player.getBrimstoneChargeRatio === 'function' ? player.getBrimstoneChargeRatio() : 0;
       if(player.brimstoneBeam || player.brimstoneFiring){
@@ -8067,6 +8425,20 @@
         edgeColor = mixHexColor('#a78bfa', '#ef4444', ratio);
       }
     }
+    if(dashActive){
+      baseColor = mixHexColor(baseColor, '#38bdf8', 0.85);
+      edgeColor = mixHexColor(edgeColor, '#0ea5e9', 0.85);
+    } else if(dashState?.unlocked){
+      const ready = (dashState.cooldown ?? 0) <= 0;
+      const pulseHint = Math.max(0, Math.min(1, dashState.readyPulse ?? 0));
+      if(ready || pulseHint>0){
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const wave = (Math.sin(now / 200) + 1) / 2;
+        const strength = clamp(0.22 + wave * 0.18 + pulseHint * 0.45, 0, 0.75);
+        baseColor = mixHexColor(baseColor, '#bae6fd', strength);
+        edgeColor = mixHexColor(edgeColor, '#38bdf8', strength);
+      }
+    }
     ctx.save();
     if(player.ifr>0){
       const phase = Math.floor((performance.now()/70)) % 2;
@@ -8074,6 +8446,37 @@
       ctx.globalAlpha *= alpha;
     }
     drawBlob(player.x, player.y, player.r, baseColor, edgeColor);
+    if(dashActive){
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      const wave = (Math.sin(now / 140) + 1) / 2;
+      const glowRadius = player.r * (1.6 + wave * 0.35);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha *= 0.55 + wave * 0.25;
+      const glow = ctx.createRadialGradient(player.x, player.y, glowRadius * 0.25, player.x, player.y, glowRadius);
+      glow.addColorStop(0, colorWithAlpha('#e0f2fe', 0.9));
+      glow.addColorStop(0.55, colorWithAlpha('#38bdf8', 0.35));
+      glow.addColorStop(1, colorWithAlpha('#0ea5e9', 0));
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, glowRadius, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    } else if(dashState?.unlocked && (dashState.cooldown ?? 0) <= 0){
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      const wave = (Math.sin(now / 220) + 1) / 2;
+      const haloRadius = player.r * (1.2 + wave * 0.25);
+      ctx.save();
+      ctx.globalAlpha *= 0.35 + wave * 0.2;
+      const halo = ctx.createRadialGradient(player.x, player.y, haloRadius * 0.3, player.x, player.y, haloRadius);
+      halo.addColorStop(0, colorWithAlpha('#bae6fd', 0.6));
+      halo.addColorStop(1, colorWithAlpha('#38bdf8', 0));
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, haloRadius, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
     if(player.attackMode === 'brimstone' && player.brimstoneCharged && !player.brimstoneBeam && !player.brimstoneFiring){
       const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       const wave = (Math.sin(now / 90) + 1) / 2;
