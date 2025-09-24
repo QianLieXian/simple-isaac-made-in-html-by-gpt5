@@ -1,6 +1,6 @@
 # 地窖速通实验室 · Basement Speedrun Lab
 
-[![Progress](https://img.shields.io/badge/Progress-92.5%25-blue)](#) [![HTML5 Canvas](https://img.shields.io/badge/Engine-HTML5%20Canvas-orange)](#) [![Single-file](https://img.shields.io/badge/Build-Single--file-green)](#) [![Zero Deps](https://img.shields.io/badge/Deps-0-lightgrey)](#)
+[![Progress](https://img.shields.io/badge/Progress-96%25-blue)](#) [![HTML5 Canvas](https://img.shields.io/badge/Engine-HTML5%20Canvas-orange)](#) [![Single-file](https://img.shields.io/badge/Build-Single--file-green)](#) [![Zero Deps](https://img.shields.io/badge/Deps-0-lightgrey)](#)
 
 > 纯前端、**单文件** 的地牢速通实验室：顶视角射击、覆盖式引导、道具图鉴与进度可视化，开箱即玩。  
 > A **single-file** HTML5 Canvas prototype: snappy top-down combat, contextual overlays, and a live item codex—zero dependencies.
@@ -27,7 +27,7 @@
 
 ## 概览 · Overview
 
-**当前进度 Progress:** 92%（作者自述）  
+**当前进度 Progress:** 96%（作者自述）
 This is a single-file HTML5 Canvas **Basement Speedrun Lab**. It ships a top-down shooter, contextual overlays, and a live item codex—**no external assets** needed.
 
 ---
@@ -57,7 +57,12 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
   可折叠**作弊面板**（生命/伤害/移动/资源修改，支持道具编号召唤）、带 **ARIA** 的屏幕键盘、随解锁进度生成缩略图的**道具图鉴**。  
   *Collapsible cheat console, ARIA-aware on-screen keyboard, auto-rendered item codex.*
 
-- **小地图与事件可视化 · Readable Flow**  
+- **战斗可读性 · Combat Readability**
+  所有 Boss 攻击新增独立前摇/后摇与配色提示；HUD 道具栏同步展示持有数量（名称 ×N）。
+
+  *Boss telegraphs now glow per action and the HUD item list tallies every stack.*
+
+- **小地图与事件可视化 · Readable Flow**
   小地图颜色区分：当前房间 / Boss / 道具房 / 商店；另有 **Boss 血条、开场介绍与拾取横幅**。  
   *Minimap color-codes key rooms; boss bars and pickup banners spotlight beats.*
 
@@ -161,8 +166,12 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
 
 ## Boss 图鉴 · Boss Gallery
 
-- **哭泣塑像 · Idol**  
-  随机使用喷射弹幕 / 召唤援兵 / 冲刺；低血狂暴。  
+- **新增总览**：所有 Boss 的攻击现在拥有独立的前摇/后摇与视觉提示，便于读招与反击。
+
+  *New:* every boss telegraphs each move with dedicated wind-ups, recoveries, and color cues.
+
+- **哭泣塑像 · Idol**
+  随机使用喷射弹幕 / 召唤援兵 / 冲刺；低血狂暴。
   *Sprays, summons, and charges; enrages at low HP.*
 
 - **余烬教官 · Master**  
