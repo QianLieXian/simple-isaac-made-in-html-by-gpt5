@@ -102,32 +102,67 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
 
 > 说明：中文为主，斜体为英文补充。效果以游戏内实现为准。
 
-| ID | 道具 · Item | 效果 · Effect |
-|---:|:--|:--|
-| 01 | 洋葱 *Onion* | 射速 **+0.75 次/秒** · *+0.75 shots/sec* |
-| 02 | 焦油抹布 *Tar Rag* | 伤害 **+0.5**，泪滴更厚重 · *+0.5 dmg, heavier tears* |
-| 03 | 小短跑鞋 *Sprinter Shoes* | 移动速度 **+35** · *+35 move speed* |
-| 04 | 胡椒牛排 *Pepper Steak* | 伤害 **+1**，射速 **+1**，射程 **×1.5**，上限 **+1** 并治疗 · *+1 dmg, +1 rps, ×1.5 range, +1 max HP w/ heal* |
-| 05 | 绳子 *Rope* | 获得**飞行** · *Grants flight* |
-| 06 | 酒枣 *Spirit Date* | 射程 **×1.5**，泪滴**穿透障碍** · *×1.5 range, piercing* |
-| 07 | 伙伴倒戈犬 *Betrayal Hound* | 伤害 **×2 +1.5**，射速 **−0.25** 次/秒 |
-| 08 | 绝望呐喊 *Cry of Despair* | 射程/寿命 **×5** |
-| 09 | 坏东西 *Bad Thing* | 子弹速度 **×1.1** |
-| 10 | 好东西 *Good Thing* | 子弹速度 **×0.75**，射速 **+0.75**，射程 **×1.25** |
-| 11 | 透视雷达 *Seer Map* | 当前与未来楼层**地图全显** |
-| 12 | 户外腰包 *Outdoor Pouch* | **主动·5 充能**：钥匙×1、炸弹×1、金币×3 |
-| 13 | 肾上腺素 *Adrenaline* | **主动·3 充能**：本房间 **伤害+2/射速+2/射程×5/弹速×2**，生命 **−1** |
-| 14 | 炸弹表舅 *Bomb Cousin* | 炸弹 **+5**，爆炸范围 **×2**，伤害 **×2** |
-| 15 | 炸弹舅爷 *Bomb Uncle* | 炸弹 **+99**，范围 **×5**，伤害 **×5**，触发**震动** |
-| 16 | 炸弹爷爷 *Bomb Grandpa* | **免疫炸弹伤害**，爆炸**治疗** |
-| 17 | 魔术子弹 *Magic Bullet* | 射程 **×3**，泪滴**追踪最近敌人** |
-| 18 | 血之力 *Blood Power* | **生命越多伤害越高** |
-| 19 | 钱之力 *Money Power* | **金币转化为伤害** |
-| 20 | 绝望之力 *Despair Power* | **血越少越凶猛** |
-| 21 | 狗粮 *Dog Food* | **上限 +1 并立即恢复** |
-| 22 | 结束纸条 *Ending Note* | **射速 +0.75**，**射程 ×1.1** |
-| 23 | 热水壶 *Kettle* | **伤害 +1** |
-| 24 | 硫磺火 *idkeng* | **更改攻击方式** |
+### 主池 · Core Drops
+
+| ID | 道具 · Item | 类型 | 效果 · Effect |
+|---:|:--|:--|:--|
+| 01 | 洋葱 *Onion* | 被动 | 射速 **+0.75 次/秒** · *+0.75 shots/sec* |
+| 02 | 焦油抹布 *Tar Rag* | 被动 | 伤害 **+0.5**，泪滴更厚 · *+0.5 dmg, thicker tears* |
+| 03 | 小短跑鞋 *Sprinter Shoes* | 被动 | 移动速度 **+35** · *+35 move speed* |
+| 04 | 胡椒牛排 *Pepper Steak* | 被动 | 伤害 **+1**，射速 **+1**，射程 **×1.5**，上限 **+1** 并治疗 · *+1 dmg, +1 rps, ×1.5 range, +1 max HP with heal* |
+| 05 | 绳子 *Rope* | 被动 | 获得飞行，叠层小幅提升移速/弹速 · *Flight; stacks add slight move & tear speed* |
+| 06 | 酒枣 *Spirit Date* | 被动 | 射程 **×1.5**，泪滴穿透障碍 · *×1.5 range, pierces terrain* |
+| 07 | 伙伴倒戈犬 *Betrayal Hound* | 被动 | 伤害 **×2 +1.5**，射速 **−0.25 次/秒** · *Damage ×2+1.5, fire rate −0.25* |
+| 08 | 绝望呐喊 *Cry of Despair* | 被动 | 泪滴寿命 **×5** · *×5 tear range* |
+| 09 | 坏东西 *Bad Thing* | 被动 | 子弹速度 **×1.1** · *Tear speed ×1.1* |
+| 10 | 好东西 *Good Thing* | 被动 | 子弹速度 **×0.75**，射速 **+0.75**，射程 **×1.25** · *×0.75 tear speed, +0.75 rps, ×1.25 range* |
+| 11 | 冲击巧克力 *Impact Chocolate* | 被动 | 双击方向冲刺并留高伤光带，叠层延长距离/降冷却，4 层可碎障 · *Double-tap dash with damaging trail; stacks extend dash, reduce cooldown, break rocks at 4 stacks* |
+| 12 | 热巧克力 *Hot Chocolate* | 被动 | 泪滴可蓄力，长按依序获得高伤→追踪→穿透，额外杯数强化成长 · *Charge shots for scaling damage; long charges add homing then piercing; stacks boost scaling* |
+| 13 | 豆浆 *Soy Milk* | 被动 | 射速 **×4**，伤害 **×0.25**，射程 **×2.5**，移速 **×1.25** · *×4 fire rate, ×0.25 dmg, ×2.5 range, ×1.25 speed* |
+| 14 | 透视雷达 *Seer Map* | 被动 | 当前与未来楼层地图全显，叠层提供折扣与卡牌掉率加成 · *Reveal full maps now & next floors; stacks add shop discount and card drop bonus* |
+| 15 | 户外腰包 *Outdoor Pouch* | 主动（5 充能） | 使用时翻出钥匙×1、炸弹×1、金币×3 · *5-charge active: +1 key, +1 bomb, +3 coins* |
+| 16 | 怀表 *Pocket Watch* | 主动（4 充能） | 冻结时间 4 秒，仅玩家可行动 · *4-charge active: freeze time for 4 s* |
+| 17 | 肾上腺素 *Adrenaline* | 主动（3 充能） | 本房间伤害/射速 **+2**、射程 **×5**、子弹速度 **×2**，消耗 1 滴红心 · *3-charge active: +2 dmg/+2 rps/×5 range/×2 tear speed; costs 1 heart* |
+| 18 | 炸弹表舅 *Bomb Cousin* | 被动 | 炸弹 **+5**，爆炸范围 **×2**，伤害 **×2** · *+5 bombs, ×2 radius & damage* |
+| 19 | 炸弹舅爷 *Bomb Uncle* | 被动 | 炸弹 **+99**，爆炸范围 **×5**，伤害 **×5**，附带强震屏 · *+99 bombs, ×5 radius & damage with strong shake* |
+| 20 | 炸弹爷爷 *Bomb Grandpa* | 被动 | 免疫炸弹伤害，被爆炸改为治疗 · *Bomb immunity; explosions heal* |
+| 21 | 魔术子弹 *Magic Bullet* | 被动 | 射程 **×3**，泪滴强力追踪 · *×3 range with strong homing tears* |
+| 22 | 表弟 *Younger Cousin* | 跟班 | 跟班以 **3 次/秒** 射出 **4 点伤害** 泪滴，射程/速度为玩家 **1.5×** · *Familiar: 3 rps, 4 dmg, 1.5× range & speed* |
+| 23 | 大姨妈 *Aunt Brimstone* | 跟班 | 蓄力 2 秒喷射 1.5 秒硫磺火，每 8 帧造成 0.75 伤害 · *Familiar: 2s charge, 1.5s brimstone beam (0.75 dmg per 8 frames)* |
+| 24 | 黑屁股 *Black Buddy* | 跟班 | 自动拾取红心，累积 3 枚奖励随机资源 · *Collects red hearts; every three grants a random resource* |
+
+### 商店精选 · Shop Specials
+
+| 编号 | 道具 · Item | 类型 | 效果 · Effect |
+|:---:|:--|:--|:--|
+| S1 | 血之力 *Blood Power* | 被动 | 生命越充沛，伤害越高 · *Damage scales with remaining red hearts* |
+| S2 | 钱之力 *Money Power* | 被动 | 金币越多，火力越猛 · *Damage scales with held coins* |
+| S3 | 绝望之力 *Despair Power* | 被动 | 红心越少越愤怒 · *Damage rises as health drops* |
+
+> 商店还会售卖“炸弹亲戚”等主池道具的额外拷贝。
+
+### Boss 奖励 · Boss Rewards
+
+| 编号 | 道具 · Item | 类型 | 效果 · Effect |
+|:---:|:--|:--|:--|
+| B1 | 狗粮 *Dog Food* | 被动 | 上限 **+1** 并立即回满 · *+1 max HP with heal* |
+| B2 | 结束纸条 *Ending Note* | 被动 | 射速 **+0.75**，射程 **×1.1** · *+0.75 rps, ×1.1 range* |
+| B3 | 热水壶 *Kettle* | 被动 | 伤害 **+1** · *+1 damage* |
+
+> 其他 Boss 奖励可能掉落主池或主动类道具，便于补齐构筑。
+
+### 献祭道具 · Life Trade Relics
+
+| 编号 | 道具 · Item | 类型 | 效果 · Effect |
+|:---:|:--|:--|:--|
+| L1 | 硫磺火 *Brimstone* | 被动 | 攻击改为蓄力血色激光并强制上限 1，叠层加粗束宽 · *Charge a piercing brimstone beam; sets max HP to 1, stacks widen the beam* |
+| L2 | 兄弟 *Brother* | 跟班 | 复制玩家射击与特效的跟班 · *Familiar mirrors your tears and modifiers* |
+| L3 | 姐妹 *Sisters* | 跟班 | 左右双胞胎以 **0.75×** 伤害同步射击 · *Twin familiars fire at 0.75× your damage* |
+| L4 | 表哥 *Cousin* | 跟班 | 发射追踪弹（伤害 5，射速 2 次/秒），射程/速度 **×2** · *Familiar: 2 rps homing tears, 5 dmg, 2× range & speed* |
+| L5 | 亚巴顿 *Abaddon* | 被动 | 获得 3 点蓝心，伤害 **×2**，射程 **×3**，敌人移速下降 · *+3 soul hearts, damage ×2, range ×3, slows enemies* |
+| L6 | 逃生工具 *Escape Tool* | 被动 | 移速 **×5**、子弹速度 **×5**、无敌帧 **×3**，并减少敌人生成量 · *×5 move & tear speed, ×3 i-frame duration, fewer enemies spawn* |
+
+> 默认献祭 **1 点生命上限**；若有特殊代价会在道具面板上标注。
 
 ---
 
