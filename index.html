@@ -662,7 +662,7 @@
       slug:'hot-chocolate',
       name:'热巧克力',
       weight: WEIGHT_PRESETS.item,
-      description:'泪滴可蓄力。按住方向键蓄力，松开时按蓄力时长倍增伤害；蓄满默认射速所需时间即可回到原始伤害。额外杯数会加快蓄力并略微提高伤害成长。',
+      description:'泪滴可蓄力。按住方向键蓄力，松开时按蓄力时长倍增伤害；超过 3 秒追踪敌人，5 秒穿透障碍，8 秒再穿透敌人。蓄力成长与弹速皆强化 1.5 倍，额外杯数进一步提升蓄力效率与伤害成长。',
       apply(player){
         if(!player) return;
         if(typeof player.enableHotChocolate === 'function'){
@@ -670,6 +670,29 @@
         } else {
           if(!player.hotChocolate) player.hotChocolate = {enabled:true};
           else player.hotChocolate.enabled = true;
+        }
+      }
+    },
+    {
+      slug:'soy-milk',
+      name:'豆浆',
+      weight: WEIGHT_PRESETS.item,
+      description:'射速 x4，伤害 x0.25，射程 x2.5，移速 x1.25。',
+      apply(player){
+        if(!player) return;
+        if(Number.isFinite(player.fireInterval)){
+          const next = Math.max(15, player.fireInterval / 4);
+          player.fireInterval = next;
+          player.fireCd = Math.min(player.fireCd, player.fireInterval);
+          if(typeof player.updateBrimstoneChargeMetrics === 'function'){
+            player.updateBrimstoneChargeMetrics();
+          }
+        }
+        player.damageMultiplier *= 0.25;
+        player.tearLife *= 2.5;
+        player.speed *= 1.25;
+        if(typeof player.recalculateDamage === 'function'){
+          player.recalculateDamage();
         }
       }
     },
@@ -706,6 +729,33 @@
             const coinGain = grantResource('coin',3);
             const detail = `钥匙 +${keyGain}，炸弹 +${bombGain}，金币 +${coinGain}`;
             return {message:'户外腰包翻找完毕', detail};
+          }
+        };
+        player.setActiveItem(active);
+      }
+    },
+    {
+      slug:'pocket-watch',
+      name:'怀表',
+      weight: WEIGHT_PRESETS.item,
+      description:'主动道具 · 4 充能。使用后 4 秒内除玩家外时间停滞，敌人、炸弹与弹幕全部冻结。',
+      apply(player){
+        const active = {
+          slug:'pocket-watch',
+          name:'怀表',
+          description:'时间停止 4 秒，唯独你可移动与攻击。',
+          maxCharge:4,
+          startCharge:4,
+          use(){
+            if(runtime.timeStopTimer>0){
+              return {consume:0, message:'时间仍在冻结', detail:'等待时间流动回归。'};
+            }
+            const duration = 4;
+            runtime.timeStopTimer = duration;
+            runtime.timeStopDuration = duration;
+            runtime.timeStopSource = 'pocket-watch';
+            runtime.timeStopFlash = Math.max(runtime.timeStopFlash || 0, 1);
+            return {message:'怀表·止时', detail:'未来 4 秒内只有你能行动。'};
           }
         };
         player.setActiveItem(active);
@@ -784,6 +834,8 @@
   const ITEM_REF_BOMB_UNCLE = ITEM_POOL.find(item=>item.slug==='bomb-uncle');
   const ITEM_REF_BOMB_GRANDPA = ITEM_POOL.find(item=>item.slug==='bomb-grandpa');
   const ITEM_REF_MAGIC_BULLET = ITEM_POOL.find(item=>item.slug==='magic-bullet');
+  const ITEM_REF_HOT_CHOCOLATE = ITEM_POOL.find(item=>item.slug==='hot-chocolate');
+  const ITEM_REF_POCKET_WATCH = ITEM_POOL.find(item=>item.slug==='pocket-watch');
   const SHOP_ITEM_POOL = [
     {
       slug:'blood-power',
@@ -877,6 +929,20 @@
       weight: WEIGHT_PRESETS.boss,
       description: ITEM_REF_MAGIC_BULLET?.description || '射程 x3，泪滴追踪最近的敌人。',
       apply(player){ ITEM_REF_MAGIC_BULLET?.apply?.(player); }
+    },
+    {
+      slug:'hot-chocolate',
+      name: ITEM_REF_HOT_CHOCOLATE?.name || '热巧克力',
+      weight: WEIGHT_PRESETS.boss,
+      description: ITEM_REF_HOT_CHOCOLATE?.description || '泪滴可蓄力并提供多段强化。',
+      apply(player){ ITEM_REF_HOT_CHOCOLATE?.apply?.(player); }
+    },
+    {
+      slug:'pocket-watch',
+      name: ITEM_REF_POCKET_WATCH?.name || '怀表',
+      weight: WEIGHT_PRESETS.boss,
+      description: ITEM_REF_POCKET_WATCH?.description || '主动道具 · 4 充能。时间停止 4 秒。',
+      apply(player){ ITEM_REF_POCKET_WATCH?.apply?.(player); }
     }
   ];
   const LIFE_TRADE_EXTRA_POOL = [
@@ -2235,7 +2301,7 @@
   const recentItemHistory = [];
   const recentShopItemHistory = [];
   const recentCardHistory = [];
-  const ACTIVE_ITEM_SLUGS = new Set(['outdoor-pouch','adrenaline']);
+  const ACTIVE_ITEM_SLUGS = new Set(['outdoor-pouch','adrenaline','pocket-watch']);
   function rememberRecent(history, id, limit){
     if(!id) return;
     history.push(id);
@@ -2707,8 +2773,12 @@
         beams.splice(i,1);
         continue;
       }
+      let stepDt = dt;
+      if(runtime.timeStopTimer>0 && beam.owner && beam.owner !== player){
+        stepDt = 0;
+      }
       if(typeof beam.update === 'function'){
-        beam.update(dt);
+        beam.update(stepDt);
       }
       if(!beam.alive){
         if(beam.owner && beam.owner.brimstoneBeam === beam){
@@ -3063,6 +3133,10 @@
       };
       if(typeof options.color === 'string') bulletOptions.color = options.color;
       if(typeof options.trailColor === 'string') bulletOptions.trailColor = options.trailColor;
+      if(typeof options.pierce === 'boolean') bulletOptions.pierce = options.pierce;
+      if(typeof options.pierceEnemies === 'boolean') bulletOptions.pierceEnemies = options.pierceEnemies;
+      if(typeof options.homing === 'boolean') bulletOptions.homing = options.homing;
+      if(Number.isFinite(options.homingStrength)) bulletOptions.homingStrength = Math.max(0, options.homingStrength);
       runtime.bullets.push(new Bullet(this.x, this.y, vx, vy, this.tearLife, damage, bulletOptions));
     }
     ensureHotChocolateState(){
@@ -3072,8 +3146,8 @@
           charging: false,
           chargeTime: 0,
           dir: {x:0, y:-1},
-          chargeSpeedBonus: 1,
-          damageBonus: 1,
+          chargeSpeedBonus: 1.5,
+          damageBonus: 1.5,
           stacks: 0,
         };
       }
@@ -3095,8 +3169,10 @@
       const stacks = Math.max(1, Number.isFinite(countOverride) ? Math.floor(countOverride) : (this.getItemStack ? this.getItemStack('hot-chocolate') : 1));
       state.stacks = stacks;
       const extra = Math.max(0, stacks - 1);
-      state.chargeSpeedBonus = 1 + extra * 0.18;
-      state.damageBonus = 1 + extra * 0.12;
+      const baseCharge = 1.5;
+      const baseDamage = 1.5;
+      state.chargeSpeedBonus = baseCharge + extra * 0.18;
+      state.damageBonus = baseDamage + extra * 0.12;
     }
     hasHotChocolate(){
       return !!(this.hotChocolate && this.hotChocolate.enabled);
@@ -3139,20 +3215,45 @@
         state.charging = false;
         return;
       }
+      const chargeSeconds = Math.max(0, state.chargeTime);
       const baseline = this.getHotChocolateBaselineSeconds();
       const stacks = Math.max(1, state.stacks || (this.getItemStack ? this.getItemStack('hot-chocolate') : 1) || 1);
       const damageBonus = Number.isFinite(state.damageBonus) ? Math.max(0.05, state.damageBonus) : 1;
       const rawRatio = baseline>0 ? state.chargeTime / baseline : state.chargeTime;
       const ratio = Math.max(0.05, rawRatio);
       const damage = Math.max(0.05, this.damage * ratio * damageBonus);
-      let color = '#fbbf24';
-      if(stacks>=3) color = '#fb923c';
-      else if(stacks>=2) color = '#f97316';
-      const trailColor = stacks>=3 ? '#facc15' : (stacks>=2 ? '#fde68a' : '#fed7aa');
+      const pierceObstacles = this.canPierceObstacles || chargeSeconds >= 5;
+      const pierceEnemies = chargeSeconds >= 8;
+      const enableHoming = chargeSeconds >= 3;
+      let color = '#fcd34d';
+      let trailColor = '#fde68a';
+      if(chargeSeconds >= 8){
+        color = '#fb923c';
+        trailColor = '#fde68a';
+      } else if(chargeSeconds >= 5){
+        color = '#f97316';
+        trailColor = '#facc15';
+      } else if(chargeSeconds >= 3){
+        color = '#fbbf24';
+        trailColor = '#fee2b3';
+      }
+      if(stacks>=3){
+        color = shadeColor(color, -0.08);
+        trailColor = shadeColor(trailColor, -0.05);
+      } else if(stacks>=2){
+        color = shadeColor(color, 0.08);
+      }
+      const speedMultiplier = Math.max(1, damageBonus);
+      const homingStrength = enableHoming ? Math.max(this.homingStrength || 6, 14) : this.homingStrength;
       this.fireTearProjectile(dirX, dirY, lvx, lvy, maxSpeed, {
         damage,
         color,
         trailColor,
+        baseSpeed: this.tearSpeed * speedMultiplier,
+        pierce: pierceObstacles,
+        pierceEnemies,
+        homing: enableHoming || this.homingTears,
+        homingStrength,
       });
       state.chargeTime = 0;
       state.charging = false;
@@ -3790,10 +3891,14 @@
       this.alive=true;
       this.r=calcTearRadius(damage);
       this.pierceObstacles = !!options.pierce;
+      this.pierceEnemies = !!options.pierceEnemies;
       this.homing = !!options.homing;
       this.homingStrength = Number.isFinite(options.homingStrength) ? Math.max(0, options.homingStrength) : 6;
       this.color = typeof options.color === 'string' ? options.color : '#a6e3ff';
       this.trailColor = typeof options.trailColor === 'string' ? options.trailColor : null;
+      if(this.pierceEnemies){
+        this.hitEnemies = new WeakSet();
+      }
     }
     destroy(options={}){
       if(!this.alive) return;
@@ -3851,6 +3956,16 @@
           if(circleRectOverlap(this, obs)){ this.destroy({glowStrength:0.45}); break; }
         }
       }
+    }
+    hasHitEnemy(enemy){
+      if(!this.pierceEnemies || !enemy) return false;
+      if(!this.hitEnemies){ this.hitEnemies = new WeakSet(); }
+      return this.hitEnemies.has(enemy);
+    }
+    markEnemyHit(enemy){
+      if(!this.pierceEnemies || !enemy) return;
+      if(!this.hitEnemies){ this.hitEnemies = new WeakSet(); }
+      this.hitEnemies.add(enemy);
     }
     draw(){
       const baseColor = this.color || '#a6e3ff';
@@ -8015,6 +8130,10 @@
     effects: [],
     decals: [],
     screenShake: {intensity:0, duration:0, offsetX:0, offsetY:0},
+    timeStopTimer: 0,
+    timeStopDuration: 0,
+    timeStopSource: null,
+    timeStopFlash: 0,
   };
   function resetScreenShake(){
     if(!runtime.screenShake) runtime.screenShake = {intensity:0, duration:0, offsetX:0, offsetY:0};
@@ -8082,6 +8201,10 @@
     runtime.itemPickupDesc = '';
     runtime.effects.length = 0;
     if(Array.isArray(runtime.decals)) runtime.decals.length = 0;
+    runtime.timeStopTimer = 0;
+    runtime.timeStopDuration = 0;
+    runtime.timeStopSource = null;
+    runtime.timeStopFlash = 0;
     resetScreenShake();
     player.handleRoomChange(dungeon.current);
     syncCheatPanel();
@@ -8132,6 +8255,10 @@
     runtime.itemPickupTimer = 2.6;
     runtime.effects.length = 0;
     if(Array.isArray(runtime.decals)) runtime.decals.length = 0;
+    runtime.timeStopTimer = 0;
+    runtime.timeStopDuration = 0;
+    runtime.timeStopSource = null;
+    runtime.timeStopFlash = 0;
     resetScreenShake();
     keys.clear();
     for(const code of preservedKeys){ keys.add(code); }
@@ -8288,31 +8415,46 @@
 
   function update(dt){
     updateScreenShake(dt);
+    if(runtime.timeStopFlash>0){
+      runtime.timeStopFlash = Math.max(0, runtime.timeStopFlash - dt*2.4);
+    }
+    const timeStopActive = runtime.timeStopTimer>0;
+    if(timeStopActive){
+      runtime.timeStopTimer = Math.max(0, runtime.timeStopTimer - dt);
+      if(runtime.timeStopTimer<=0){
+        runtime.timeStopTimer = 0;
+        runtime.timeStopSource = null;
+        runtime.timeStopDuration = 0;
+      }
+    }
+    const worldDt = timeStopActive ? 0 : dt;
     player.update(dt);
 
     const bombs = dungeon.current.bombs;
     for(let i=bombs.length-1;i>=0;i--){
       const b = bombs[i];
-      b.update(dt);
+      b.update(worldDt);
       if(b.done){ bombs.splice(i,1); }
     }
-    updatePickups(dt);
-    updateRoomPortal(dungeon.current, dt);
-    for(const b of bombs){
-      if(b.done || b.exploded || b.spawnGrace>0) continue;
-      const d = dist(player, b);
-      if(d < player.r + b.r){
-        const dx = b.x - player.x;
-        const dy = b.y - player.y;
-        const len = Math.hypot(dx,dy) || 1;
-        const overlap = player.r + b.r - d;
-        if(overlap>0){
-          b.x += (dx/len) * overlap;
-          b.y += (dy/len) * overlap;
+    updatePickups(worldDt);
+    updateRoomPortal(dungeon.current, worldDt);
+    if(!timeStopActive){
+      for(const b of bombs){
+        if(b.done || b.exploded || b.spawnGrace>0) continue;
+        const d = dist(player, b);
+        if(d < player.r + b.r){
+          const dx = b.x - player.x;
+          const dy = b.y - player.y;
+          const len = Math.hypot(dx,dy) || 1;
+          const overlap = player.r + b.r - d;
+          if(overlap>0){
+            b.x += (dx/len) * overlap;
+            b.y += (dy/len) * overlap;
+          }
+          const moveImpulse = Math.hypot(player.lastDisplacement.x, player.lastDisplacement.y);
+          const pushPower = 140 + moveImpulse * 420;
+          b.applyImpulse(dx, dy, pushPower);
         }
-        const moveImpulse = Math.hypot(player.lastDisplacement.x, player.lastDisplacement.y);
-        const pushPower = 140 + moveImpulse * 420;
-        b.applyImpulse(dx, dy, pushPower);
       }
     }
 
@@ -8323,12 +8465,12 @@
     // 敌人
     const enemies = dungeon.current.enemies;
     for(const e of enemies){
-      e.update(dt);
+      e.update(worldDt);
       if(typeof e.damageFlashTimer === 'number' && e.damageFlashTimer>0){
-        e.damageFlashTimer = Math.max(0, e.damageFlashTimer - dt);
+        e.damageFlashTimer = Math.max(0, e.damageFlashTimer - worldDt);
       }
     }
-    if(runtime.pendingEnemySpawns.length){
+    if(!timeStopActive && runtime.pendingEnemySpawns.length){
       while(runtime.pendingEnemySpawns.length){
         const spawn = prepareEnemy(runtime.pendingEnemySpawns.shift());
         if(spawn){ enemies.push(spawn); }
@@ -8337,16 +8479,21 @@
     updateBeams(dt);
 
     // 敌方弹幕
-    for(const eb of runtime.enemyProjectiles){ eb.update(dt); }
+    for(const eb of runtime.enemyProjectiles){ eb.update(worldDt); }
     runtime.enemyProjectiles = runtime.enemyProjectiles.filter(p=>p.alive);
 
     // 碰撞：子弹-敌人
     for(const b of runtime.bullets){
       for(const e of enemies){
         if(e.dead) continue;
+        if(b.pierceEnemies && typeof b.hasHitEnemy === 'function' && b.hasHitEnemy(e)) continue;
         const dd = dist(b, e);
         if(dd < (b.r + e.r)){
           if(e.damage(b.damage)){ handleEnemyDeath(e, dungeon.current); }
+          if(b.pierceEnemies){
+            if(b.markEnemyHit){ b.markEnemyHit(e); }
+            continue;
+          }
           b.destroy({glowStrength:0.5}); break;
         }
       }
@@ -8355,7 +8502,9 @@
     dungeon.current.enemies = enemies.filter(e=>!e.dead);
 
     // 玩家被弹幕命中
-    for(const eb of runtime.enemyProjectiles){ if(eb.checkHit(player)){ eb.destroy({glowStrength:0.45}); } }
+    if(!timeStopActive){
+      for(const eb of runtime.enemyProjectiles){ if(eb.checkHit(player)){ eb.destroy({glowStrength:0.45}); } }
+    }
 
     // 房间是否清空
     if(!dungeon.current.cleared && dungeon.current.enemies.length===0){
@@ -8439,7 +8588,7 @@
     // 换房
     tryRoomTransition();
 
-    updateEffects(dt);
+    updateEffects(worldDt);
 
     // 更新 HUD
     renderHUD();
@@ -8530,6 +8679,30 @@
 
     drawPlayer();
     ctx.restore();
+
+    if(runtime.timeStopTimer>0 || runtime.timeStopFlash>0){
+      ctx.save();
+      const timer = Math.max(0, runtime.timeStopTimer || 0);
+      const duration = Math.max(0.001, runtime.timeStopDuration || 0.001);
+      const ratio = clamp(timer / duration, 0, 1);
+      const flash = Math.max(0, runtime.timeStopFlash || 0);
+      const baseAlpha = timer>0 ? (0.18 + 0.2 * ratio) : 0;
+      const flashAlpha = flash>0 ? Math.min(0.35, flash * 0.35) : 0;
+      const overlayAlpha = Math.min(0.55, baseAlpha + flashAlpha);
+      if(overlayAlpha>0.01){
+        ctx.fillStyle = `rgba(164,198,255,${overlayAlpha})`;
+        ctx.fillRect(0,0,CONFIG.roomW,CONFIG.roomH);
+        if(timer>0){
+          const ringAlpha = Math.min(0.45, 0.25 + ratio * 0.35);
+          if(ringAlpha>0.01){
+            ctx.strokeStyle = `rgba(206,237,255,${ringAlpha})`;
+            ctx.lineWidth = 6;
+            ctx.strokeRect(18,18,CONFIG.roomW-36,CONFIG.roomH-36);
+          }
+        }
+      }
+      ctx.restore();
+    }
 
     drawBossHealth();
     drawMiniMap();
