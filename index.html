@@ -647,7 +647,7 @@
       slug:'impact-chocolate',
       name:'冲击巧克力',
       weight: WEIGHT_PRESETS.item,
-      description:'被动：双击同方向键即可高速冲刺，冲刺期间无敌并留下一道造成高额伤害的冲击光带。额外的巧克力会强化光带尺寸与威力。',
+      description:'被动：双击同方向键即可高速冲刺，冲刺期间无敌并留下一道造成高额伤害的冲击光带。额外巧克力：冲刺距离每层 +3 身位、无敌同步延长且冷却 -0.5 秒。持有 4 层起可粉碎障碍，光带愈发炫亮。',
       apply(player){
         if(!player) return;
         if(typeof player.enableImpactDash === 'function'){
@@ -3038,12 +3038,18 @@
     }
     createImpactDashState(){
       const baseRadius = this.r || CONFIG.player.radius || 12;
+      const baseDistanceUnits = 8;
+      const baseDuration = 0.18;
+      const baseDistance = baseRadius * 2 * baseDistanceUnits;
+      const baseCooldown = 5;
+      const basePostInvuln = 1;
+      const baseSpeed = baseDuration>0 ? baseDistance / baseDuration : baseDistance / 0.18;
       return {
         unlocked: false,
         cooldown: 0,
-        cooldownDuration: 5,
+        cooldownDuration: baseCooldown,
         tapThreshold: 0.25,
-        dashDuration: 0.18,
+        dashDuration: baseDuration,
         dashTimer: 0,
         dashDir: {x:0,y:0},
         dashSpeed: 0,
@@ -3051,18 +3057,30 @@
         readyPulse: 0,
         trail: null,
         minStep: Math.max(6, baseRadius * 0.6),
+        baseDistanceUnits,
+        distanceUnitsPerExtra: 3,
+        distanceUnits: baseDistanceUnits,
+        baseDashDuration: baseDuration,
+        baseCooldownDuration: baseCooldown,
+        basePostInvulnDuration: basePostInvuln,
+        baseDashSpeed: baseSpeed,
         trailBaseRadiusMultiplier: 2,
         trailBaseDamageScale: 4,
         trailRadiusMultiplier: 1,
         trailDamageMultiplier: 1,
         trailLifetime: 1,
         trailTickInterval: 20/60,
+        trailVisualIntensity: 1,
+        trailSparkleRate: 0,
+        trailSparkleLife: 0.35,
+        trailSparkleColor: '#e0f2fe',
         maxStackMultiplier: 4.5,
         stackGrowth: 1.5,
         invulnTimer: 0,
         invulnTotal: 0,
-        postInvulnDuration: 1,
+        postInvulnDuration: basePostInvuln,
         flashThreshold: 0.25,
+        canBreakObstacles: false,
       };
     }
     ensureImpactDashState(){
@@ -3112,8 +3130,9 @@
       const nx = (dir.x ?? 0) / len;
       const ny = (dir.y ?? 0) / len;
       const radius = this.r || CONFIG.player.radius || 12;
-      const dashDistance = radius * 2 * 8;
-      const duration = Math.max(0.12, dash.dashDuration ?? 0.18);
+      const distanceUnits = Math.max(1, Number(dash.distanceUnits) || Number(dash.baseDistanceUnits) || 8);
+      const dashDistance = Math.max(radius * 2, radius * 2 * distanceUnits);
+      const duration = Math.max(0.12, Number(dash.dashDuration) || 0.18);
       dash.dashDir.x = nx;
       dash.dashDir.y = ny;
       dash.dashDuration = duration;
@@ -3142,12 +3161,20 @@
       const baseDamageScale = Number(dash.trailBaseDamageScale) || 4;
       const stackDamageMultiplier = Math.max(0.2, Number(dash.trailDamageMultiplier) || 1);
       const damageScale = Math.max(0.2, baseDamageScale * stackDamageMultiplier);
+      const visualIntensity = Number.isFinite(dash.trailVisualIntensity) ? dash.trailVisualIntensity : 1;
+      const sparkleRate = Math.max(0, Number(dash.trailSparkleRate) || 0);
+      const sparkleLife = Number.isFinite(dash.trailSparkleLife) ? dash.trailSparkleLife : 0.35;
+      const sparkleColor = typeof dash.trailSparkleColor === 'string' ? dash.trailSparkleColor : '#e0f2fe';
       const trail = createImpactDashTrail(this, {
         radius: finalRadius,
         minStep: scaledMinStep,
         tickInterval,
         lifetime,
         damageScale,
+        visualIntensity,
+        sparkleRate,
+        sparkleLife,
+        sparkleColor,
       });
       dash.trail = trail;
       if(trail && typeof trail.addPoint === 'function'){
@@ -3272,6 +3299,40 @@
       if(!dash) return;
       const stacks = Number.isFinite(stacksOverride) ? stacksOverride : this.getItemStack('impact-chocolate');
       const extra = Math.max(0, stacks - 1);
+      dash.stackCount = stacks;
+      dash.extraStacks = extra;
+
+      const baseDistanceUnits = Number.isFinite(dash.baseDistanceUnits) ? dash.baseDistanceUnits : 8;
+      const perExtra = Number.isFinite(dash.distanceUnitsPerExtra) ? dash.distanceUnitsPerExtra : 3;
+      const radius = this.r || CONFIG.player.radius || 12;
+      const distanceUnits = baseDistanceUnits + extra * perExtra;
+      dash.distanceUnits = Math.max(baseDistanceUnits, distanceUnits);
+      const dashDistance = Math.max(radius * 2, radius * 2 * dash.distanceUnits);
+      dash.currentDashDistance = dashDistance;
+
+      const baseDuration = Number.isFinite(dash.baseDashDuration) ? dash.baseDashDuration : 0.18;
+      let baseSpeed = Number(dash.baseDashSpeed);
+      if(!Number.isFinite(baseSpeed) || baseSpeed<=0){
+        const baseDistance = radius * 2 * baseDistanceUnits;
+        baseSpeed = baseDuration>0 ? baseDistance / baseDuration : dashDistance / Math.max(baseDuration, 0.12);
+        dash.baseDashSpeed = baseSpeed;
+      }
+      const duration = baseSpeed>0 ? dashDistance / baseSpeed : (baseDuration + extra * 0.05);
+      dash.dashDuration = Math.max(0.12, duration);
+
+      const baseCooldown = Number.isFinite(dash.baseCooldownDuration) ? dash.baseCooldownDuration : (Number(dash.cooldownDuration) || 5);
+      const cooldownReduction = extra * 0.5;
+      const cooldownDuration = Math.max(0.5, baseCooldown - cooldownReduction);
+      dash.cooldownDuration = cooldownDuration;
+      if(dash.cooldown > cooldownDuration){
+        dash.cooldown = cooldownDuration;
+      }
+
+      const basePost = Number.isFinite(dash.basePostInvulnDuration) ? dash.basePostInvulnDuration : (Number(dash.postInvulnDuration) || 1);
+      dash.basePostInvulnDuration = basePost;
+      const durationGain = Math.max(0, dash.dashDuration - baseDuration);
+      dash.postInvulnDuration = Math.max(0, basePost + durationGain * 0.5);
+
       const growth = Number(dash.stackGrowth) || 1.5;
       let multiplier = extra>0 ? Math.pow(growth, extra) : 1;
       const maxMultiplier = Number(dash.maxStackMultiplier);
@@ -3280,6 +3341,14 @@
       }
       dash.trailRadiusMultiplier = multiplier;
       dash.trailDamageMultiplier = multiplier;
+
+      const intensity = clamp(0.9 + extra * 0.22, 0.9, 1.8);
+      dash.trailVisualIntensity = intensity;
+      dash.trailSparkleRate = extra>0 ? Math.min(22, 6 + extra * 4) : 0;
+      dash.trailSparkleLife = clamp(0.3 + extra * 0.04, 0.3, 0.6);
+      dash.trailSparkleColor = stacks>=4 ? '#f0fdf4' : '#e0f2fe';
+
+      dash.canBreakObstacles = stacks>3;
     }
     adjustMaxHp(delta){
       if(!Number.isFinite(delta)) return;
@@ -3897,6 +3966,10 @@
     const tickInterval = Math.max(1/120, Number(options.tickInterval) || (20/60));
     const damageScale = Number.isFinite(options.damageScale) ? options.damageScale : 4;
     const minStep = Math.max(2, Number(options.minStep) || radius * 0.4);
+    const visualIntensity = Number.isFinite(options.visualIntensity) ? clamp(options.visualIntensity, 0.4, 2) : 1;
+    const sparkleRate = Math.max(0, Number(options.sparkleRate) || 0);
+    const sparkleLife = Math.max(0.12, Number(options.sparkleLife) || 0.35);
+    const sparkleColor = typeof options.sparkleColor === 'string' ? options.sparkleColor : '#e0f2fe';
     const trail = {
       type:'impact-dash',
       owner,
@@ -3909,6 +3982,12 @@
       tickTimer: tickInterval,
       damageScale,
       minStep,
+      visualIntensity,
+      sparkleRate,
+      sparkleLife,
+      sparkleColor,
+      sparkleAccumulator: 0,
+      sparkles: [],
       points: [],
       segmentLengths: [],
       totalLength: 0,
@@ -3957,6 +4036,53 @@
           if(res.distance < best) best = res.distance;
         }
         return best;
+      },
+      samplePointAt(distance){
+        const pts = this.points;
+        if(pts.length===0) return null;
+        if(pts.length===1) return {x:pts[0].x, y:pts[0].y};
+        let remaining = Math.max(0, distance);
+        for(let i=0;i<this.segmentLengths.length;i++){
+          const segLen = this.segmentLengths[i];
+          if(remaining <= segLen){
+            const p0 = pts[i];
+            const p1 = pts[i+1];
+            const t = segLen>0 ? remaining / segLen : 0;
+            return {
+              x: p0.x + (p1.x - p0.x) * t,
+              y: p0.y + (p1.y - p0.y) * t,
+            };
+          }
+          remaining -= segLen;
+        }
+        const last = pts[pts.length-1];
+        return {x:last.x, y:last.y};
+      },
+      spawnSparkle(){
+        if(this.sparkleRate<=0) return;
+        const pts = this.points;
+        if(!pts.length) return;
+        let position = null;
+        if(this.totalLength>0){
+          const target = Math.random() * this.totalLength;
+          position = this.samplePointAt(target);
+        }
+        if(!position){
+          const last = pts[pts.length-1];
+          position = {x:last.x, y:last.y};
+        }
+        if(!position) return;
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 18 + Math.random() * 26;
+        const sparkle = {
+          x: position.x,
+          y: position.y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: this.sparkleLife,
+          maxLife: this.sparkleLife,
+        };
+        this.sparkles.push(sparkle);
       },
       applyDamage(){
         const room = dungeon?.current;
@@ -4028,6 +4154,29 @@
             this.alive = false;
           }
         }
+        if(this.sparkleRate>0){
+          this.sparkleAccumulator += dt * this.sparkleRate;
+          while(this.sparkleAccumulator >= 1){
+            this.spawnSparkle();
+            this.sparkleAccumulator -= 1;
+          }
+        }
+        if(this.sparkles.length){
+          for(let i=this.sparkles.length-1;i>=0;i--){
+            const s = this.sparkles[i];
+            s.life -= dt;
+            if(s.life <= 0){
+              this.sparkles.splice(i,1);
+              continue;
+            }
+            if(Number.isFinite(s.vx) && Number.isFinite(s.vy)){
+              s.x += s.vx * dt;
+              s.y += s.vy * dt;
+              s.vx *= 0.82;
+              s.vy *= 0.82;
+            }
+          }
+        }
         this.tickTimer -= dt;
         if(this.tickTimer <= 0){
           this.tickTimer += this.tickInterval;
@@ -4038,7 +4187,9 @@
         if(!ctx) return;
         const pts = this.points;
         if(pts.length<2) return;
-        const alpha = this.follow ? 0.92 : clamp(this.life / this.ttl, 0, 1);
+        const intensity = clamp(this.visualIntensity ?? 1, 0.4, 2);
+        const alphaBase = this.follow ? clamp(0.72 + (intensity-1)*0.12, 0.35, 1) : clamp(this.life / this.ttl, 0, 1);
+        const alpha = clamp(alphaBase, 0, 1);
         if(alpha<=0) return;
         ctx.save();
         ctx.globalAlpha *= alpha;
@@ -4048,25 +4199,42 @@
         const outerWidth = hitWidth * 1.15;
         const midWidth = hitWidth;
         const innerWidth = hitWidth * 0.55;
-        ctx.strokeStyle = colorWithAlpha('#0ea5e9', 0.55);
+        const outerAlpha = clamp(0.45 + (intensity-1)*0.18, 0.25, 0.85);
+        const midAlpha = clamp(0.6 + (intensity-1)*0.2, 0.35, 0.95);
+        const innerAlpha = clamp(0.85 + (intensity-1)*0.25, 0.5, 1);
+        ctx.strokeStyle = colorWithAlpha('#0ea5e9', outerAlpha);
         ctx.lineWidth = outerWidth;
+        ctx.shadowColor = colorWithAlpha('#38bdf8', 0.45 * outerAlpha);
+        ctx.shadowBlur = Math.max(6, this.radius * 0.65 * intensity);
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
         for(let i=1;i<pts.length;i++){ ctx.lineTo(pts[i].x, pts[i].y); }
         ctx.stroke();
-        ctx.strokeStyle = colorWithAlpha('#38bdf8', 0.7);
+        ctx.shadowBlur = Math.max(4, this.radius * 0.45 * intensity);
+        ctx.strokeStyle = colorWithAlpha('#38bdf8', midAlpha);
         ctx.lineWidth = midWidth;
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
         for(let i=1;i<pts.length;i++){ ctx.lineTo(pts[i].x, pts[i].y); }
         ctx.stroke();
         ctx.globalCompositeOperation = 'lighter';
-        ctx.strokeStyle = colorWithAlpha('#ecfeff', 0.9);
+        ctx.strokeStyle = colorWithAlpha('#ecfeff', innerAlpha);
         ctx.lineWidth = innerWidth;
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
         for(let i=1;i<pts.length;i++){ ctx.lineTo(pts[i].x, pts[i].y); }
         ctx.stroke();
+        if(this.sparkles.length){
+          for(const s of this.sparkles){
+            const lifeRatio = s.maxLife>0 ? clamp(s.life / s.maxLife, 0, 1) : 0;
+            const size = Math.max(1.5, this.radius * 0.22 + this.radius * 0.35 * lifeRatio * intensity);
+            const sparkleAlpha = clamp((0.28 + 0.5 * lifeRatio) * intensity, 0.15, 0.9);
+            ctx.fillStyle = colorWithAlpha(this.sparkleColor, sparkleAlpha);
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, size, 0, Math.PI*2);
+            ctx.fill();
+          }
+        }
         ctx.restore();
       }
     };
@@ -4086,6 +4254,30 @@
     } else if(player.impactDash){
       const dash = player.impactDash;
       const extra = Math.max(0, count - 1);
+      const radius = player.r || CONFIG.player.radius || 12;
+      const baseDistanceUnits = Number.isFinite(dash.baseDistanceUnits) ? dash.baseDistanceUnits : 8;
+      const perExtra = Number.isFinite(dash.distanceUnitsPerExtra) ? dash.distanceUnitsPerExtra : 3;
+      const distanceUnits = baseDistanceUnits + extra * perExtra;
+      dash.distanceUnits = Math.max(baseDistanceUnits, distanceUnits);
+      const dashDistance = Math.max(radius * 2, radius * 2 * dash.distanceUnits);
+      dash.currentDashDistance = dashDistance;
+      const baseDuration = Number.isFinite(dash.baseDashDuration) ? dash.baseDashDuration : 0.18;
+      let baseSpeed = Number(dash.baseDashSpeed);
+      if(!Number.isFinite(baseSpeed) || baseSpeed<=0){
+        const baseDistance = radius * 2 * baseDistanceUnits;
+        baseSpeed = baseDuration>0 ? baseDistance / baseDuration : dashDistance / Math.max(baseDuration, 0.12);
+        dash.baseDashSpeed = baseSpeed;
+      }
+      dash.dashDuration = Math.max(0.12, baseSpeed>0 ? dashDistance / baseSpeed : (baseDuration + extra * 0.05));
+      const baseCooldown = Number.isFinite(dash.baseCooldownDuration) ? dash.baseCooldownDuration : (Number(dash.cooldownDuration) || 5);
+      dash.baseCooldownDuration = baseCooldown;
+      const cooldownDuration = Math.max(0.5, baseCooldown - extra * 0.5);
+      dash.cooldownDuration = cooldownDuration;
+      if(dash.cooldown > cooldownDuration){ dash.cooldown = cooldownDuration; }
+      const basePost = Number.isFinite(dash.basePostInvulnDuration) ? dash.basePostInvulnDuration : (Number(dash.postInvulnDuration) || 1);
+      dash.basePostInvulnDuration = basePost;
+      const durationGain = Math.max(0, dash.dashDuration - baseDuration);
+      dash.postInvulnDuration = Math.max(0, basePost + durationGain * 0.5);
       const growth = Number(dash.stackGrowth) || 1.5;
       let multiplier = extra>0 ? Math.pow(growth, extra) : 1;
       const maxMultiplier = Number(dash.maxStackMultiplier);
@@ -4094,6 +4286,12 @@
       }
       dash.trailRadiusMultiplier = multiplier;
       dash.trailDamageMultiplier = multiplier;
+      const intensity = clamp(0.9 + extra * 0.22, 0.9, 1.8);
+      dash.trailVisualIntensity = intensity;
+      dash.trailSparkleRate = extra>0 ? Math.min(22, 6 + extra * 4) : 0;
+      dash.trailSparkleLife = clamp(0.3 + extra * 0.04, 0.3, 0.6);
+      dash.trailSparkleColor = count>=4 ? '#f0fdf4' : '#e0f2fe';
+      dash.canBreakObstacles = count>3;
     }
   });
 
@@ -7629,8 +7827,17 @@
     } else if(entity?.flying){
       return;
     }
+    const playerSmash = entity===player
+      && typeof player?.isImpactDashing === 'function'
+      && player.isImpactDashing()
+      && player.impactDash?.canBreakObstacles;
     for(const obs of dungeon.current.obstacles){
       if(obs.destroyed) continue;
+      if(playerSmash && circleRectOverlap(entity, obs)){
+        obs.destroyed = true;
+        onObstacleDestroyed(dungeon.current, obs);
+        continue;
+      }
       const push = circleRectResolve(entity, obs);
       if(push){
         entity.x += push.x;
