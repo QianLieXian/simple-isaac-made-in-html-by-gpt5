@@ -2744,6 +2744,17 @@
         if(dash.trail && dash.trail.alive === false){
           dash.trail = null;
         }
+        if(dash.invulnTimer>0){
+          dash.invulnTimer = Math.max(0, dash.invulnTimer - dt);
+          if(dash.invulnTimer<=0){
+            dash.invulnTimer = 0;
+            if(!dash.active){
+              dash.invulnTotal = 0;
+            }
+          }
+        } else if(!dash.active && dash.invulnTotal>0){
+          dash.invulnTotal = 0;
+        }
       }
       const startX = this.x;
       const startY = this.y;
@@ -2972,6 +2983,10 @@
         readyPulse: 0,
         trail: null,
         minStep: Math.max(6, baseRadius * 0.6),
+        invulnTimer: 0,
+        invulnTotal: 0,
+        postInvulnDuration: 1,
+        flashThreshold: 0.25,
       };
     }
     ensureImpactDashState(){
@@ -3023,6 +3038,10 @@
       dash.active = true;
       dash.cooldown = Math.max(0, dash.cooldownDuration ?? 5);
       dash.readyPulse = 0;
+      const postInvuln = Math.max(0, dash.postInvulnDuration ?? 0);
+      const totalInvuln = duration + postInvuln;
+      dash.invulnTimer = totalInvuln;
+      dash.invulnTotal = totalInvuln;
       if(dash.keyTimes && code && code in dash.keyTimes){
         dash.keyTimes[code] = -Infinity;
       }
@@ -3052,6 +3071,13 @@
       dash.dashSpeed = 0;
       dash.dashDir.x = 0;
       dash.dashDir.y = 0;
+      const postInvuln = Math.max(0, dash.postInvulnDuration ?? 0);
+      if(postInvuln>0){
+        dash.invulnTimer = postInvuln;
+        dash.invulnTotal = postInvuln;
+      } else if(dash.invulnTimer>0){
+        dash.invulnTotal = Math.max(dash.invulnTotal, dash.invulnTimer);
+      }
       if(dash.trail && typeof dash.trail.finalize === 'function'){
         dash.trail.finalize();
       }
@@ -3059,8 +3085,33 @@
     isImpactDashing(){
       return !!(this.impactDash && this.impactDash.active);
     }
+    hasImpactDashInvulnerability(){
+      const dash = this.impactDash;
+      if(!dash) return false;
+      if(dash.active) return true;
+      return dash.invulnTimer>0;
+    }
+    getImpactDashInvulnRatio(){
+      const dash = this.impactDash;
+      if(!dash) return 0;
+      if(dash.active) return 1;
+      if(dash.invulnTimer>0 && dash.invulnTotal>0){
+        return clamp(dash.invulnTimer / dash.invulnTotal, 0, 1);
+      }
+      return 0;
+    }
+    getImpactDashInvulnTime(){
+      const dash = this.impactDash;
+      return Math.max(0, dash?.invulnTimer ?? 0);
+    }
+    getImpactDashFlashThreshold(){
+      const dash = this.impactDash;
+      if(!dash) return 0;
+      const threshold = dash.flashThreshold ?? 0;
+      return Math.max(0, threshold);
+    }
     hurt(dmg, options={}){
-      if(this.isImpactDashing && this.isImpactDashing()) return;
+      if(this.hasImpactDashInvulnerability && this.hasImpactDashInvulnerability()) return;
       const amount = Math.max(0, Number(dmg)||0);
       if(amount<=0) return;
       const cause = options.cause || null;
@@ -3851,21 +3902,25 @@
         ctx.globalAlpha *= alpha;
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
+        const hitWidth = Math.max(4, this.radius * 2);
+        const outerWidth = hitWidth * 1.15;
+        const midWidth = hitWidth;
+        const innerWidth = hitWidth * 0.55;
         ctx.strokeStyle = colorWithAlpha('#0ea5e9', 0.55);
-        ctx.lineWidth = this.radius * 1.35;
+        ctx.lineWidth = outerWidth;
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
         for(let i=1;i<pts.length;i++){ ctx.lineTo(pts[i].x, pts[i].y); }
         ctx.stroke();
         ctx.strokeStyle = colorWithAlpha('#38bdf8', 0.7);
-        ctx.lineWidth = this.radius;
+        ctx.lineWidth = midWidth;
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
         for(let i=1;i<pts.length;i++){ ctx.lineTo(pts[i].x, pts[i].y); }
         ctx.stroke();
         ctx.globalCompositeOperation = 'lighter';
         ctx.strokeStyle = colorWithAlpha('#ecfeff', 0.9);
-        ctx.lineWidth = this.radius * 0.6;
+        ctx.lineWidth = innerWidth;
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
         for(let i=1;i<pts.length;i++){ ctx.lineTo(pts[i].x, pts[i].y); }
@@ -8409,6 +8464,23 @@
     let edgeColor = '#a78bfa';
     const dashState = player.impactDash;
     const dashActive = typeof player.isImpactDashing === 'function' ? player.isImpactDashing() : false;
+    const dashInvulnRemaining = typeof player.getImpactDashInvulnTime === 'function'
+      ? player.getImpactDashInvulnTime()
+      : Math.max(0, dashState?.invulnTimer ?? 0);
+    const dashInvulnTotal = dashState?.invulnTotal ?? 0;
+    let dashInvulnRatio = 0;
+    if(typeof player.getImpactDashInvulnRatio === 'function'){
+      dashInvulnRatio = player.getImpactDashInvulnRatio();
+    } else if(dashActive){
+      dashInvulnRatio = 1;
+    } else if(dashInvulnRemaining>0 && dashInvulnTotal>0){
+      dashInvulnRatio = clamp(dashInvulnRemaining / dashInvulnTotal, 0, 1);
+    }
+    dashInvulnRatio = clamp(dashInvulnRatio, 0, 1);
+    const dashInvulnActive = dashActive || dashInvulnRemaining>0;
+    const dashFlashThreshold = typeof player.getImpactDashFlashThreshold === 'function'
+      ? player.getImpactDashFlashThreshold()
+      : Math.max(0, dashState?.flashThreshold ?? 0.25);
     if(player.attackMode === 'brimstone'){
       const ratio = typeof player.getBrimstoneChargeRatio === 'function' ? player.getBrimstoneChargeRatio() : 0;
       if(player.brimstoneBeam || player.brimstoneFiring){
@@ -8425,9 +8497,11 @@
         edgeColor = mixHexColor('#a78bfa', '#ef4444', ratio);
       }
     }
-    if(dashActive){
-      baseColor = mixHexColor(baseColor, '#38bdf8', 0.85);
-      edgeColor = mixHexColor(edgeColor, '#0ea5e9', 0.85);
+    if(dashInvulnActive){
+      const bodyMix = dashActive ? 0.85 : (0.45 + 0.4 * dashInvulnRatio);
+      const edgeMix = dashActive ? 0.85 : (0.35 + 0.35 * dashInvulnRatio);
+      baseColor = mixHexColor(baseColor, '#38bdf8', clamp(bodyMix, 0, 1));
+      edgeColor = mixHexColor(edgeColor, '#0ea5e9', clamp(edgeMix, 0, 1));
     } else if(dashState?.unlocked){
       const ready = (dashState.cooldown ?? 0) <= 0;
       const pulseHint = Math.max(0, Math.min(1, dashState.readyPulse ?? 0));
@@ -8445,22 +8519,47 @@
       const alpha = phase===0 ? 1 : 0.25;
       ctx.globalAlpha *= alpha;
     }
+    if(dashInvulnActive && !dashActive){
+      const flashThreshold = Math.max(0.05, dashFlashThreshold);
+      if(dashInvulnRemaining>0 && dashInvulnRemaining <= flashThreshold){
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const blink = Math.sin(now / 80);
+        const alpha = blink > 0 ? 1 : 0.25;
+        ctx.globalAlpha *= alpha;
+      }
+    }
     drawBlob(player.x, player.y, player.r, baseColor, edgeColor);
-    if(dashActive){
+    if(dashInvulnActive){
       const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       const wave = (Math.sin(now / 140) + 1) / 2;
-      const glowRadius = player.r * (1.6 + wave * 0.35);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha *= 0.55 + wave * 0.25;
-      const glow = ctx.createRadialGradient(player.x, player.y, glowRadius * 0.25, player.x, player.y, glowRadius);
-      glow.addColorStop(0, colorWithAlpha('#e0f2fe', 0.9));
-      glow.addColorStop(0.55, colorWithAlpha('#38bdf8', 0.35));
-      glow.addColorStop(1, colorWithAlpha('#0ea5e9', 0));
-      ctx.fillStyle = glow;
-      ctx.beginPath();
-      ctx.arc(player.x, player.y, glowRadius, 0, Math.PI*2);
-      ctx.fill();
+      if(dashActive){
+        const glowRadius = player.r * (1.6 + wave * 0.35);
+        ctx.globalAlpha *= 0.55 + wave * 0.25;
+        const glow = ctx.createRadialGradient(player.x, player.y, glowRadius * 0.25, player.x, player.y, glowRadius);
+        glow.addColorStop(0, colorWithAlpha('#e0f2fe', 0.9));
+        glow.addColorStop(0.55, colorWithAlpha('#38bdf8', 0.35));
+        glow.addColorStop(1, colorWithAlpha('#0ea5e9', 0));
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, glowRadius, 0, Math.PI*2);
+        ctx.fill();
+      } else {
+        const ratio = dashInvulnRatio;
+        const glowRadius = player.r * (1.35 + ratio * 0.35 + wave * 0.2);
+        const alphaBase = clamp(0.28 + ratio * 0.32 + wave * 0.15, 0.18, 0.8);
+        ctx.globalAlpha *= alphaBase;
+        const glow = ctx.createRadialGradient(player.x, player.y, glowRadius * 0.25, player.x, player.y, glowRadius);
+        const ease = 0.6 + 0.4 * ratio;
+        glow.addColorStop(0, colorWithAlpha('#e0f2fe', 0.75 * ease));
+        glow.addColorStop(0.55, colorWithAlpha('#38bdf8', 0.4 * ease));
+        glow.addColorStop(1, colorWithAlpha('#0ea5e9', 0));
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, glowRadius, 0, Math.PI*2);
+        ctx.fill();
+      }
       ctx.restore();
     } else if(dashState?.unlocked && (dashState.cooldown ?? 0) <= 0){
       const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
