@@ -1523,8 +1523,15 @@
       applyItemStackEffect(player, slug, stackCount, item);
     }
     recordSetAcquired(player, item);
-    if(item.name && !player.items.includes(item.name)){
-      player.items.push(item.name);
+    if(item.name){
+      if(!player.itemNameStacks || typeof player.itemNameStacks !== 'object'){
+        player.itemNameStacks = Object.create(null);
+      }
+      const prev = Number(player.itemNameStacks[item.name]) || 0;
+      player.itemNameStacks[item.name] = prev + 1;
+      if(!player.items.includes(item.name)){
+        player.items.push(item.name);
+      }
     }
     registerItemDiscovery(item);
     return stackCount;
@@ -3385,6 +3392,7 @@
       this.damage = 1;
       this.items=[];
       this.itemStacks = Object.create(null);
+      this.itemNameStacks = Object.create(null);
       this.bombs = CONFIG.resources.bombStart;
       this.keys = CONFIG.resources.keyStart;
       this.coins = CONFIG.resources.coinStart;
@@ -7307,6 +7315,7 @@
       this.burstSpacing = 0;
       this.burstSpacingBase = cfg.burstSpacing;
       this.telegraphTimer = 0;
+      this.telegraphTotal = 0;
       this.rotation = rand()*Math.PI*2;
       this.knock = 0;
       this.knockVx = 0;
@@ -8053,13 +8062,14 @@
       this.state='idle';
       this.attackTimer=1.5; this.chargeTimer=0; this.recoverTimer=0;
       this.hitFlash=0; this.enraged=false;
+      this.telegraphTimer=0; this.telegraphTotal=0; this.telegraphType='';
+      this.attackPlan=null; this.nextCooldown=0; this.afterChargePlan=null;
       this.isBossEntity = true;
       this.scaling = getFloorScalingFactors();
       this.hp = Math.round(this.hp * this.scaling.hp);
       this.maxHp = this.hp;
       this.speedScale = this.scaling.speed;
       this.aggression = this.scaling.aggression;
-      this.attackTimer /= this.aggression;
       this.tint = '#fb7185';
       this.tintLight = '#fecaca';
     }
@@ -8068,17 +8078,35 @@
       if(this.state==='charge'){
         this.chargeTimer -= dt * this.aggression;
         this.x += this.vx*dt; this.y += this.vy*dt;
-        if(this.chargeTimer<=0){ this.state='recover'; this.recoverTimer=0.6 / this.aggression; }
+        if(this.chargeTimer<=0){
+          this.state='recover';
+          const plan = this.afterChargePlan || {recover:0.6, cooldown:1.8};
+          this.recoverTimer = plan.recover;
+          this.nextCooldown = plan.cooldown;
+          this.afterChargePlan = null;
+          this.telegraphType='';
+        }
       } else {
         const to = {x: player.x - this.x, y: player.y - this.y};
         const l = Math.hypot(to.x,to.y)||1;
-        this.x += (to.x/l) * drift * dt * 0.55;
-        this.y += (to.y/l) * drift * dt * 0.55;
+        const moveScale = this.state==='windup' ? 0.25 : 0.55;
+        this.x += (to.x/l) * drift * dt * moveScale;
+        this.y += (to.y/l) * drift * dt * moveScale;
         this.x += Math.cos(performance.now()/480) * 18 * dt;
         this.y += Math.sin(performance.now()/360) * 18 * dt;
         if(this.state==='recover'){
           this.recoverTimer -= dt * this.aggression;
-          if(this.recoverTimer<=0) this.state='idle';
+          if(this.recoverTimer<=0){
+            this.state='idle';
+            this.attackTimer = this.nextCooldown || (this.enraged ? 1.6 : 2.2);
+            this.nextCooldown = 0;
+          }
+        } else if(this.state==='windup'){
+          this.telegraphTimer -= dt * this.aggression;
+          if(this.telegraphTimer<=0){ this.executeAttackPlan(); }
+        } else {
+          this.attackTimer -= dt * this.aggression;
+          if(this.attackTimer<=0){ this.chooseAttack(); }
         }
       }
       this.x = clamp(this.x, 90, CONFIG.roomW-90);
@@ -8089,17 +8117,61 @@
       if(this.hitFlash>0) this.hitFlash -= dt;
       if(!this.enraged && this.hp <= this.maxHp*0.55){
         this.enraged=true;
-        this.attackTimer = Math.min(this.attackTimer, 1.1 / this.aggression);
+        this.attackTimer = Math.min(this.attackTimer, 1.1);
       }
-
-      this.attackTimer -= dt * this.aggression;
-      if(this.attackTimer<=0){ this.chooseAttack(); }
+    }
+    scheduleAttack(type, config, execute){
+      const plan = {
+        type,
+        execute,
+        recover: (config?.recover ?? 0.7),
+        cooldown: (config?.cooldown ?? 1.8),
+        post: config?.post || 'recover'
+      };
+      this.attackPlan = plan;
+      this.telegraphType = type;
+      this.telegraphTimer = Math.max(0.2, (config?.windup ?? 0.6));
+      this.telegraphTotal = this.telegraphTimer;
+      this.state = 'windup';
+    }
+    executeAttackPlan(){
+      const plan = this.attackPlan;
+      if(!plan) return;
+      this.attackPlan = null;
+      this.telegraphTimer = 0;
+      this.telegraphTotal = 0;
+      plan.execute?.call(this);
+      if(plan.post==='charge'){
+        this.afterChargePlan = {recover: plan.recover, cooldown: plan.cooldown};
+      } else {
+        this.state='recover';
+        this.recoverTimer = plan.recover;
+        this.nextCooldown = plan.cooldown;
+        this.telegraphType='';
+      }
     }
     chooseAttack(){
       const roll = rand();
-      if(roll < 0.45){ this.sprayAttack(); this.attackTimer = (this.enraged ? 1.6 : 2.2) / this.aggression; }
-      else if(roll < 0.75){ this.spawnMinions(); this.attackTimer = (this.enraged ? 2.0 : 2.6) / this.aggression; }
-      else { this.chargeAttack(); this.attackTimer = (this.enraged ? 2.4 : 3.2) / this.aggression; }
+      if(roll < 0.45){
+        this.scheduleAttack('spray', {
+          windup: this.enraged ? 0.65 : 0.85,
+          recover: this.enraged ? 0.55 : 0.7,
+          cooldown: this.enraged ? 1.6 : 2.2
+        }, this.sprayAttack);
+      } else if(roll < 0.75){
+        this.scheduleAttack('summon', {
+          windup: this.enraged ? 0.75 : 0.95,
+          recover: this.enraged ? 0.65 : 0.85,
+          cooldown: this.enraged ? 2.0 : 2.6
+        }, this.spawnMinions);
+      } else {
+        this.scheduleAttack('charge', {
+          windup: this.enraged ? 0.7 : 0.95,
+          recover: this.enraged ? 0.7 : 0.9,
+          cooldown: this.enraged ? 2.4 : 3.2,
+          post: 'charge'
+        }, this.chargeAttack);
+      }
     }
     sprayAttack(){
       const waves = this.enraged ? 3 : 2;
@@ -8138,7 +8210,7 @@
       this.vx = (to.x/l) * speed;
       this.vy = (to.y/l) * speed;
       this.state='charge';
-      this.chargeTimer = 0.75 / this.aggression;
+      this.chargeTimer = 0.75;
     }
     damage(d){
       this.hp -= d;
@@ -8147,8 +8219,22 @@
       return false;
     }
     draw(){
-      const outer = this.hitFlash>0 ? '#ffd5dc' : '#ffb4c8';
-      drawBlob(this.x,this.y,this.r, outer,'#d946ef');
+      let outer = this.hitFlash>0 ? '#ffd5dc' : '#ffb4c8';
+      let edge = '#d946ef';
+      if(this.state==='windup'){
+        const ratio = this.telegraphTotal>0 ? clamp(1 - this.telegraphTimer/this.telegraphTotal, 0, 1) : 1;
+        if(this.telegraphType==='spray'){
+          outer = mixHexColor('#fffbeb', '#f97316', ratio*0.6 + 0.2);
+          edge = '#f59e0b';
+        } else if(this.telegraphType==='summon'){
+          outer = mixHexColor('#ecfeff', '#22d3ee', ratio*0.6 + 0.2);
+          edge = '#0ea5e9';
+        } else if(this.telegraphType==='charge'){
+          outer = mixHexColor('#fee2e2', '#ef4444', ratio*0.7 + 0.2);
+          edge = '#dc2626';
+        }
+      }
+      drawBlob(this.x,this.y,this.r, outer,edge);
       ctx.save();
       ctx.translate(this.x,this.y);
       const blink = this.enraged ? 1.5 : 1;
@@ -8170,6 +8256,17 @@
       ctx.quadraticCurveTo(0, this.r*0.5, -this.r*0.4, this.r*0.1);
       ctx.fill();
       ctx.restore();
+      if(this.state==='windup' && this.telegraphType){
+        ctx.save();
+        const pulse = 0.5 + 0.45*Math.sin(performance.now()/90);
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = edge;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r + 14, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
   }
 
@@ -8184,6 +8281,7 @@
       this.hitFlash = 0;
       this.enraged=false;
       this.recoverTimer = 0;
+      this.telegraphType = '';
       this.jumpStart = {x,y};
       this.jumpEnd = {x,y};
       this.jumpDuration = 0.8;
@@ -8195,7 +8293,6 @@
       this.maxHp = this.hp;
       this.speedScale = this.scaling.speed;
       this.aggression = this.scaling.aggression;
-      this.attackCooldown /= this.aggression;
       this.tint = '#f97316';
       this.tintLight = '#fed7aa';
     }
@@ -8234,23 +8331,23 @@
           this.state='slam';
           this.altitude = 0;
           this.performSlam();
-          this.recoverTimer = (this.enraged ? 0.6 : 0.75) / this.aggression;
+          this.recoverTimer = (this.enraged ? 0.6 : 0.75);
         }
       } else if(this.state==='slam'){
         this.recoverTimer -= dt * this.aggression;
         this.altitude = Math.max(0, this.altitude - dt*4*this.aggression);
         if(this.recoverTimer<=0){
           this.state='recover';
-          this.attackCooldown = (this.enraged ? 1.2 : 1.6) / this.aggression;
-          this.recoverTimer = (this.enraged ? 0.5 : 0.7) / this.aggression;
+          this.attackCooldown = (this.enraged ? 1.2 : 1.6);
+          this.recoverTimer = (this.enraged ? 0.5 : 0.7);
         }
       } else if(this.state==='wave'){
         this.recoverTimer -= dt * this.aggression;
         this.altitude = Math.max(0, this.altitude - dt*3.5*this.aggression);
         if(this.recoverTimer<=0){
           this.state='recover';
-          this.attackCooldown = (this.enraged ? 1.35 : 1.8) / this.aggression;
-          this.recoverTimer = (this.enraged ? 0.45 : 0.6) / this.aggression;
+          this.attackCooldown = (this.enraged ? 1.35 : 1.8);
+          this.recoverTimer = (this.enraged ? 0.45 : 0.6);
         }
       } else if(this.state==='recover'){
         this.recoverTimer -= dt * this.aggression;
@@ -8263,13 +8360,19 @@
     chooseAttack(){
       if(rand() < 0.55){
         this.state='telegraph-jump';
-        this.telegraphTimer = (this.enraged ? 0.9 : 1.1) / this.aggression;
+        this.telegraphTimer = (this.enraged ? 1.05 : 1.3);
+        this.telegraphTotal = this.telegraphTimer;
+        this.telegraphType = 'jump';
       } else {
         this.state='telegraph-wave';
-        this.telegraphTimer = 1.0 / this.aggression;
+        this.telegraphTimer = (this.enraged ? 1.0 : 1.2);
+        this.telegraphTotal = this.telegraphTimer;
+        this.telegraphType = 'wave';
       }
     }
     beginJump(){
+      this.telegraphType = '';
+      this.telegraphTotal = 0;
       const maxTravel = this.enraged ? 360 : 320;
       const targetX = clamp(player.x, 80, CONFIG.roomW-80);
       const targetY = clamp(player.y, 96, CONFIG.roomH-96);
@@ -8303,6 +8406,8 @@
       }
     }
     performWave(){
+      this.telegraphType = '';
+      this.telegraphTotal = 0;
       const bursts = this.enraged ? 5 : 4;
       const baseAngle = Math.atan2(player.y - this.y, player.x - this.x);
       const spread = 0.3;
@@ -8329,7 +8434,7 @@
         queueEnemySpawn(makeEnemy('spider', pos, dungeon.depth+1));
       }
       this.state='wave';
-      this.recoverTimer = (this.enraged ? 0.8 : 1.0) / this.aggression;
+      this.recoverTimer = (this.enraged ? 0.8 : 1.0);
     }
     damage(d){
       if(this.state==='jumping'){ d *= 0.6; }
@@ -8348,8 +8453,22 @@
       ctx.ellipse(this.x, this.y + this.r*0.9, this.r*(1 - this.altitude*0.4), this.r*0.6*(1 - this.altitude*0.45), 0, 0, Math.PI*2);
       ctx.fill();
       ctx.restore();
-      const base = this.hitFlash>0 ? '#ffe6ef' : telegraph ? '#fda4af' : (enraged ? '#f87171' : '#ffcad6');
-      const edge = telegraph ? '#fb7185' : (enraged ? '#ef4444' : '#f472b6');
+      let base = this.hitFlash>0 ? '#ffe6ef' : (enraged ? '#f87171' : '#ffcad6');
+      let edge = enraged ? '#ef4444' : '#f472b6';
+      if(telegraph){
+        const total = this.telegraphTotal || 1;
+        const ratio = clamp(1 - this.telegraphTimer / total, 0, 1);
+        if(this.telegraphType==='jump'){
+          base = mixHexColor('#fff7ed', '#f97316', 0.3 + ratio*0.6);
+          edge = '#ea580c';
+        } else if(this.telegraphType==='wave'){
+          base = mixHexColor('#fdf4ff', '#ec4899', 0.35 + ratio*0.55);
+          edge = '#be185d';
+        } else {
+          base = '#fda4af';
+          edge = '#fb7185';
+        }
+      }
       drawBlob(this.x, this.y - this.altitude*this.r*0.9, this.r, base, edge);
       ctx.save();
       ctx.translate(this.x, this.y - this.altitude*this.r*0.9);
@@ -8367,8 +8486,9 @@
       ctx.restore();
       if(telegraph){
         ctx.save();
-        ctx.globalAlpha = 0.6 + 0.2*Math.sin(performance.now()/90);
-        ctx.strokeStyle = enraged ? '#f87171' : '#fbcfe8';
+        const pulse = 0.6 + 0.25*Math.sin(performance.now()/90);
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = edge;
         ctx.lineWidth = 3;
         ctx.beginPath();
         ctx.arc(this.x, this.y - this.altitude*this.r*0.9, this.r + 10, 0, Math.PI*2);
@@ -8405,6 +8525,12 @@
       this.aggression=this.scaling.aggression;
       this.tint = '#38bdf8';
       this.tintLight = '#bae6fd';
+      this.telegraphTimer = 0;
+      this.telegraphTotal = 0;
+      this.telegraphType = '';
+      this.recoverTimer = 0;
+      this.nextCooldown = 0;
+      this.attackPlan = null;
     }
     update(dt){
       if(!player) return;
@@ -8420,13 +8546,26 @@
       const targetX = clamp(CONFIG.roomW/2 + Math.cos(this.anchorAngle)*(this.anchorRadius + wave), 78, CONFIG.roomW-78);
       const targetY = clamp(CONFIG.roomH/2 + Math.sin(this.anchorAngle)*(this.anchorRadius*0.72 + wave), 92, CONFIG.roomH-92);
       const followRate = Math.min(1, dt * 3.2);
-      this.x += (targetX - this.x) * followRate;
-      this.y += (targetY - this.y) * followRate;
+      const moveScale = this.state==='windup' ? 0.55 : 1;
+      this.x += (targetX - this.x) * followRate * moveScale;
+      this.y += (targetY - this.y) * followRate * moveScale;
       resolveEntityObstacles(this);
       if(dist(this, player) < this.r + player.r - 6){ player.hurt(1); }
 
-      this.attackTimer -= dt * this.aggression;
-      if(this.attackTimer<=0){ this.chooseAttack(); }
+      if(this.state==='windup'){
+        this.telegraphTimer -= dt * this.aggression;
+        if(this.telegraphTimer<=0){ this.executeAttackPlan(); }
+      } else if(this.state==='recover'){
+        this.recoverTimer -= dt * this.aggression;
+        if(this.recoverTimer<=0){
+          this.state='orbit';
+          this.attackTimer = this.nextCooldown || (this.enraged ? 1.6 : 2.0);
+          this.nextCooldown = 0;
+        }
+      } else {
+        this.attackTimer -= dt * this.aggression;
+        if(this.attackTimer<=0){ this.chooseAttack(); }
+      }
 
       for(let i=this.pendingBursts.length-1;i>=0;i--){
         const burst = this.pendingBursts[i];
@@ -8460,15 +8599,48 @@
       const pick = options[Math.floor(rand()*options.length)];
       this.lastAttack = pick;
       if(pick==='fans'){
-        this.performFans();
-        this.attackTimer = (this.enraged ? 1.7 : 2.1) / this.aggression;
+        this.scheduleAttack('fans', {
+          windup: this.enraged ? 0.75 : 0.95,
+          recover: this.enraged ? 0.6 : 0.75,
+          cooldown: this.enraged ? 1.7 : 2.1
+        }, this.performFans);
       } else if(pick==='spiral'){
-        this.performSpiral();
-        this.attackTimer = (this.enraged ? 1.6 : 2.0) / this.aggression;
+        this.scheduleAttack('spiral', {
+          windup: this.enraged ? 0.8 : 1.0,
+          recover: this.enraged ? 0.6 : 0.8,
+          cooldown: this.enraged ? 1.6 : 2.0
+        }, this.performSpiral);
       } else {
-        this.performOrbs();
-        this.attackTimer = (this.enraged ? 1.8 : 2.2) / this.aggression;
+        this.scheduleAttack('orbs', {
+          windup: this.enraged ? 0.85 : 1.05,
+          recover: this.enraged ? 0.65 : 0.85,
+          cooldown: this.enraged ? 1.8 : 2.2
+        }, this.performOrbs);
       }
+    }
+    scheduleAttack(type, config, execute){
+      this.attackPlan = {
+        type,
+        execute,
+        recover: (config?.recover ?? 0.7),
+        cooldown: (config?.cooldown ?? 1.8)
+      };
+      this.telegraphType = type;
+      this.telegraphTimer = Math.max(0.25, (config?.windup ?? 0.6));
+      this.telegraphTotal = this.telegraphTimer;
+      this.state='windup';
+    }
+    executeAttackPlan(){
+      const plan = this.attackPlan;
+      if(!plan) return;
+      this.attackPlan = null;
+      this.telegraphTimer = 0;
+      plan.execute?.call(this);
+      this.state='recover';
+      this.recoverTimer = plan.recover;
+      this.nextCooldown = plan.cooldown;
+      this.telegraphType = '';
+      this.telegraphTotal = 0;
     }
     performFans(){
       const waves = this.enraged ? 3 : 2;
@@ -8494,7 +8666,7 @@
           angle,
           radius,
           orbitSpeed: 1.8 + randRange(-0.2,0.2),
-          windup: (this.enraged?0.5:0.65) / this.aggression,
+          windup: (this.enraged?0.5:0.65),
           dashSpeed: 210 + rand()*40 + (this.enraged?50:0),
           damage: this.enraged?2:1,
           color: this.enraged ? '#34d399' : '#22d3ee',
@@ -8534,8 +8706,22 @@
       return false;
     }
     draw(){
-      const baseColor = this.hitFlash>0 ? '#d1fae5' : (this.enraged ? '#99f6e4' : '#bae6fd');
-      const edgeColor = this.enraged ? '#14b8a6' : '#38bdf8';
+      let baseColor = this.hitFlash>0 ? '#d1fae5' : (this.enraged ? '#99f6e4' : '#bae6fd');
+      let edgeColor = this.enraged ? '#14b8a6' : '#38bdf8';
+      if(this.state==='windup' && this.telegraphType){
+        const total = this.telegraphTotal || 1;
+        const ratio = clamp(1 - this.telegraphTimer / total, 0, 1);
+        if(this.telegraphType==='fans'){
+          baseColor = mixHexColor('#ecfeff', '#38bdf8', 0.35 + ratio*0.5);
+          edgeColor = '#0ea5e9';
+        } else if(this.telegraphType==='spiral'){
+          baseColor = mixHexColor('#f0fdfa', '#34d399', 0.3 + ratio*0.55);
+          edgeColor = '#059669';
+        } else if(this.telegraphType==='orbs'){
+          baseColor = mixHexColor('#f0f9ff', '#22d3ee', 0.4 + ratio*0.45);
+          edgeColor = '#0284c7';
+        }
+      }
       drawBlob(this.x, this.y, this.r, baseColor, edgeColor);
       ctx.save();
       ctx.translate(this.x, this.y);
@@ -8566,6 +8752,17 @@
       ctx.arc(0,0,this.r*0.14 + Math.sin(performance.now()/220)*1.4,0,Math.PI*2);
       ctx.fill();
       ctx.restore();
+      if(this.state==='windup' && this.telegraphType){
+        ctx.save();
+        const pulse = 0.5 + 0.3*Math.sin(performance.now()/100);
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = edgeColor;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r + 12, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
       if(this.spiralTimer>0){
         ctx.save();
         ctx.globalAlpha = 0.35 + 0.25*Math.sin(performance.now()/120);
@@ -8590,6 +8787,7 @@
       this.telegraphTotal=0.5;
       this.channelTimer=0;
       this.channelType='';
+      this.channelTotal=0;
       this.channelDirection=0;
       this.fade=1;
       this.hitFlash=0;
@@ -8643,9 +8841,10 @@
         spawnCircularEffect(this.x, this.y, this.r+14, {innerColor:'#ede9fe', midColor:'#c084fc', outerColor:'#a855f7'});
         this.state='channel';
         this.channelType=this.nextAttackType;
-        const base = this.channelType==='lance' ? 0.48 : (this.channelType==='mirror'?0.55:0.6);
-        this.channelTimer = base / this.aggression;
-        if(this.enraged) this.channelTimer *= 0.85;
+        const base = this.channelType==='lance' ? 0.58 : (this.channelType==='mirror'?0.65:0.7);
+        this.channelTimer = base;
+        if(this.enraged) this.channelTimer *= 0.9;
+        this.channelTotal = this.channelTimer;
         this.channelDirection = Math.atan2((player?.y ?? this.y) - this.y, (player?.x ?? this.x) - this.x);
         this.fade = 1;
       }
@@ -8662,6 +8861,7 @@
       if(this.recoverTimer<=0){
         this.state='glide';
         this.fade = 1;
+        this.channelTotal = 0;
       }
     }
     chooseAttack(){
@@ -8677,8 +8877,9 @@
     startWarp(type){
       this.state='warp';
       this.nextAttackType = type;
-      this.telegraphTotal = (type==='lance'?0.5:(type==='mirror'?0.55:0.6)) / this.aggression;
-      if(this.enraged) this.telegraphTotal *= 0.9;
+      const baseWindup = type==='lance' ? 0.65 : (type==='mirror' ? 0.7 : 0.75);
+      this.telegraphTotal = baseWindup;
+      if(this.enraged) this.telegraphTotal *= 0.85;
       this.telegraphTimer = this.telegraphTotal;
       if(type==='lance' && player){
         const distTarget = this.enraged ? 210 : 240;
@@ -8722,8 +8923,8 @@
       }
       addScreenShake(4,0.25);
       spawnCircularEffect(this.x, this.y, this.r+16, {innerColor:'#ede9fe', midColor:'#c4b5fd', outerColor:'#a855f7'});
-      this.recoverTimer = (this.enraged?0.55:0.7)/this.aggression;
-      this.attackTimer = (this.enraged?1.1:1.4)/this.aggression;
+      this.recoverTimer = (this.enraged?0.7:0.85);
+      this.attackTimer = (this.enraged?1.2:1.5);
     }
     performMirror(){
       const centerX = CONFIG.roomW/2;
@@ -8736,15 +8937,15 @@
         const rune = {
           x: clamp(centerX + Math.cos(angle)*radius, 60, CONFIG.roomW-60),
           y: clamp(centerY + Math.sin(angle)*radius, 80, CONFIG.roomH-80),
-          timer: (0.35 + i*0.1) / this.aggression * (this.enraged?0.85:1),
+          timer: (0.35 + i*0.1) * (this.enraged?0.85:1),
           fired:false,
           life:1.1,
         };
         this.runes.push(rune);
       }
       spawnCircularEffect(centerX, centerY, radius+12, {innerColor:'#ede9fe', midColor:'#c4b5fd', outerColor:'#a855f7'});
-      this.recoverTimer = (this.enraged?0.6:0.8)/this.aggression;
-      this.attackTimer = (this.enraged?1.2:1.5)/this.aggression;
+      this.recoverTimer = (this.enraged?0.75:0.95);
+      this.attackTimer = (this.enraged?1.35:1.65);
     }
     performMeteor(){
       const count = this.enraged ? 8 : 6;
@@ -8760,8 +8961,8 @@
           color: '#a855f7',
         }));
       }
-      this.recoverTimer = (this.enraged?0.65:0.85)/this.aggression;
-      this.attackTimer = (this.enraged?1.25:1.55)/this.aggression;
+      this.recoverTimer = (this.enraged?0.8:1.0);
+      this.attackTimer = (this.enraged?1.4:1.7);
     }
     updateRunes(dt){
       for(let i=this.runes.length-1;i>=0;i--){
@@ -8794,8 +8995,23 @@
     draw(){
       ctx.save();
       ctx.globalAlpha = this.fade;
-      const baseColor = this.hitFlash>0 ? '#fdf4ff' : (this.enraged ? '#e9d5ff' : '#ede9fe');
-      const edgeColor = this.enraged ? '#a855f7' : '#c084fc';
+      let baseColor = this.hitFlash>0 ? '#fdf4ff' : (this.enraged ? '#e9d5ff' : '#ede9fe');
+      let edgeColor = this.enraged ? '#a855f7' : '#c084fc';
+      if(this.state==='warp' || this.state==='channel'){
+        const type = this.state==='warp' ? this.nextAttackType : this.channelType;
+        const total = this.telegraphTotal || 1;
+        const ratio = this.state==='warp' ? clamp(1 - this.telegraphTimer / total, 0, 1) : clamp(1 - this.channelTimer / Math.max(this.channelTotal || 1, 1e-3), 0, 1);
+        if(type==='lance'){
+          baseColor = mixHexColor('#fdf2f8', '#f472b6', 0.3 + ratio*0.5);
+          edgeColor = '#db2777';
+        } else if(type==='mirror'){
+          baseColor = mixHexColor('#ede9fe', '#c084fc', 0.35 + ratio*0.45);
+          edgeColor = '#7c3aed';
+        } else if(type==='meteor'){
+          baseColor = mixHexColor('#f5f3ff', '#f97316', 0.25 + ratio*0.55);
+          edgeColor = '#ea580c';
+        }
+      }
       drawBlob(this.x, this.y, this.r, baseColor, edgeColor);
       ctx.translate(this.x, this.y);
       ctx.save();
@@ -8840,6 +9056,17 @@
           ctx.restore();
         }
       }
+      if(this.state==='warp'){
+        ctx.save();
+        const pulse = 0.55 + 0.25*Math.sin(performance.now()/100);
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = edgeColor;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r + 14, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
   }
 
@@ -8868,11 +9095,20 @@
       this.aggression=this.scaling.aggression;
       this.tint = '#f59e0b';
       this.tintLight = '#fef3c7';
+      this.telegraphTimer = 0;
+      this.telegraphTotal = 0;
+      this.telegraphType = '';
+      this.attackPlan = null;
+      this.nextCooldown = 0;
+      this.afterLeapPlan = null;
+      this.manualRecoverPlan = null;
+      this.activeAttack = '';
     }
     update(dt){
       this.hitFlash = Math.max(0, this.hitFlash - dt*3.2);
       if(!this.enraged && this.hp <= this.maxHp*0.55){ this.enraged = true; }
-      if(this.state==='stalk') this.handleStalk(dt);
+      if(this.state==='windup') this.handleWindup(dt);
+      else if(this.state==='stalk') this.handleStalk(dt);
       else if(this.state==='leap') this.handleLeap(dt);
       else if(this.state==='brace') this.handleBrace(dt);
       else if(this.state==='recover') this.handleRecover(dt);
@@ -8901,6 +9137,21 @@
       this.attackTimer -= dt * this.aggression;
       if(this.attackTimer<=0){ this.chooseAttack(); }
     }
+    handleWindup(dt){
+      if(player){
+        const angle = Math.atan2(player.y - this.y, player.x - this.x);
+        const speed = (this.enraged?105:85) * this.speedScale * 0.45;
+        this.x += Math.cos(angle) * speed * dt;
+        this.y += Math.sin(angle) * speed * dt;
+      }
+      this.x += Math.cos(performance.now()/520) * 12 * dt;
+      this.y += Math.sin(performance.now()/420) * 10 * dt;
+      this.x = clamp(this.x, 80, CONFIG.roomW-80);
+      this.y = clamp(this.y, 96, CONFIG.roomH-96);
+      resolveEntityObstacles(this);
+      this.telegraphTimer -= dt * this.aggression;
+      if(this.telegraphTimer<=0){ this.executeAttackPlan(); }
+    }
     handleLeap(dt){
       this.leapTimer += dt * this.aggression;
       const ratio = Math.min(1, this.leapTimer / this.leapDuration);
@@ -8911,7 +9162,11 @@
       if(ratio>=1){
         this.state='recover';
         this.altitude = 0;
-        this.recoverTimer = (this.enraged?0.55:0.7)/this.aggression;
+        const plan = this.afterLeapPlan || {recover:(this.enraged?0.55:0.7), cooldown:(this.enraged?1.3:1.6)};
+        this.recoverTimer = plan.recover;
+        this.nextCooldown = plan.cooldown;
+        this.afterLeapPlan = null;
+        this.telegraphType='';
         this.performSlamImpact();
       }
     }
@@ -8921,7 +9176,10 @@
       if(this.telegraphTimer<=0){
         this.performQuakeImpact();
         this.state='recover';
-        this.recoverTimer = (this.enraged?0.6:0.8)/this.aggression;
+        const plan = this.manualRecoverPlan || {recover:(this.enraged?0.6:0.8), cooldown:(this.enraged?1.4:1.7)};
+        this.recoverTimer = plan.recover;
+        this.nextCooldown = plan.cooldown;
+        this.manualRecoverPlan = null;
       }
     }
     handleRecover(dt){
@@ -8929,6 +9187,11 @@
       if(this.recoverTimer<=0){
         this.state='stalk';
         this.altitude = 0;
+        this.attackTimer = this.nextCooldown || (this.enraged?1.3:1.6);
+        this.nextCooldown = 0;
+        this.telegraphType='';
+        this.telegraphTotal=0;
+        this.activeAttack='';
       }
     }
     chooseAttack(){
@@ -8939,9 +9202,60 @@
       }
       const pick = options[Math.floor(rand()*options.length)];
       this.lastAttack = pick;
-      if(pick==='slam') this.startLeap();
-      else if(pick==='quake') this.startQuake();
-      else this.startBoulder();
+      if(pick==='slam'){
+        this.scheduleAttack('slam', {
+          windup: this.enraged ? 0.9 : 1.15,
+          recover: this.enraged ? 0.55 : 0.75,
+          cooldown: this.enraged ? 1.3 : 1.6,
+          post: 'leap'
+        }, this.startLeap);
+      } else if(pick==='quake'){
+        this.scheduleAttack('quake', {
+          windup: this.enraged ? 0.7 : 0.95,
+          recover: this.enraged ? 0.7 : 0.9,
+          cooldown: this.enraged ? 1.4 : 1.7,
+          post: 'manual'
+        }, this.startQuake);
+      } else {
+        this.scheduleAttack('boulder', {
+          windup: this.enraged ? 0.65 : 0.85,
+          recover: this.enraged ? 0.65 : 0.85,
+          cooldown: this.enraged ? 1.3 : 1.55
+        }, this.startBoulder);
+      }
+    }
+    scheduleAttack(type, config={}, execute){
+      this.attackPlan = {
+        type,
+        execute,
+        recover: (config.recover ?? 0.7),
+        cooldown: (config.cooldown ?? 1.6),
+        post: config.post || 'recover'
+      };
+      this.telegraphType = type;
+      this.telegraphTimer = Math.max(0.3, (config.windup ?? 0.6));
+      this.telegraphTotal = this.telegraphTimer;
+      this.state='windup';
+    }
+    executeAttackPlan(){
+      const plan = this.attackPlan;
+      if(!plan) return;
+      this.attackPlan = null;
+      const type = plan.type;
+      this.telegraphTimer = 0;
+      this.telegraphType='';
+      this.telegraphTotal=0;
+      plan.execute?.call(this);
+      this.activeAttack = type;
+      if(plan.post==='leap'){
+        this.afterLeapPlan = {recover: plan.recover, cooldown: plan.cooldown};
+      } else if(plan.post==='manual'){
+        this.manualRecoverPlan = {recover: plan.recover, cooldown: plan.cooldown};
+      } else {
+        this.state='recover';
+        this.recoverTimer = plan.recover;
+        this.nextCooldown = plan.cooldown;
+      }
     }
     startLeap(){
       this.state='leap';
@@ -8961,22 +9275,19 @@
       this.leapDuration = Math.max(0.55, travel / speed);
       this.leapTimer = 0;
       spawnCircularEffect(this.x, this.y, this.r+12, {innerColor:'#fef3c7', midColor:'#facc15', outerColor:'#f97316'});
-      this.attackTimer = (this.enraged?1.3:1.6)/this.aggression;
     }
     startQuake(){
       this.state='brace';
-      this.telegraphTimer = (this.enraged?0.75:0.9) / this.aggression;
+      this.telegraphTimer = (this.enraged?0.85:1.05);
       this.altitude = 0;
       spawnCircularEffect(this.x, this.y, this.r+24, {innerColor:'#fef3c7', midColor:'#fcd34d', outerColor:'#f97316'});
       const pulses = this.enraged ? 3 : 2;
       for(let i=0;i<pulses;i++){
         this.pendingEvents.push({type:'quakePulse', delay:0.1 + i*0.22, power:i});
       }
-      this.attackTimer = (this.enraged?1.2:1.45)/this.aggression;
     }
     startBoulder(){
-      this.state='recover';
-      this.recoverTimer = (this.enraged?0.75:0.95)/this.aggression;
+      this.activeAttack = 'boulder';
       const count = this.enraged ? 3 : 2;
       for(let i=0;i<count;i++){
         const angle = Math.atan2((player?.y ?? this.y) - this.y, (player?.x ?? this.x) - this.x) + randRange(-0.4,0.4);
@@ -8990,7 +9301,6 @@
         }));
       }
       spawnCircularEffect(this.x, this.y, this.r+18, {innerColor:'#fee2e2', midColor:'#fb923c', outerColor:'#f97316'});
-      this.attackTimer = (this.enraged?1.3:1.55)/this.aggression;
     }
     performSlamImpact(){
       addScreenShake(6,0.35);
@@ -9047,8 +9357,22 @@
       ctx.fill();
       ctx.restore();
 
-      const baseColor = this.hitFlash>0 ? '#fee2e2' : (this.enraged ? '#fed7aa' : '#fecaca');
-      const edgeColor = this.enraged ? '#f97316' : '#fb7185';
+      let baseColor = this.hitFlash>0 ? '#fee2e2' : (this.enraged ? '#fed7aa' : '#fecaca');
+      let edgeColor = this.enraged ? '#f97316' : '#fb7185';
+      if(this.state==='windup' && this.telegraphType){
+        const total = this.telegraphTotal || 1;
+        const ratio = clamp(1 - this.telegraphTimer / total, 0, 1);
+        if(this.telegraphType==='slam'){
+          baseColor = mixHexColor('#fff7ed', '#f97316', 0.35 + ratio*0.55);
+          edgeColor = '#ea580c';
+        } else if(this.telegraphType==='quake'){
+          baseColor = mixHexColor('#fef3c7', '#fbbf24', 0.3 + ratio*0.55);
+          edgeColor = '#d97706';
+        } else if(this.telegraphType==='boulder'){
+          baseColor = mixHexColor('#fef2f2', '#f97316', 0.4 + ratio*0.5);
+          edgeColor = '#fb923c';
+        }
+      }
       drawBlob(this.x, this.y - this.altitude*this.r*0.8, this.r, baseColor, edgeColor);
       ctx.save();
       ctx.translate(this.x, this.y - this.altitude*this.r*0.8);
@@ -9064,6 +9388,17 @@
       ctx.quadraticCurveTo(0, this.r*(this.enraged?0.55:0.48), -this.r*0.38, this.r*0.18);
       ctx.fill();
       ctx.restore();
+      if(this.state==='windup' && this.telegraphType){
+        ctx.save();
+        const pulse = 0.55 + 0.25*Math.sin(performance.now()/100);
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = edgeColor;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y - this.altitude*this.r*0.8, this.r + 12, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
       if(this.state==='brace'){
         ctx.save();
         ctx.globalAlpha = 0.45 + 0.25*Math.sin(performance.now()/90);
@@ -9503,6 +9838,12 @@
       this.maxHp=this.hp;
       this.speedScale=this.scaling.speed;
       this.aggression=this.scaling.aggression;
+      this.telegraphTimer=0;
+      this.telegraphTotal=0;
+      this.telegraphType='';
+      this.attackPlan=null;
+      this.recoverTimer=0;
+      this.nextCooldown=0;
     }
     update(dt){
       this.hitFlash = Math.max(0, this.hitFlash - dt*3.4);
@@ -9520,23 +9861,40 @@
         this.teleportProgress += dt * this.aggression / (this.teleportDuration*0.8);
         if(this.teleportProgress>=1){ this.state='stalk'; this.teleportProgress=0; }
       }
-      this.floatMovement(dt);
-      this.teleportTimer -= dt * this.aggression;
-      if(this.teleportTimer<=0){ this.beginTeleport(); }
-      this.attackTimer -= dt * this.aggression;
-      if(this.attackTimer<=0){ this.chooseAttack(); }
+      const slow = this.state==='windup' ? 0.55 : (this.state==='recover' ? 0.65 : 1);
+      this.floatMovement(dt, slow);
+      if(this.state==='windup'){
+        this.telegraphTimer -= dt * this.aggression;
+        if(this.telegraphTimer<=0){ this.executeAttackPlan(); }
+        return;
+      }
+      if(this.state==='recover'){
+        this.recoverTimer -= dt * this.aggression;
+        if(this.recoverTimer<=0){
+          this.state='stalk';
+          this.attackTimer = this.nextCooldown || (this.enraged?1.2:1.7);
+          this.nextCooldown = 0;
+        }
+        return;
+      }
+      if(this.state==='stalk'){
+        this.teleportTimer -= dt * this.aggression;
+        if(this.teleportTimer<=0){ this.beginTeleport(); }
+        this.attackTimer -= dt * this.aggression;
+        if(this.attackTimer<=0){ this.chooseAttack(); }
+      }
     }
-    floatMovement(dt){
+    floatMovement(dt, slowFactor=1){
       const baseSpeed = (this.enraged?125:100) * this.speedScale;
       if(player){
         const dx = player.x - this.x;
         const dy = player.y - this.y;
         const len = Math.hypot(dx,dy)||1;
-        this.x += (dx/len) * baseSpeed * dt * 0.82;
-        this.y += (dy/len) * baseSpeed * dt * 0.82;
+        this.x += (dx/len) * baseSpeed * dt * 0.82 * slowFactor;
+        this.y += (dy/len) * baseSpeed * dt * 0.82 * slowFactor;
       }
-      this.x += Math.cos(performance.now()/420) * 18 * dt;
-      this.y += Math.sin(performance.now()/360) * 16 * dt;
+      this.x += Math.cos(performance.now()/420) * 18 * dt * slowFactor;
+      this.y += Math.sin(performance.now()/360) * 16 * dt * slowFactor;
       this.x = clamp(this.x, 80, CONFIG.roomW-80);
       this.y = clamp(this.y, 90, CONFIG.roomH-90);
       resolveEntityObstacles(this);
@@ -9572,15 +9930,48 @@
     chooseAttack(){
       const roll = rand();
       if(roll < 0.45){
-        this.launchShadowFan();
-        this.attackTimer = (this.enraged?1.2:1.7);
+        this.scheduleAttack('fan', {
+          windup: this.enraged ? 0.6 : 0.8,
+          recover: this.enraged ? 0.55 : 0.75,
+          cooldown: this.enraged ? 1.2 : 1.7
+        }, this.launchShadowFan);
       } else if(roll < 0.75){
-        this.spawnShadowMinions();
-        this.attackTimer = (this.enraged?1.9:2.5);
+        this.scheduleAttack('summon', {
+          windup: this.enraged ? 0.75 : 0.95,
+          recover: this.enraged ? 0.7 : 0.9,
+          cooldown: this.enraged ? 1.9 : 2.5
+        }, this.spawnShadowMinions);
       } else {
-        this.launchChasingBlades();
-        this.attackTimer = (this.enraged?1.4:2.1);
+        this.scheduleAttack('blades', {
+          windup: this.enraged ? 0.65 : 0.85,
+          recover: this.enraged ? 0.6 : 0.8,
+          cooldown: this.enraged ? 1.4 : 2.1
+        }, this.launchChasingBlades);
       }
+    }
+    scheduleAttack(type, config={}, execute){
+      this.attackPlan = {
+        type,
+        execute,
+        recover: (config.recover ?? 0.6),
+        cooldown: config.cooldown ?? (this.enraged?1.2:1.7),
+      };
+      this.telegraphType = type;
+      this.telegraphTimer = Math.max(0.25, (config.windup ?? 0.6));
+      this.telegraphTotal = this.telegraphTimer;
+      this.state='windup';
+    }
+    executeAttackPlan(){
+      const plan = this.attackPlan;
+      if(!plan) return;
+      this.attackPlan = null;
+      this.telegraphTimer = 0;
+      this.telegraphTotal = 0;
+      plan.execute?.call(this);
+      this.state='recover';
+      this.recoverTimer = plan.recover;
+      this.nextCooldown = plan.cooldown;
+      this.telegraphType='';
     }
     launchShadowFan(forceLarge=false){
       const waves = forceLarge ? 2 : (this.enraged ? 2 : 1);
@@ -9638,10 +10029,34 @@
       else if(this.state==='reappear'){ alpha = Math.max(0.35, this.teleportProgress); }
       if(this.invulnerableTimer>0){ alpha *= 0.8 + 0.2*Math.sin(performance.now()/90); }
       ctx.globalAlpha = alpha;
-      const base = this.hitFlash>0 ? '#fdf2f8' : '#d8b4fe';
-      const edge = this.hitFlash>0 ? '#fde68a' : '#a855f7';
+      let base = this.hitFlash>0 ? '#fdf2f8' : '#d8b4fe';
+      let edge = this.hitFlash>0 ? '#fde68a' : '#a855f7';
+      if(this.state==='windup' && this.telegraphType){
+        const ratio = this.telegraphTotal>0 ? clamp(1 - this.telegraphTimer / this.telegraphTotal, 0, 1) : 1;
+        if(this.telegraphType==='fan'){
+          base = mixHexColor('#fef2ff', '#a855f7', 0.35 + ratio*0.5);
+          edge = '#7c3aed';
+        } else if(this.telegraphType==='summon'){
+          base = mixHexColor('#ede9fe', '#60a5fa', 0.3 + ratio*0.45);
+          edge = '#2563eb';
+        } else if(this.telegraphType==='blades'){
+          base = mixHexColor('#fdf4ff', '#fb7185', 0.3 + ratio*0.5);
+          edge = '#e11d48';
+        }
+      }
       drawBlob(this.x, this.y, this.r, base, edge);
       ctx.restore();
+      if(this.state==='windup' && this.telegraphType){
+        ctx.save();
+        const pulse = 0.6 + 0.25*Math.sin(performance.now()/100);
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = edge;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r + 12, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
       if(this.invulnerableTimer>0){
         ctx.save();
         ctx.globalAlpha = 0.25 + 0.15*Math.sin(performance.now()/120);
@@ -9679,6 +10094,12 @@
       this.maxHp=this.hp;
       this.speedScale=this.scaling.speed;
       this.aggression=this.scaling.aggression;
+      this.telegraphTimer=0;
+      this.telegraphTotal=0;
+      this.telegraphType='';
+      this.attackPlan=null;
+      this.recoverTimer=0;
+      this.nextCooldown=0;
     }
     update(dt){
       this.hitFlash = Math.max(0, this.hitFlash - dt*4);
@@ -9698,13 +10119,28 @@
         this.warpProgress += dt * this.aggression / (this.warpDuration*0.75);
         if(this.warpProgress>=1){ this.state='float'; this.warpProgress=0; }
       }
+      const slow = this.state==='windup' ? 0.6 : (this.state==='recover' ? 0.7 : 1);
       this.rotation += dt * (0.6 + 0.25*this.aggression);
-      this.x += Math.cos(this.rotation) * 24 * dt;
-      this.y += Math.sin(this.rotation*0.85) * 20 * dt;
+      this.x += Math.cos(this.rotation) * 24 * dt * slow;
+      this.y += Math.sin(this.rotation*0.85) * 20 * dt * slow;
       this.x = clamp(this.x, 90, CONFIG.roomW-90);
       this.y = clamp(this.y, 100, CONFIG.roomH-100);
       resolveEntityObstacles(this);
       if(player && dist(this, player) < this.r + player.r - 3){ player.hurt(1); }
+      if(this.state==='windup'){
+        this.telegraphTimer -= dt * this.aggression;
+        if(this.telegraphTimer<=0){ this.executeAttackPlan(); }
+        return;
+      }
+      if(this.state==='recover'){
+        this.recoverTimer -= dt * this.aggression;
+        if(this.recoverTimer<=0){
+          this.state='float';
+          this.attackTimer = this.nextCooldown || 1.5;
+          this.nextCooldown = 0;
+        }
+        return;
+      }
       this.teleportTimer -= dt * this.aggression;
       if(this.teleportTimer<=0){ this.beginWarp(); }
       this.attackTimer -= dt * this.aggression;
@@ -9760,15 +10196,71 @@
     performAttack(){
       if(this.phase===1){
         const roll = rand();
-        if(roll < 0.4){ this.castSpiral(); this.attackTimer = 1.6; }
-        else if(roll < 0.75){ this.castCrossfire(); this.attackTimer = 1.8; }
-        else { this.summonEcho(); this.attackTimer = 2.3; }
+        if(roll < 0.4){
+          this.scheduleAttack('spiral', {
+            windup: this.enraged ? 0.7 : 0.85,
+            recover: this.enraged ? 0.6 : 0.75,
+            cooldown: 1.6
+          }, ()=>this.castSpiral());
+        } else if(roll < 0.75){
+          this.scheduleAttack('crossfire', {
+            windup: this.enraged ? 0.75 : 0.9,
+            recover: this.enraged ? 0.65 : 0.8,
+            cooldown: 1.8
+          }, this.castCrossfire);
+        } else {
+          this.scheduleAttack('summon', {
+            windup: this.enraged ? 0.85 : 1.05,
+            recover: this.enraged ? 0.75 : 0.95,
+            cooldown: 2.3
+          }, this.summonEcho);
+        }
       } else {
         const roll = rand();
-        if(roll < 0.33){ this.castShardStorm(); this.attackTimer = 1.7; }
-        else if(roll < 0.66){ this.castTimeSnare(); this.attackTimer = 2.1; }
-        else { this.castRewind(); this.attackTimer = 2.4; }
+        if(roll < 0.33){
+          this.scheduleAttack('shards', {
+            windup: this.enraged ? 0.8 : 1.0,
+            recover: this.enraged ? 0.7 : 0.85,
+            cooldown: 1.7
+          }, this.castShardStorm);
+        } else if(roll < 0.66){
+          this.scheduleAttack('snare', {
+            windup: this.enraged ? 0.9 : 1.1,
+            recover: this.enraged ? 0.85 : 1.05,
+            cooldown: 2.1
+          }, this.castTimeSnare);
+        } else {
+          this.scheduleAttack('rewind', {
+            windup: this.enraged ? 1.0 : 1.2,
+            recover: this.enraged ? 0.9 : 1.1,
+            cooldown: 2.4
+          }, this.castRewind);
+        }
       }
+    }
+    scheduleAttack(type, config={}, execute){
+      this.attackPlan = {
+        type,
+        execute,
+        recover: (config.recover ?? 0.7),
+        cooldown: config.cooldown ?? 1.6,
+      };
+      this.telegraphType = type;
+      this.telegraphTimer = Math.max(0.3, (config.windup ?? 0.6));
+      this.telegraphTotal = this.telegraphTimer;
+      this.state='windup';
+    }
+    executeAttackPlan(){
+      const plan = this.attackPlan;
+      if(!plan) return;
+      this.attackPlan = null;
+      this.telegraphTimer = 0;
+      this.telegraphTotal = 0;
+      plan.execute?.call(this);
+      this.state='recover';
+      this.recoverTimer = plan.recover;
+      this.nextCooldown = plan.cooldown;
+      this.telegraphType='';
     }
     castSpiral(extraDense=false){
       const waves = extraDense ? 3 : (this.enraged?3:2);
@@ -9878,8 +10370,21 @@
       else if(this.state==='warp-in'){ alpha = Math.max(0.35, this.warpProgress); }
       if(this.invulnerableTimer>0){ alpha *= 0.85 + 0.15*Math.sin(performance.now()/80); }
       ctx.globalAlpha = alpha;
-      const base = this.phase===2 ? '#fef9c3' : '#bae6fd';
-      const edge = this.hitFlash>0 ? '#f97316' : (this.phase===2 ? '#fb7185' : '#60a5fa');
+      let base = this.phase===2 ? '#fef9c3' : '#bae6fd';
+      let edge = this.hitFlash>0 ? '#f97316' : (this.phase===2 ? '#fb7185' : '#60a5fa');
+      if(this.state==='windup' && this.telegraphType){
+        const ratio = this.telegraphTotal>0 ? clamp(1 - this.telegraphTimer / this.telegraphTotal, 0, 1) : 1;
+        if(this.telegraphType==='spiral' || this.telegraphType==='crossfire'){
+          base = mixHexColor('#f0f9ff', '#60a5fa', 0.35 + ratio*0.5);
+          edge = '#2563eb';
+        } else if(this.telegraphType==='summon' || this.telegraphType==='shards'){
+          base = mixHexColor('#fefce8', '#facc15', 0.3 + ratio*0.5);
+          edge = '#d97706';
+        } else if(this.telegraphType==='snare' || this.telegraphType==='rewind'){
+          base = mixHexColor('#fef2f2', '#fb7185', 0.3 + ratio*0.5);
+          edge = '#e11d48';
+        }
+      }
       drawBlob(this.x, this.y, this.r, base, edge);
       ctx.restore();
       ctx.save();
@@ -9890,6 +10395,17 @@
       ctx.arc(this.x, this.y, this.r*1.55, 0, Math.PI*2);
       ctx.stroke();
       ctx.restore();
+      if(this.state==='windup' && this.telegraphType){
+        ctx.save();
+        const pulse = 0.58 + 0.25*Math.sin(performance.now()/100);
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = edge;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r + 14, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
   }
 
@@ -11333,7 +11849,10 @@
       {label:'交换门', value: `${Math.round(getExchangePortalChance()*100)}%`}
     ];
     HUDS.innerHTML = statItems.map(({label,value,unit})=>`<span>${label}：<strong>${value}</strong>${unit?`<small>${unit}</small>`:''}</span>`).join('');
-    const itemsText = player.items.length ? player.items.join('、') : '空手上阵';
+    const itemsText = player.items.length ? player.items.map(name => {
+      const count = Math.max(1, Number(player.itemNameStacks?.[name]) || 1);
+      return `${name} ×${count}`;
+    }).join('、') : '空手上阵';
     const floorLevel = runtime.floor || currentFloor || 1;
     const loopCycle = (runtime.loopCount || 0) + 1;
     const cycleText = loopCycle>1 ? ` · 第${loopCycle}轮` : '';
