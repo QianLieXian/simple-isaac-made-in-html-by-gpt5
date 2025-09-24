@@ -287,6 +287,9 @@
   function randRange(min,max){return min + (max-min)*rand()}
   function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
   function dist(a,b){const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy)}
+  function isTimeStopActive(){
+    return !!(runtime && runtime.timeStopTimer>0);
+  }
   function rectOverlap(a,b){
     return !(a.x+a.w < b.x || b.x+b.w < a.x || a.y+a.h < b.y || b.y+b.h < a.y);
   }
@@ -2889,11 +2892,25 @@
         if(dash.cooldown>0){
           const prevCooldown = dash.cooldown;
           dash.cooldown = Math.max(0, dash.cooldown - dt);
+          const cooldownSynergy = this.collectSynergyOptions('impact-dash-cooldown', {cooldown: dash.cooldown});
+          if(cooldownSynergy && Number.isFinite(cooldownSynergy.cooldown)){
+            dash.cooldown = Math.max(0, cooldownSynergy.cooldown);
+          }
           if(prevCooldown>0 && dash.cooldown===0){
             dash.readyPulse = Math.max(dash.readyPulse, 1.1);
           }
-        } else if(dash.readyPulse>0){
-          dash.readyPulse = Math.max(0, dash.readyPulse - dt);
+        } else {
+          const cooldownSynergy = this.collectSynergyOptions('impact-dash-cooldown', {cooldown: dash.cooldown});
+          if(cooldownSynergy && Number.isFinite(cooldownSynergy.cooldown)){
+            const prevCooldown = dash.cooldown;
+            dash.cooldown = Math.max(0, cooldownSynergy.cooldown);
+            if(prevCooldown>0 && dash.cooldown===0){
+              dash.readyPulse = Math.max(dash.readyPulse, 1.1);
+            }
+          }
+          if(dash.readyPulse>0){
+            dash.readyPulse = Math.max(0, dash.readyPulse - dt);
+          }
         }
         if(dash.trail && dash.trail.alive === false){
           dash.trail = null;
@@ -3163,6 +3180,7 @@
         state.stacks = Math.max(1, this.getItemStack ? this.getItemStack('hot-chocolate') : 1);
       }
       this.updateHotChocolateStackBonuses(state.stacks);
+      this.updateBrimstoneChargeMetrics();
     }
     updateHotChocolateStackBonuses(countOverride){
       const state = this.ensureHotChocolateState();
@@ -3173,6 +3191,7 @@
       const baseDamage = 1.5;
       state.chargeSpeedBonus = baseCharge + extra * 0.18;
       state.damageBonus = baseDamage + extra * 0.12;
+      this.updateBrimstoneChargeMetrics();
     }
     hasHotChocolate(){
       return !!(this.hotChocolate && this.hotChocolate.enabled);
@@ -3347,7 +3366,13 @@
       const dash = this.ensureImpactDashState();
       if(!dash.unlocked) return false;
       if(dash.active) return false;
-      if(dash.cooldown>0) return false;
+      if(dash.cooldown>0){
+        const cooldownCheck = this.collectSynergyOptions('impact-dash-cooldown', {cooldown: dash.cooldown});
+        if(!cooldownCheck || !Number.isFinite(cooldownCheck.cooldown) || cooldownCheck.cooldown>0){
+          return false;
+        }
+        dash.cooldown = Math.max(0, cooldownCheck.cooldown);
+      }
       const len = Math.hypot(dir?.x ?? 0, dir?.y ?? 0);
       if(!(len>1e-5)) return false;
       const nx = (dir.x ?? 0) / len;
@@ -3363,6 +3388,10 @@
       dash.dashSpeed = dashDistance / duration;
       dash.active = true;
       dash.cooldown = Math.max(0, dash.cooldownDuration ?? 5);
+      const cooldownSynergy = this.collectSynergyOptions('impact-dash-cooldown', {cooldown: dash.cooldown});
+      if(cooldownSynergy && Number.isFinite(cooldownSynergy.cooldown)){
+        dash.cooldown = Math.max(0, cooldownSynergy.cooldown);
+      }
       dash.readyPulse = 0;
       const postInvuln = Math.max(0, dash.postInvulnDuration ?? 0);
       const totalInvuln = duration + postInvuln;
@@ -3388,7 +3417,7 @@
       const sparkleRate = Math.max(0, Number(dash.trailSparkleRate) || 0);
       const sparkleLife = Number.isFinite(dash.trailSparkleLife) ? dash.trailSparkleLife : 0.35;
       const sparkleColor = typeof dash.trailSparkleColor === 'string' ? dash.trailSparkleColor : '#e0f2fe';
-      const trail = createImpactDashTrail(this, {
+      let trailOptions = {
         radius: finalRadius,
         minStep: scaledMinStep,
         tickInterval,
@@ -3398,7 +3427,9 @@
         sparkleRate,
         sparkleLife,
         sparkleColor,
-      });
+      };
+      trailOptions = this.collectSynergyOptions('impact-dash-trail', trailOptions, {dash});
+      const trail = createImpactDashTrail(this, trailOptions);
       dash.trail = trail;
       if(trail && typeof trail.addPoint === 'function'){
         trail.addPoint(this.x, this.y);
@@ -3424,6 +3455,10 @@
       }
       if(dash.trail && typeof dash.trail.finalize === 'function'){
         dash.trail.finalize();
+      }
+      const cooldownSynergy = this.collectSynergyOptions('impact-dash-cooldown', {cooldown: dash.cooldown});
+      if(cooldownSynergy && Number.isFinite(cooldownSynergy.cooldown)){
+        dash.cooldown = Math.max(0, cooldownSynergy.cooldown);
       }
     }
     isImpactDashing(){
@@ -3488,6 +3523,123 @@
     }
     incrementItemStack(slug, amount=1){
       return incrementItemStack(this, slug, amount);
+    }
+    hasItem(slug){
+      if(!slug) return false;
+      const stack = this.getItemStack ? this.getItemStack(slug) : 0;
+      return Number.isFinite(stack) && stack>0;
+    }
+    collectSynergyOptions(aspect, base={}, context={}){
+      const result = {...base};
+      switch(aspect){
+        case 'impact-dash-trail': {
+          const hasBrimstone = this.attackMode === 'brimstone';
+          const hasHoming = !!this.homingTears;
+          if(hasHoming){
+            result.homing = true;
+            const strength = Math.max(Number(result.homingStrength) || 0, Number(this.homingStrength) || 8);
+            result.homingStrength = strength;
+            const tearSpeed = Number(this.tearSpeed) || Number(CONFIG.player?.tearSpeed) || 220;
+            const homingSpeed = Math.max(Number(result.homingSpeed) || 0, tearSpeed * 0.85);
+            result.homingSpeed = homingSpeed;
+            const range = Math.max(Number(result.homingRange) || 0, 520);
+            result.homingRange = range;
+            result.homingWhileInactive = true;
+            const bodyRadius = this.r || CONFIG.player.radius || 12;
+            const stretch = Math.max(Number(result.homingMaxStretch) || 0, bodyRadius * 7);
+            result.homingMaxStretch = stretch;
+          }
+          if(hasHoming || hasBrimstone){
+            const palette = {...(result.colors||{})};
+            if(hasBrimstone && hasHoming){
+              result.damageScale = Math.max(Number(result.damageScale) || 0, (Number(base?.damageScale) || 1) * 1.2);
+              palette.outer = palette.outer || '#a855f7';
+              palette.mid = palette.mid || '#d946ef';
+              palette.inner = palette.inner || '#fbcfe8';
+              palette.sparkle = palette.sparkle || '#f5d0fe';
+              palette.glowStart = palette.glowStart || '#f0abfc';
+              palette.glowEnd = palette.glowEnd || '#c084fc';
+              palette.glowOuter = palette.glowOuter || '#9333ea';
+              palette.gradientInner = palette.gradientInner || '#f5d0fe';
+              palette.gradientMid = palette.gradientMid || '#d8b4fe';
+              palette.gradientOuter = palette.gradientOuter || '#a855f7';
+              palette.burstStart = palette.burstStart || '#c084fc';
+              palette.burstStartAccent = palette.burstStartAccent || '#f5d0fe';
+              palette.burstEnd = palette.burstEnd || '#a855f7';
+              palette.burstEndAccent = palette.burstEndAccent || '#ddd6fe';
+              palette.stroke = palette.stroke || '#7c3aed';
+            } else if(hasHoming){
+              palette.outer = palette.outer || '#0ea5e9';
+              palette.mid = palette.mid || '#38bdf8';
+              palette.inner = palette.inner || '#e0f2fe';
+              palette.sparkle = palette.sparkle || '#bae6fd';
+              palette.glowStart = palette.glowStart || '#bae6fd';
+              palette.glowEnd = palette.glowEnd || '#7dd3fc';
+              palette.glowOuter = palette.glowOuter || '#0ea5e9';
+              palette.gradientInner = palette.gradientInner || '#bfdbfe';
+              palette.gradientMid = palette.gradientMid || '#60a5fa';
+              palette.gradientOuter = palette.gradientOuter || '#0284c7';
+              palette.burstStart = palette.burstStart || '#38bdf8';
+              palette.burstStartAccent = palette.burstStartAccent || '#bae6fd';
+              palette.burstEnd = palette.burstEnd || '#60a5fa';
+              palette.burstEndAccent = palette.burstEndAccent || '#bfdbfe';
+              palette.stroke = palette.stroke || '#0ea5e9';
+            } else if(hasBrimstone){
+              result.damageScale = Math.max(Number(result.damageScale) || 0, (Number(base?.damageScale) || 1) * 1.1);
+              palette.outer = palette.outer || '#b91c1c';
+              palette.mid = palette.mid || '#ef4444';
+              palette.inner = palette.inner || '#fee2e2';
+              palette.sparkle = palette.sparkle || '#fecaca';
+              palette.glowStart = palette.glowStart || '#fecaca';
+              palette.glowEnd = palette.glowEnd || '#f87171';
+              palette.glowOuter = palette.glowOuter || '#dc2626';
+              palette.gradientInner = palette.gradientInner || '#fecaca';
+              palette.gradientMid = palette.gradientMid || '#fda4af';
+              palette.gradientOuter = palette.gradientOuter || '#ef4444';
+              palette.burstStart = palette.burstStart || '#f87171';
+              palette.burstStartAccent = palette.burstStartAccent || '#fee2e2';
+              palette.burstEnd = palette.burstEnd || '#dc2626';
+              palette.burstEndAccent = palette.burstEndAccent || '#fecaca';
+              palette.stroke = palette.stroke || '#991b1b';
+            }
+            result.colors = palette;
+          }
+          break;
+        }
+        case 'brimstone-beam': {
+          const ratioRaw = Number(context?.chargeRatio);
+          const chargeRatio = Number.isFinite(ratioRaw) ? clamp(ratioRaw, 0, 1) : 1;
+          const hasHotChoco = this.hasHotChocolate && this.hasHotChocolate();
+          if(hasHotChoco){
+            result.allowPartialCharge = true;
+            if(chargeRatio < 1){
+              const effective = Math.max(chargeRatio, 0.12);
+              result.partialChargeRatio = effective;
+              result.damageScaleMultiplier = Math.max(Number(result.damageScaleMultiplier) || 0, 0.45 + 0.55 * effective);
+              result.durationMultiplier = Math.max(Number(result.durationMultiplier) || 0, 0.55 + 0.45 * effective);
+              result.widthMultiplier = Math.max(Number(result.widthMultiplier) || 0, 0.7 + 0.3 * effective);
+              result.tickIntervalMultiplier = Math.max(Number(result.tickIntervalMultiplier) || 0, 0.7 + 0.3 * effective);
+            }
+          }
+          break;
+        }
+        case 'brimstone-charge-rate': {
+          if(this.hasHotChocolate && this.hasHotChocolate()){
+            const prev = Number(result.chargeTimeMultiplier) || 1;
+            result.chargeTimeMultiplier = prev * 0.82;
+          }
+          break;
+        }
+        case 'impact-dash-cooldown': {
+          if(isTimeStopActive()){
+            result.cooldown = 0;
+          }
+          break;
+        }
+        default:
+          break;
+      }
+      return result;
     }
     getShopPriceMultiplier(){
       const value = Number(this.shopPriceMultiplier);
@@ -3588,7 +3740,16 @@
     updateBrimstoneChargeMetrics(){
       const interval = Number.isFinite(this.fireInterval) ? this.fireInterval : (CONFIG.player.fireCd || 360);
       const brimstoneChargeScale = CONFIG?.brimstone?.chargeScale ?? 11.25;
-      this.brimstoneChargeTime = Math.max(0.15, (interval / 1000) * brimstoneChargeScale);
+      let chargeTime = Math.max(0.15, (interval / 1000) * brimstoneChargeScale);
+      const synergy = this.collectSynergyOptions('brimstone-charge-rate', {chargeTimeMultiplier:1}, {interval});
+      if(synergy){
+        if(Number.isFinite(synergy.chargeTime)){
+          chargeTime = Math.max(0.12, synergy.chargeTime);
+        } else if(Number.isFinite(synergy.chargeTimeMultiplier)){
+          chargeTime = Math.max(0.12, chargeTime * synergy.chargeTimeMultiplier);
+        }
+      }
+      this.brimstoneChargeTime = chargeTime;
     }
     ensureBrimstoneMode(){
       if(this.attackMode !== 'brimstone'){
@@ -3652,8 +3813,12 @@
         }
       } else {
         if(this.brimstoneCharging){
+          const ratioRaw = this.brimstoneChargeTime>0 ? this.brimstoneCharge / this.brimstoneChargeTime : 0;
+          const chargeRatio = clamp(ratioRaw, 0, 1);
           if(this.brimstoneCharged){
-            this.fireBrimstoneBeam();
+            this.fireBrimstoneBeam({chargeRatio:1});
+          } else {
+            this.fireBrimstoneBeam({chargeRatio});
           }
           this.brimstoneCharging = false;
           this.brimstoneCharge = 0;
@@ -3661,12 +3826,59 @@
         }
       }
     }
-    fireBrimstoneBeam(){
+    fireBrimstoneBeam(options={}){
       const aim = this.brimstoneAim || {x:0, y:-1};
       const len = Math.hypot(aim.x, aim.y) || 1;
       const dir = {x: aim.x/len, y: aim.y/len};
-      const duration = CONFIG.brimstone?.beamDuration ?? 2;
-      const tickFrames = Math.max(1, CONFIG.brimstone?.tickFrames ?? 15);
+      const baseDuration = CONFIG.brimstone?.beamDuration ?? 2;
+      let duration = baseDuration;
+      const baseTickFrames = Math.max(1, CONFIG.brimstone?.tickFrames ?? 15);
+      let tickFrames = baseTickFrames;
+      const baseDamageScale = CONFIG.brimstone?.damageScale ?? 0.7;
+      let damageScale = baseDamageScale;
+      let widthOverride = options.width;
+      const ratioRaw = Number(options?.chargeRatio);
+      const chargeRatio = Number.isFinite(ratioRaw) ? clamp(ratioRaw, 0, 1) : (this.brimstoneCharged ? 1 : 0);
+      const synergy = this.collectSynergyOptions('brimstone-beam', {damageScale, duration, tickFrames, widthMultiplier:1}, {chargeRatio});
+      if(chargeRatio < 1 && !(synergy && synergy.allowPartialCharge)){
+        return false;
+      }
+      const ratioForScaling = synergy && Number.isFinite(synergy.partialChargeRatio)
+        ? clamp(synergy.partialChargeRatio, 0, 1)
+        : chargeRatio;
+      if(synergy){
+        if(Number.isFinite(synergy.damageScale)){
+          damageScale = synergy.damageScale;
+        }
+        if(Number.isFinite(synergy.damageScaleMultiplier)){
+          damageScale *= synergy.damageScaleMultiplier;
+        }
+        if(Number.isFinite(synergy.duration)){
+          duration = synergy.duration;
+        } else if(Number.isFinite(synergy.durationMultiplier)){
+          duration = baseDuration * synergy.durationMultiplier;
+        }
+        if(Number.isFinite(synergy.tickFrames)){
+          tickFrames = Math.max(1, Math.round(synergy.tickFrames));
+        } else if(Number.isFinite(synergy.tickIntervalMultiplier)){
+          tickFrames = Math.max(1, Math.round(baseTickFrames * synergy.tickIntervalMultiplier));
+        }
+        if(Number.isFinite(synergy.width)){
+          widthOverride = synergy.width;
+        } else if(Number.isFinite(synergy.widthMultiplier) && !Number.isFinite(options.width)){
+          const widthBase = this.getBrimstoneWidth();
+          widthOverride = widthBase * synergy.widthMultiplier;
+        }
+        if(Number.isFinite(synergy.damageScaleMultiplier) && !Number.isFinite(synergy.damageScale)){
+          damageScale = baseDamageScale * synergy.damageScaleMultiplier;
+        }
+      }
+      if(ratioForScaling < 1 && duration === baseDuration){
+        duration = baseDuration * (0.55 + 0.45 * ratioForScaling);
+      }
+      if(ratioForScaling < 1 && damageScale === baseDamageScale){
+        damageScale = baseDamageScale * (0.5 + 0.5 * ratioForScaling);
+      }
       if(!Array.isArray(runtime.beams)){ runtime.beams = []; }
       if(this.brimstoneBeam){
         endBeam(this.brimstoneBeam);
@@ -3674,9 +3886,10 @@
       const beam = new BrimstoneProjectile(this, dir, {
         duration,
         tickFrames,
-        damageScale: CONFIG.brimstone?.damageScale ?? 0.7,
+        damageScale,
         homing: !!this.homingTears,
         homingStrength: this.homingStrength,
+        width: widthOverride,
       });
       runtime.beams.push(beam);
       this.brimstoneBeam = beam;
@@ -3685,6 +3898,7 @@
       this.brimstoneCharge = 0;
       this.brimstoneCharged = false;
       this.brimstoneCharging = false;
+      return true;
     }
     applyImpulse(dx,dy,strength){
       if(this.isImpactDashing && this.isImpactDashing()) return;
@@ -4265,14 +4479,15 @@
       ctx.rotate(angle);
       ctx.globalAlpha = 0.92;
       const gradient = ctx.createRadialGradient(0, 0, Math.max(1, ry*0.3), 0, 0, Math.max(rx, ry));
-      gradient.addColorStop(0, colorWithAlpha('#fde68a', 0.55 * pulse));
-      gradient.addColorStop(0.35, colorWithAlpha('#fca5a5', 0.45 * pulse));
-      gradient.addColorStop(1, colorWithAlpha('#f97316', 0));
+      gradient.addColorStop(0, colorWithAlpha(gradientInner, 0.55 * pulse));
+      gradient.addColorStop(0.35, colorWithAlpha(gradientMid, 0.45 * pulse));
+      gradient.addColorStop(1, colorWithAlpha(gradientOuter, 0));
       ctx.fillStyle = gradient;
       ctx.beginPath();
       ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI*2);
       ctx.fill();
-      ctx.strokeStyle = colorWithAlpha('#fb7185', 0.4);
+      const strokeColor = palette.stroke || shadeColor(gradientOuter, -0.2);
+      ctx.strokeStyle = colorWithAlpha(strokeColor, 0.4);
       ctx.lineWidth = Math.max(2, ry * 0.35);
       ctx.beginPath();
       ctx.ellipse(0, 0, rx*0.95, ry*0.85, 0, 0, Math.PI*2);
@@ -4283,16 +4498,19 @@
       const endRadius = Math.max(12, width * 0.8);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
+      const glowStart = palette.glowStart || gradientInner;
+      const glowOuter = palette.glowOuter || gradientOuter;
+      const glowEnd = palette.glowEnd || gradientMid;
       const startGlow = ctx.createRadialGradient(geom.startX, geom.startY, 0, geom.startX, geom.startY, startRadius);
-      startGlow.addColorStop(0, colorWithAlpha('#fde68a', 0.6 * flicker));
-      startGlow.addColorStop(1, colorWithAlpha('#f97316', 0));
+      startGlow.addColorStop(0, colorWithAlpha(glowStart, 0.6 * flicker));
+      startGlow.addColorStop(1, colorWithAlpha(glowOuter, 0));
       ctx.fillStyle = startGlow;
       ctx.beginPath();
       ctx.arc(geom.startX, geom.startY, startRadius, 0, Math.PI*2);
       ctx.fill();
       const endGlow = ctx.createRadialGradient(geom.endX, geom.endY, 0, geom.endX, geom.endY, endRadius);
-      endGlow.addColorStop(0, colorWithAlpha('#fbbf24', 0.55 * flicker));
-      endGlow.addColorStop(1, colorWithAlpha('#fb923c', 0));
+      endGlow.addColorStop(0, colorWithAlpha(glowEnd, 0.55 * flicker));
+      endGlow.addColorStop(1, colorWithAlpha(glowOuter, 0));
       ctx.fillStyle = endGlow;
       ctx.beginPath();
       ctx.arc(geom.endX, geom.endY, endRadius, 0, Math.PI*2);
@@ -4310,7 +4528,35 @@
     const visualIntensity = Number.isFinite(options.visualIntensity) ? clamp(options.visualIntensity, 0.4, 2) : 1;
     const sparkleRate = Math.max(0, Number(options.sparkleRate) || 0);
     const sparkleLife = Math.max(0.12, Number(options.sparkleLife) || 0.35);
-    const sparkleColor = typeof options.sparkleColor === 'string' ? options.sparkleColor : '#e0f2fe';
+    const paletteSource = options.colors || options.palette || {};
+    const palette = {
+      outer: '#0ea5e9',
+      mid: '#38bdf8',
+      inner: '#ecfeff',
+      gradientInner: '#fde68a',
+      gradientMid: '#fca5a5',
+      gradientOuter: '#f97316',
+      stroke: '#fb7185',
+      glowStart: '#fde68a',
+      glowEnd: '#fbbf24',
+      glowOuter: '#fb923c',
+      burstStart: '#fb923c',
+      burstStartAccent: '#fde68a',
+      burstEnd: '#f97316',
+      burstEndAccent: '#fed7aa',
+      sparkle: '#e0f2fe',
+    };
+    if(typeof options.sparkleColor === 'string'){ palette.sparkle = options.sparkleColor; }
+    for(const key of Object.keys(paletteSource)){
+      const value = paletteSource[key];
+      if(typeof value === 'string'){ palette[key] = value; }
+    }
+    const sparkleColor = palette.sparkle;
+    const homingStrength = Math.max(0, Number(options.homingStrength) || 0);
+    const homingSpeed = Math.max(0, Number(options.homingSpeed) || 0);
+    const homingRange = Math.max(0, Number(options.homingRange) || 0);
+    const homingWhileInactive = options.homingWhileInactive !== false;
+    const maxStretch = Math.max(radius * 1.5, Number(options.homingMaxStretch) || radius * 6);
     const trail = {
       type:'impact-dash',
       owner,
@@ -4327,6 +4573,13 @@
       sparkleRate,
       sparkleLife,
       sparkleColor,
+      palette,
+      homing: !!options.homing,
+      homingStrength: homingStrength>0 ? homingStrength : Math.max(0, owner?.homingStrength ?? 0),
+      homingSpeed,
+      homingRange,
+      homingWhileInactive,
+      maxStretch,
       sparkleAccumulator: 0,
       sparkles: [],
       points: [],
@@ -4364,6 +4617,23 @@
         const segLen = pts.length>1 ? Math.hypot(x - pts[pts.length-2].x, y - pts[pts.length-2].y) : 0;
         this.segmentLengths.push(segLen);
         this.totalLength += segLen;
+      },
+      updateLastSegmentLength(){
+        const pts = this.points;
+        if(pts.length<2) return;
+        const lastIdx = pts.length-1;
+        const prev = pts[lastIdx-1];
+        const last = pts[lastIdx];
+        const newLen = Math.hypot(last.x - prev.x, last.y - prev.y);
+        const segIdx = this.segmentLengths.length-1;
+        if(segIdx>=0){
+          const oldLen = this.segmentLengths[segIdx] || 0;
+          this.segmentLengths[segIdx] = newLen;
+          this.totalLength += newLen - oldLen;
+        } else {
+          this.segmentLengths[0] = newLen;
+          this.totalLength = newLen;
+        }
       },
       distanceToPath(x,y){
         const pts = this.points;
@@ -4424,6 +4694,71 @@
           maxLife: this.sparkleLife,
         };
         this.sparkles.push(sparkle);
+      },
+      applyHoming(dt){
+        if(!this.homing) return;
+        if(!this.follow && !this.homingWhileInactive) return;
+        const pts = this.points;
+        if(pts.length<2) return;
+        const room = dungeon?.current;
+        if(!room || !Array.isArray(room.enemies) || !room.enemies.length) return;
+        const tail = pts[pts.length-1];
+        let target=null;
+        let best=Infinity;
+        const rangeLimit = this.homingRange>0 ? this.homingRange : Infinity;
+        for(const enemy of room.enemies){
+          if(enemy.dead) continue;
+          const d = Math.hypot(enemy.x - tail.x, enemy.y - tail.y);
+          if(rangeLimit>0 && d>rangeLimit) continue;
+          if(d < best){ best = d; target = enemy; }
+        }
+        if(!target) return;
+        const prev = pts[pts.length-2];
+        const baseSpeed = this.homingSpeed>0 ? this.homingSpeed : Math.max(150, (owner?.speed || CONFIG.player.speed || 210) * 1.25);
+        const strength = this.homingStrength>0 ? this.homingStrength : Math.max(owner?.homingStrength || 0, 6);
+        const step = baseSpeed * dt;
+        if(step<=0) return;
+        const toX = target.x - tail.x;
+        const toY = target.y - tail.y;
+        const dist = Math.hypot(toX, toY);
+        if(!(dist>1e-4)) return;
+        const strengthScale = clamp(strength / 12, 0.25, 2);
+        const move = Math.min(dist, step * (0.5 + 0.5 * strengthScale));
+        const nx = toX / dist;
+        const ny = toY / dist;
+        const oldX = tail.x;
+        const oldY = tail.y;
+        tail.x += nx * move;
+        tail.y += ny * move;
+        let segLen = Math.hypot(tail.x - prev.x, tail.y - prev.y);
+        const stretchLimit = this.maxStretch>0 ? this.maxStretch : Infinity;
+        if(segLen > stretchLimit){
+          const excess = segLen - stretchLimit;
+          tail.x -= nx * excess;
+          tail.y -= ny * excess;
+          segLen = stretchLimit;
+        }
+        this.updateLastSegmentLength();
+        if(!this.follow && this.homingWhileInactive){
+          this.finalLength = Math.max(this.finalLength, this.totalLength);
+        }
+        if(this.points.length>2){
+          const prevPrev = this.points[this.points.length-3];
+          if(prevPrev){
+            const adjust = clamp(move / Math.max(1, segLen), 0, 1) * 0.35;
+            if(adjust>0){
+              prev.x += (tail.x - oldX) * adjust;
+              prev.y += (tail.y - oldY) * adjust;
+              const segIdx = this.segmentLengths.length-2;
+              if(segIdx>=0){
+                const oldLen = this.segmentLengths[segIdx] || 0;
+                const newLen = Math.hypot(prev.x - prevPrev.x, prev.y - prevPrev.y);
+                this.segmentLengths[segIdx] = newLen;
+                this.totalLength += newLen - oldLen;
+              }
+            }
+          }
+        }
       },
       applyDamage(){
         const room = dungeon?.current;
@@ -4495,6 +4830,9 @@
             this.alive = false;
           }
         }
+        if(this.homing && (this.follow || this.homingWhileInactive)){
+          this.applyHoming(dt);
+        }
         if(this.sparkleRate>0){
           this.sparkleAccumulator += dt * this.sparkleRate;
           while(this.sparkleAccumulator >= 1){
@@ -4543,23 +4881,30 @@
         const outerAlpha = clamp(0.45 + (intensity-1)*0.18, 0.25, 0.85);
         const midAlpha = clamp(0.6 + (intensity-1)*0.2, 0.35, 0.95);
         const innerAlpha = clamp(0.85 + (intensity-1)*0.25, 0.5, 1);
-        ctx.strokeStyle = colorWithAlpha('#0ea5e9', outerAlpha);
+        const palette = this.palette || {};
+        const outerColor = palette.outer || '#0ea5e9';
+        const midColor = palette.mid || '#38bdf8';
+        const innerColor = palette.inner || '#ecfeff';
+        const gradientInner = palette.gradientInner || shadeColor(innerColor, 0.05);
+        const gradientMid = palette.gradientMid || shadeColor(midColor, -0.05);
+        const gradientOuter = palette.gradientOuter || shadeColor(outerColor, -0.25);
+        ctx.strokeStyle = colorWithAlpha(outerColor, outerAlpha);
         ctx.lineWidth = outerWidth;
-        ctx.shadowColor = colorWithAlpha('#38bdf8', 0.45 * outerAlpha);
+        ctx.shadowColor = colorWithAlpha(midColor, 0.45 * outerAlpha);
         ctx.shadowBlur = Math.max(6, this.radius * 0.65 * intensity);
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
         for(let i=1;i<pts.length;i++){ ctx.lineTo(pts[i].x, pts[i].y); }
         ctx.stroke();
         ctx.shadowBlur = Math.max(4, this.radius * 0.45 * intensity);
-        ctx.strokeStyle = colorWithAlpha('#38bdf8', midAlpha);
+        ctx.strokeStyle = colorWithAlpha(midColor, midAlpha);
         ctx.lineWidth = midWidth;
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
         for(let i=1;i<pts.length;i++){ ctx.lineTo(pts[i].x, pts[i].y); }
         ctx.stroke();
         ctx.globalCompositeOperation = 'lighter';
-        ctx.strokeStyle = colorWithAlpha('#ecfeff', innerAlpha);
+        ctx.strokeStyle = colorWithAlpha(innerColor, innerAlpha);
         ctx.lineWidth = innerWidth;
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
