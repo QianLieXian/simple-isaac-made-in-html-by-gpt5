@@ -605,7 +605,7 @@
       slug:'rope',
       name:'绳子',
       weight: WEIGHT_PRESETS.item,
-      description:'轻盈漂浮，飞行不再畏惧地形',
+      description:'轻盈漂浮，飞行不再畏惧地形。额外的绳子会小幅提升移动与弹速。',
       apply(player){ player.flying = true; }
     },
     {
@@ -647,7 +647,7 @@
       slug:'impact-chocolate',
       name:'冲击巧克力',
       weight: WEIGHT_PRESETS.item,
-      description:'被动：双击同方向键即可高速冲刺，冲刺期间无敌并留下一道造成高额伤害的冲击光带。',
+      description:'被动：双击同方向键即可高速冲刺，冲刺期间无敌并留下一道造成高额伤害的冲击光带。额外的巧克力会强化光带尺寸与威力。',
       apply(player){
         if(!player) return;
         if(typeof player.enableImpactDash === 'function'){
@@ -662,7 +662,7 @@
       slug:'seer-map',
       name:'透视雷达',
       weight: WEIGHT_PRESETS.item,
-      description:'被动：当前与未来楼层地图全开，显示所有房间、商店和道具房。',
+      description:'被动：当前与未来楼层地图全开，显示所有房间、商店和道具房。额外雷达提供小幅商店折扣并提高卡牌掉率。',
       apply(player){
         if(!player) return;
         if(typeof player.enableFullMapVision === 'function'){
@@ -1026,8 +1026,7 @@
         }
         const clone = {...item};
         if(typeof clone.apply === 'function'){ clone.apply(player); }
-        if(player && !player.items.includes(clone.name)){ player.items.push(clone.name); }
-        registerItemDiscovery(clone);
+        recordItemAcquired(player, clone);
         return {message:`玩家牌·${clone.name}`, detail: clone.description || '神秘力量注入背包。'};
       }
     }
@@ -1063,6 +1062,57 @@
   }
   function cloneCardData(card){
     return card ? {...card} : null;
+  }
+  function ensureItemStackStorage(target){
+    if(!target) return null;
+    if(!target.itemStacks || typeof target.itemStacks !== 'object'){
+      target.itemStacks = Object.create(null);
+    }
+    return target.itemStacks;
+  }
+  function getItemStack(target, slug){
+    if(!target || !slug) return 0;
+    const store = target.itemStacks;
+    if(!store) return 0;
+    const raw = store[slug];
+    if(!Number.isFinite(raw)) return 0;
+    return Math.max(0, Math.floor(raw));
+  }
+  function incrementItemStack(target, slug, amount=1){
+    if(!target || !slug) return 0;
+    const store = ensureItemStackStorage(target);
+    if(!store) return 0;
+    const delta = Math.floor(Number(amount) || 0);
+    const prev = getItemStack(target, slug);
+    const next = Math.max(0, prev + delta);
+    store[slug] = next;
+    return next;
+  }
+  const ITEM_STACK_EFFECTS = new Map();
+  function registerItemStackEffect(slug, handler){
+    if(!slug || typeof handler !== 'function') return;
+    ITEM_STACK_EFFECTS.set(slug, handler);
+  }
+  function applyItemStackEffect(target, slug, count, item){
+    if(!target || !slug) return;
+    const handler = ITEM_STACK_EFFECTS.get(slug);
+    if(typeof handler === 'function'){
+      handler(target, count, item);
+    }
+  }
+  function recordItemAcquired(player, item){
+    if(!player || !item) return 0;
+    const slug = item.slug || null;
+    let stackCount = 0;
+    if(slug){
+      stackCount = incrementItemStack(player, slug, 1);
+      applyItemStackEffect(player, slug, stackCount, item);
+    }
+    if(item.name && !player.items.includes(item.name)){
+      player.items.push(item.name);
+    }
+    registerItemDiscovery(item);
+    return stackCount;
   }
   const RESOURCE_LABELS = {bomb:'炸弹', key:'钥匙', coin:'金币'};
   const HUDL = document.getElementById('hud-left');
@@ -1286,8 +1336,7 @@
     }
     const item = cloneItemData(base);
     if(typeof item.apply === 'function'){ item.apply(player); }
-    if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
-    registerItemDiscovery(item);
+    recordItemAcquired(player, item);
     player.recalculateDamage();
     runtime.itemPickupName = item.name;
     runtime.itemPickupDesc = item.description || '';
@@ -2346,18 +2395,29 @@
     };
   }
   function makeShopPickup(x,y,entry,price){
+    const normalizedPrice = Math.max(0, Math.round(Number(price) || 0));
     return {
       type:'shop',
       x:clamp(x,90,CONFIG.roomW-90),
       y:clamp(y,100,CONFIG.roomH-100),
       r:22,
       entry,
-      price,
+      price: normalizedPrice,
+      basePrice: normalizedPrice,
       purchased:false,
       vx:0,
       vy:0,
       solid:false
     };
+  }
+  function resolveShopPrice(pickup, buyer=player){
+    if(!pickup) return 0;
+    const base = Math.max(0, Math.round(Number(pickup.basePrice ?? pickup.price) || 0));
+    const owner = buyer || player;
+    if(owner && typeof owner.getAdjustedPrice === 'function'){
+      return owner.getAdjustedPrice(base);
+    }
+    return base;
   }
   function spawnRandomDrop(room,x,y){
     if(!room) return null;
@@ -2386,8 +2446,7 @@
     const prevActiveSlug = player?.activeItem?.slug || null;
     if(typeof item.apply === 'function'){ item.apply(player); }
     const gainedActive = !!(player?.activeItem && player.activeItem.slug === item.slug && player.activeItem.slug !== prevActiveSlug);
-    if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
-    registerItemDiscovery(item);
+    recordItemAcquired(player, item);
     if(pickup.room){ pickup.room.itemClaimed = true; pickup.room.itemSpawned = false; }
     runtime.itemPickupName = item.name;
     runtime.itemPickupDesc = item.description || '';
@@ -2411,8 +2470,7 @@
     const prevActiveSlug = player?.activeItem?.slug || null;
     if(typeof item.apply === 'function'){ item.apply(player); }
     const gainedActive = !!(player?.activeItem && player.activeItem.slug === item.slug && player.activeItem.slug !== prevActiveSlug);
-    if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
-    registerItemDiscovery(item);
+    recordItemAcquired(player, item);
     runtime.itemPickupName = item.name;
     runtime.itemPickupDesc = item.description || '';
     runtime.itemPickupTimer = 3.2;
@@ -2472,7 +2530,11 @@
 
   function maybeSpawnCardDrop(room, options={}){
     if(!room) return null;
-    const chance = Math.max(0, CONFIG.cards?.dropChanceOnItemPickup ?? 0);
+    let chance = Math.max(0, CONFIG.cards?.dropChanceOnItemPickup ?? 0);
+    if(player){
+      const bonus = typeof player.getCardDropBonus === 'function' ? player.getCardDropBonus() : Math.max(0, player.cardDropBonus || 0);
+      chance = clamp(chance + bonus, 0, 0.95);
+    }
     if(rand() >= chance) return null;
     const card = rollCard();
     if(!card) return null;
@@ -2684,6 +2746,7 @@
       this.damageMultiplier = 1;
       this.damage = 1;
       this.items=[];
+      this.itemStacks = Object.create(null);
       this.bombs = CONFIG.resources.bombStart;
       this.keys = CONFIG.resources.keyStart;
       this.coins = CONFIG.resources.coinStart;
@@ -2707,6 +2770,11 @@
       this.homingStrength = 6;
       this.roomBuff = null;
       this.fullMapVision = false;
+      this.ropeSpeedBonus = 0;
+      this.ropeTearSpeedBonus = 0;
+      this.shopPriceMultiplier = 1;
+      this.shopPriceOffset = 0;
+      this.cardDropBonus = 0;
       this.moveDir = {x:0,y:0};
       this.lastDisplacement = {x:0,y:0};
       this.lastVelocity = {x:0,y:0};
@@ -2983,6 +3051,14 @@
         readyPulse: 0,
         trail: null,
         minStep: Math.max(6, baseRadius * 0.6),
+        trailBaseRadiusMultiplier: 2,
+        trailBaseDamageScale: 4,
+        trailRadiusMultiplier: 1,
+        trailDamageMultiplier: 1,
+        trailLifetime: 1,
+        trailTickInterval: 20/60,
+        maxStackMultiplier: 4.5,
+        stackGrowth: 1.5,
         invulnTimer: 0,
         invulnTotal: 0,
         postInvulnDuration: 1,
@@ -2992,12 +3068,20 @@
     ensureImpactDashState(){
       if(!this.impactDash){
         this.impactDash = this.createImpactDashState();
+        const stacks = this.getItemStack('impact-chocolate');
+        if(stacks>0){
+          this.updateImpactDashStackBonuses(stacks);
+        }
       }
       return this.impactDash;
     }
     enableImpactDash(){
       const dash = this.ensureImpactDashState();
       dash.unlocked = true;
+      const stacks = this.getItemStack('impact-chocolate');
+      if(stacks>0){
+        this.updateImpactDashStackBonuses(stacks);
+      }
       return dash;
     }
     handleDirectionalKeyTap(code, timestampMs){
@@ -3048,12 +3132,22 @@
       if(dash.trail && typeof dash.trail.finish === 'function'){
         dash.trail.finish();
       }
+      const baseRadiusMultiplier = Number(dash.trailBaseRadiusMultiplier) || 2;
+      const stackRadiusMultiplier = Math.max(0.6, Number(dash.trailRadiusMultiplier) || 1);
+      const finalRadius = Math.max(radius * 1.2, radius * baseRadiusMultiplier * stackRadiusMultiplier);
+      const baseMinStep = Math.max(2, dash.minStep || Math.max(6, radius * 0.6));
+      const scaledMinStep = Math.max(2, baseMinStep * Math.min(stackRadiusMultiplier, 2.5));
+      const tickInterval = Number(dash.trailTickInterval) || (20/60);
+      const lifetime = Number(dash.trailLifetime) || 1;
+      const baseDamageScale = Number(dash.trailBaseDamageScale) || 4;
+      const stackDamageMultiplier = Math.max(0.2, Number(dash.trailDamageMultiplier) || 1);
+      const damageScale = Math.max(0.2, baseDamageScale * stackDamageMultiplier);
       const trail = createImpactDashTrail(this, {
-        radius: radius * 2,
-        minStep: dash.minStep,
-        tickInterval: 20/60,
-        lifetime: 1,
-        damageScale: 4,
+        radius: finalRadius,
+        minStep: scaledMinStep,
+        tickInterval,
+        lifetime,
+        damageScale,
       });
       dash.trail = trail;
       if(trail && typeof trail.addPoint === 'function'){
@@ -3138,6 +3232,54 @@
     addDamage(amount){
       this.baseDamage = +(this.baseDamage + amount).toFixed(2);
       this.recalculateDamage();
+    }
+    getItemStack(slug){
+      return getItemStack(this, slug);
+    }
+    incrementItemStack(slug, amount=1){
+      return incrementItemStack(this, slug, amount);
+    }
+    getShopPriceMultiplier(){
+      const value = Number(this.shopPriceMultiplier);
+      if(!Number.isFinite(value)) return 1;
+      return clamp(value, 0.4, 2);
+    }
+    getShopPriceOffset(){
+      const value = Number(this.shopPriceOffset);
+      if(!Number.isFinite(value)) return 0;
+      return Math.max(0, Math.floor(value));
+    }
+    getAdjustedPrice(basePrice){
+      const base = Math.max(0, Math.round(Number(basePrice) || 0));
+      const scaled = base * this.getShopPriceMultiplier();
+      const offset = this.getShopPriceOffset();
+      const finalPrice = Math.round(scaled - offset);
+      return Math.max(0, finalPrice);
+    }
+    getCardDropBonus(){
+      const bonus = Number(this.cardDropBonus) || 0;
+      return clamp(bonus, 0, 0.9);
+    }
+    updateImpactDashStackBonuses(stacksOverride){
+      if(!this.impactDash){
+        if(Number.isFinite(stacksOverride) && stacksOverride>0){
+          this.impactDash = this.createImpactDashState();
+        } else {
+          return;
+        }
+      }
+      const dash = this.impactDash;
+      if(!dash) return;
+      const stacks = Number.isFinite(stacksOverride) ? stacksOverride : this.getItemStack('impact-chocolate');
+      const extra = Math.max(0, stacks - 1);
+      const growth = Number(dash.stackGrowth) || 1.5;
+      let multiplier = extra>0 ? Math.pow(growth, extra) : 1;
+      const maxMultiplier = Number(dash.maxStackMultiplier);
+      if(Number.isFinite(maxMultiplier) && maxMultiplier>0){
+        multiplier = Math.min(multiplier, maxMultiplier);
+      }
+      dash.trailRadiusMultiplier = multiplier;
+      dash.trailDamageMultiplier = multiplier;
     }
     adjustMaxHp(delta){
       if(!Number.isFinite(delta)) return;
@@ -3930,6 +4072,61 @@
     };
     return trail;
   }
+
+  // ======= 道具叠层增强 =======
+  registerItemStackEffect('impact-chocolate', (player, count)=>{
+    if(!player) return;
+    if(typeof player.enableImpactDash === 'function'){
+      player.enableImpactDash();
+    } else if(!player.impactDash && typeof player.createImpactDashState === 'function'){
+      player.impactDash = player.createImpactDashState();
+    }
+    if(typeof player.updateImpactDashStackBonuses === 'function'){
+      player.updateImpactDashStackBonuses(count);
+    } else if(player.impactDash){
+      const dash = player.impactDash;
+      const extra = Math.max(0, count - 1);
+      const growth = Number(dash.stackGrowth) || 1.5;
+      let multiplier = extra>0 ? Math.pow(growth, extra) : 1;
+      const maxMultiplier = Number(dash.maxStackMultiplier);
+      if(Number.isFinite(maxMultiplier) && maxMultiplier>0){
+        multiplier = Math.min(multiplier, maxMultiplier);
+      }
+      dash.trailRadiusMultiplier = multiplier;
+      dash.trailDamageMultiplier = multiplier;
+    }
+  });
+
+  registerItemStackEffect('seer-map', (player, count)=>{
+    if(!player) return;
+    player.fullMapVision = true;
+    if(dungeon?.revealAllRooms){ dungeon.revealAllRooms(); }
+    const extra = Math.max(0, count - 1);
+    const discountSteps = Math.min(extra, 4);
+    const multiplier = clamp(1 - discountSteps * 0.08, 0.65, 1);
+    player.shopPriceMultiplier = multiplier;
+    player.shopPriceOffset = extra>0 ? Math.min(3, extra) : 0;
+    player.cardDropBonus = Math.min(0.25, extra * 0.05);
+  });
+
+  registerItemStackEffect('rope', (player, count)=>{
+    if(!player) return;
+    player.flying = true;
+    const extra = Math.max(0, count - 1);
+    const capped = Math.min(extra, 4);
+    const speedBonus = capped * 18;
+    const tearBonus = capped * 20;
+    const prevSpeed = Number(player.ropeSpeedBonus) || 0;
+    if(Math.abs(speedBonus - prevSpeed) > 1e-4){
+      player.speed += speedBonus - prevSpeed;
+      player.ropeSpeedBonus = speedBonus;
+    }
+    const prevTear = Number(player.ropeTearSpeedBonus) || 0;
+    if(Math.abs(tearBonus - prevTear) > 1e-4){
+      player.tearSpeed += tearBonus - prevTear;
+      player.ropeTearSpeedBonus = tearBonus;
+    }
+  });
 
   function onObstacleDestroyed(room, obs){
     if(!room || !obs) return;
@@ -8094,8 +8291,9 @@
     ctx.font = '12px "HYWenHei", "PingFang SC", sans-serif';
     ctx.textAlign='center';
     ctx.fillText(title, p.x, p.y - 34);
+    const priceDisplay = resolveShopPrice(p, player);
     ctx.fillStyle = near ? '#fde68a' : '#cbd5f5';
-    ctx.fillText(`${p.price}🪙`, p.x, p.y - 16);
+    ctx.fillText(`${priceDisplay}🪙`, p.x, p.y - 16);
     ctx.restore();
   }
 
@@ -8970,23 +9168,23 @@
     }
     if(targetIndex===-1) return;
     const pickup = room.pickups[targetIndex];
-    if(player.coins < pickup.price){
+    const finalPrice = resolveShopPrice(pickup, player);
+    if(player.coins < finalPrice){
       if(runtime.itemPickupTimer<=0){
         runtime.itemPickupName = '钱包在抗议';
-        runtime.itemPickupDesc = `还差 ${pickup.price - player.coins} 枚金币才买得起`;
+        runtime.itemPickupDesc = `还差 ${finalPrice - player.coins} 枚金币才买得起`;
         runtime.itemPickupTimer = 1.2;
       }
       return;
     }
-    player.coins -= pickup.price;
+    player.coins = Math.max(0, player.coins - finalPrice);
     player.recalculateDamage();
     pickup.purchased = true;
     room.pickups.splice(targetIndex,1);
     if(pickup.entry.type==='item'){
       const item = pickup.entry.item;
       if(typeof item.apply === 'function'){ item.apply(player); }
-      if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
-      registerItemDiscovery(item);
+      recordItemAcquired(player, item);
       runtime.itemPickupName = item.name;
       runtime.itemPickupDesc = item.description || '';
       runtime.itemPickupTimer = 2.4;
