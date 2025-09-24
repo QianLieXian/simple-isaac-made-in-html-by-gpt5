@@ -564,10 +564,14 @@
   ];
   const FINAL_FLOOR = 7;
   function rollBossType(){
-    if(currentFloor >= FINAL_FLOOR){
+    const runtimeFloor = (typeof runtime !== 'undefined' && runtime && Number.isFinite(runtime.floor))
+      ? runtime.floor
+      : currentFloor;
+    const floorLevel = Math.max(1, Math.floor(Number.isFinite(runtimeFloor) ? runtimeFloor : currentFloor || 1));
+    if(floorLevel >= FINAL_FLOOR){
       return getBossMeta('paradox');
     }
-    if(currentFloor === FINAL_FLOOR - 1){
+    if(floorLevel === FINAL_FLOOR - 1){
       return getBossMeta('umbra');
     }
     const pool = BOSS_TYPES.filter(b=>!b.tier || b.tier==='default');
@@ -2431,6 +2435,18 @@
       this.itemRooms = this.setupItemRooms(mid);
       this.shopRoom = this.setupShopRoom(mid);
       this.setupLifeTradePickup();
+      if((typeof currentFloor === 'number' ? currentFloor : 1) <= 1){
+        const alreadyHasSoul = start.pickups.some(p=>p && p.type==='heart' && p.kind==='soul');
+        if(!alreadyHasSoul){
+          const spawnX = Math.max(60, CONFIG.roomW - 80);
+          const spawnY = Math.max(60, CONFIG.roomH - 80);
+          const soul = makeSoulHeartPickup(spawnX, spawnY, 1);
+          if(soul){
+            soul.spawnGrace = 0;
+            start.pickups.push(soul);
+          }
+        }
+      }
 
       // 连接所有相邻房间的门，确保连通性
       for(let i=0;i<this.gridN;i++){
@@ -3417,6 +3433,17 @@
       this.brimstoneFiring = false;
       this.brimstoneBeamTimer = 0;
       this.updateBrimstoneChargeMetrics();
+      this.shotInput = {
+        x: 0,
+        y: 0,
+        dirX: 0,
+        dirY: -1,
+        lastDirX: 0,
+        lastDirY: -1,
+        pressed: false,
+        justPressed: false,
+        justReleased: false,
+      };
       this.setBonuses = {};
       this.followers = [];
       this.followerOrderCounter = 0;
@@ -3564,6 +3591,7 @@
       if(keys.has('ArrowDown')) shotY += 1;
       if(keys.has('ArrowLeft')) shotX -= 1;
       if(keys.has('ArrowRight')) shotX += 1;
+      this.updateShotInputState(shotX, shotY);
       const preResolveX = this.x;
       const preResolveY = this.y;
       resolveEntityObstacles(this);
@@ -3735,6 +3763,56 @@
         this.dispatchFollowerShot?.('tear', shot);
       }
     }
+    getShotInput(){
+      if(!this.shotInput || typeof this.shotInput !== 'object'){
+        this.shotInput = {
+          x: 0,
+          y: 0,
+          dirX: 0,
+          dirY: -1,
+          lastDirX: 0,
+          lastDirY: -1,
+          pressed: false,
+          justPressed: false,
+          justReleased: false,
+        };
+      }
+      if(!Number.isFinite(this.shotInput.dirX) || !Number.isFinite(this.shotInput.dirY)){
+        this.shotInput.dirX = 0;
+        this.shotInput.dirY = -1;
+      }
+      if(!Number.isFinite(this.shotInput.lastDirX) || !Number.isFinite(this.shotInput.lastDirY)){
+        this.shotInput.lastDirX = this.shotInput.dirX;
+        this.shotInput.lastDirY = this.shotInput.dirY;
+      }
+      return this.shotInput;
+    }
+    updateShotInputState(rawX, rawY){
+      const state = this.getShotInput();
+      const prevPressed = !!state.pressed;
+      const pressed = !!(rawX || rawY);
+      state.justPressed = pressed && !prevPressed;
+      state.justReleased = !pressed && prevPressed;
+      state.x = rawX;
+      state.y = rawY;
+      if(pressed){
+        const len = Math.hypot(rawX, rawY) || 1;
+        const nx = rawX / len;
+        const ny = rawY / len;
+        state.dirX = nx;
+        state.dirY = ny;
+        state.lastDirX = nx;
+        state.lastDirY = ny;
+      } else {
+        const lastX = Number.isFinite(state.lastDirX) ? state.lastDirX : 0;
+        const lastY = Number.isFinite(state.lastDirY) ? state.lastDirY : -1;
+        const len = Math.hypot(lastX, lastY) || 1;
+        state.dirX = lastX / len;
+        state.dirY = lastY / len;
+      }
+      state.pressed = pressed;
+      return state;
+    }
     getSetBonus(key){
       if(!key) return null;
       if(!this.setBonuses || typeof this.setBonuses !== 'object') return null;
@@ -3807,6 +3885,57 @@
       for(const follower of list){
         if(!follower || typeof follower.update !== 'function') continue;
         follower.update(dt, this);
+      }
+    }
+    snapFollowersToPlayer(entryDir){
+      const list = this.followers;
+      if(!Array.isArray(list) || !list.length) return;
+      this.rebuildFollowerOrder();
+      const doorVec = (()=>{
+        switch(entryDir){
+          case 'up': return {x:0, y:1};
+          case 'down': return {x:0, y:-1};
+          case 'left': return {x:1, y:0};
+          case 'right': return {x:-1, y:0};
+          default: return null;
+        }
+      })();
+      let baseVec = doorVec;
+      if(!baseVec || (!baseVec.x && !baseVec.y)){
+        const dir = this.moveDir || {x:0, y:0};
+        const len = Math.hypot(dir.x, dir.y);
+        if(len>1e-4){
+          baseVec = {x: -dir.x/len, y: -dir.y/len};
+        } else {
+          baseVec = {x:0, y:1};
+        }
+      }
+      const baseRadius = this.r || CONFIG.player.radius || 12;
+      const stepBase = Math.max(10, baseRadius * 1.6);
+      let index = 0;
+      for(const follower of list){
+        if(!follower) continue;
+        index++;
+        const spacing = Math.max(stepBase, follower.baseSpacing || stepBase);
+        const offsetX = baseVec.x * spacing * index;
+        const offsetY = baseVec.y * spacing * index;
+        const targetX = clamp(this.x + offsetX, 40, CONFIG.roomW - 40);
+        const targetY = clamp(this.y + offsetY, 40, CONFIG.roomH - 40);
+        follower.x = targetX;
+        follower.y = targetY;
+        if(follower.knockVel){ follower.knockVel.x = 0; follower.knockVel.y = 0; }
+        if(follower.brimstoneBeam){
+          endBeam(follower.brimstoneBeam);
+          follower.brimstoneBeam = null;
+        }
+        if(follower.pendingBeam){ follower.pendingBeam = null; }
+        if(follower.collectTarget){ follower.collectTarget = null; }
+        if(follower.flashOn){ follower.flashOn = false; }
+        if(follower.charging){ follower.charging = false; }
+        if(follower.chargeProgress){ follower.chargeProgress = 0; }
+        if(follower.behavior && typeof follower.behavior.onRoomEntered === 'function'){
+          follower.behavior.onRoomEntered(follower, this, entryDir);
+        }
       }
     }
     ensureHotChocolateState(){
@@ -5079,6 +5208,9 @@
   }
 
   function createAuntBehavior(){
+    const MAX_CHARGE = 2.2;
+    const MIN_CHARGE = 0.25;
+    const FLASH_INTERVAL = 0.12;
     return {
       update(follower, owner, dt){
         if(follower.brimstoneBeam && follower.brimstoneBeam.alive === false){
@@ -5090,12 +5222,48 @@
             endBeam(follower.brimstoneBeam);
             follower.brimstoneBeam = null;
           }
+          follower.charging = false;
+          follower.chargeProgress = 0;
+          follower.flashOn = false;
           return false;
         }
-        follower.chargeTimer = (follower.chargeTimer || 0) + dt;
-        if(follower.chargeTimer >= 2){
-          follower.chargeTimer = 0;
-          follower.pendingBeam = true;
+        const state = follower.auntState || (follower.auntState = {charge:0, flash:0, dir:{x:0,y:-1}, charging:false});
+        const shot = owner?.getShotInput?.() || owner?.shotInput || null;
+        const pressed = !!(shot && shot.pressed);
+        if(pressed){
+          state.charging = true;
+          const dirX = Number.isFinite(shot.dirX) ? shot.dirX : (shot.lastDirX ?? 0);
+          const dirY = Number.isFinite(shot.dirY) ? shot.dirY : (shot.lastDirY ?? -1);
+          const len = Math.hypot(dirX, dirY);
+          if(len>1e-4){
+            state.dir.x = dirX / len;
+            state.dir.y = dirY / len;
+          }
+          state.charge = Math.min(MAX_CHARGE, state.charge + dt);
+          follower.chargeProgress = clamp(state.charge / MAX_CHARGE, 0, 1);
+          state.flash = (state.flash || 0) + dt;
+          if(state.flash >= FLASH_INTERVAL){
+            follower.flashOn = !follower.flashOn;
+            state.flash = 0;
+          }
+          follower.charging = true;
+        } else {
+          if(state.charging){
+            const len = Math.hypot(state.dir.x, state.dir.y);
+            if(len>1e-4 && state.charge >= MIN_CHARGE){
+              follower.pendingBeam = {
+                dirX: state.dir.x / len,
+                dirY: state.dir.y / len,
+                chargeProgress: clamp(state.charge / MAX_CHARGE, 0, 1),
+              };
+            }
+          }
+          state.charging = false;
+          state.charge = 0;
+          state.flash = 0;
+          follower.charging = false;
+          follower.flashOn = false;
+          follower.chargeProgress = 0;
         }
         return false;
       },
@@ -5103,39 +5271,82 @@
         if(!follower.pendingBeam || follower.brimstoneBeam){
           return;
         }
-        follower.pendingBeam = false;
-        let dirX = owner?.moveDir?.x ?? 0;
-        let dirY = owner?.moveDir?.y ?? -1;
-        const target = acquireNearestEnemy(follower);
-        if(target){
-          dirX = target.x - follower.x;
-          dirY = target.y - follower.y;
+        const payload = follower.pendingBeam;
+        follower.pendingBeam = null;
+        const len = Math.hypot(payload.dirX, payload.dirY);
+        if(!(len>1e-4)){
+          return;
         }
-        const len = Math.hypot(dirX, dirY) || 1;
-        const dir = {x: dirX/len, y: dirY/len};
+        const dir = {x: payload.dirX / len, y: payload.dirY / len};
+        const baseWidth = (owner?.r || CONFIG.player.radius || 12) * 1.1;
+        const chargeRatio = clamp(payload.chargeProgress || 0, 0, 1);
+        const width = baseWidth * (1 + chargeRatio * 0.35);
+        const damageScale = 0.75 + chargeRatio * 0.15;
+        const duration = 1.5 + chargeRatio * 0.2;
         follower.damage = 1;
         const beam = new BrimstoneProjectile(follower, dir, {
-          duration: 1.5,
+          duration,
           tickFrames: 8,
-          damageScale: 0.75,
-          width: (owner?.r || CONFIG.player.radius || 12) * 1.1,
+          damageScale,
+          width,
         });
         follower.brimstoneBeam = beam;
-        follower.beamTimer = 1.5;
+        follower.beamTimer = duration;
+        follower.flashOn = false;
+        follower.charging = false;
+        follower.chargeProgress = 0;
         if(!Array.isArray(runtime.beams)){ runtime.beams = []; }
         runtime.beams.push(beam);
       },
       draw(follower, ctx){
         const radius = follower.r || 6;
+        const progress = clamp(follower.chargeProgress || 0, 0, 1);
+        const baseColor = '#fca5a5';
+        const chargedColor = '#dc2626';
+        const mixed = mixHexColor(baseColor, chargedColor, progress);
+        const fillColor = follower.flashOn ? shadeColor(mixed, 0.25) : mixed;
         ctx.save();
-        ctx.fillStyle = '#fca5a5';
+        if(progress>0){
+          const glow = ctx.createRadialGradient(
+            follower.x,
+            follower.y,
+            radius * 0.4,
+            follower.x,
+            follower.y,
+            radius * (1.8 + progress * 0.4)
+          );
+          glow.addColorStop(0, colorWithAlpha(shadeColor(fillColor, 0.4), 0.9));
+          glow.addColorStop(1, colorWithAlpha(fillColor, 0));
+          ctx.fillStyle = glow;
+          ctx.globalAlpha = 0.75;
+          ctx.beginPath();
+          ctx.arc(follower.x, follower.y, radius * (1.4 + progress * 0.6), 0, Math.PI*2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        ctx.fillStyle = fillColor;
         ctx.beginPath();
         ctx.arc(follower.x, follower.y, radius, 0, Math.PI*2);
         ctx.fill();
-        ctx.strokeStyle = '#7f1d1d';
-        ctx.lineWidth = 1.4;
+        ctx.strokeStyle = shadeColor(fillColor, -0.35);
+        ctx.lineWidth = 1.4 + progress * 0.4;
         ctx.stroke();
         ctx.restore();
+      },
+      onRoomEntered(follower){
+        follower.pendingBeam = null;
+        if(follower.brimstoneBeam){
+          endBeam(follower.brimstoneBeam);
+          follower.brimstoneBeam = null;
+        }
+        if(follower.auntState){
+          follower.auntState.charge = 0;
+          follower.auntState.flash = 0;
+          follower.auntState.charging = false;
+        }
+        follower.charging = false;
+        follower.flashOn = false;
+        follower.chargeProgress = 0;
       }
     };
   }
@@ -5196,6 +5407,10 @@
         ctx.lineWidth = 1.2;
         ctx.stroke();
         ctx.restore();
+      },
+      onRoomEntered(follower){
+        follower.collectTarget = null;
+        if(follower.pendingBeam){ follower.pendingBeam = null; }
       }
     };
   }
@@ -5206,7 +5421,7 @@
       slug:'brother',
       name:'兄弟',
       priority:1,
-      anchorToPlayer:true,
+      anchorToPlayer:false,
       spacingMultiplier:0.9,
       damageMultiplier:1,
       color:'#fde68a',
@@ -5282,7 +5497,8 @@
     player.addFollower({
       slug:'black-buddy',
       name:'黑屁股',
-      priority:4,
+      priority:6,
+      anchorToPlayer:false,
       spacingMultiplier:1.2,
       color:'#1f2937',
       behavior: createCollectorBehavior(),
@@ -10322,6 +10538,7 @@
     const center = exchange.center ? exchange.center() : {x: CONFIG.roomW/2, y: CONFIG.roomH/2};
     player.x = clamp(center.x, 80, CONFIG.roomW-80);
     player.y = clamp(center.y + 38, 100, CONFIG.roomH-80);
+    player.snapFollowersToPlayer();
     if(runtime.itemPickupTimer<=0){
       runtime.itemPickupName = '进入交换房';
       runtime.itemPickupDesc = '献祭红心换取强力道具。';
@@ -10349,6 +10566,7 @@
       player.x = baseX;
       player.y = baseY;
     }
+    player.snapFollowersToPlayer();
     player.knockVel.x = 0; player.knockVel.y = 0; player.knockTimer = 0;
     if(player.vel){ player.vel.x = 0; player.vel.y = 0; }
     player.moveDir.x = 0; player.moveDir.y = 0;
@@ -10611,6 +10829,7 @@
     runtime.timeStopFlash = 0;
     resetScreenShake();
     player.handleRoomChange(dungeon.current);
+    player.snapFollowersToPlayer();
     syncCheatPanel();
   }
 
@@ -10669,6 +10888,7 @@
     resetScreenShake();
     keys.clear();
     for(const code of preservedKeys){ keys.add(code); }
+    player.snapFollowersToPlayer();
     syncCheatPanel();
   }
 
@@ -10724,6 +10944,7 @@
     resetScreenShake();
     keys.clear();
     for(const code of preservedKeys){ keys.add(code); }
+    player.snapFollowersToPlayer();
     syncCheatPanel();
     if(options.fromEnding){
       runtime.runTimer?.setPauseSource('gameover', false);
@@ -10819,6 +11040,7 @@
       if(d.dir==='down'){ player.x=CONFIG.roomW/2; player.y=60; }
       if(d.dir==='left'){ player.x=CONFIG.roomW-60; player.y=CONFIG.roomH/2; }
       if(d.dir==='right'){ player.x=60; player.y=CONFIG.roomH/2; }
+      player.snapFollowersToPlayer(d.dir);
       runtime.bullets.length = 0; runtime.enemyProjectiles.length = 0;
       if(nr.isBoss && !nr.introPlayed){
         runtime.bossIntroText = nr.bossName;
