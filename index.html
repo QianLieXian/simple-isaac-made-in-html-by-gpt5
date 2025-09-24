@@ -334,6 +334,118 @@
     const toHex = (c)=>c.toString(16).padStart(2,'0');
     return `#${toHex(lerp(from.r,to.r))}${toHex(lerp(from.g,to.g))}${toHex(lerp(from.b,to.b))}`;
   }
+
+  function createAudioManager(){
+    const AudioCtx = typeof window !== 'undefined' ? (window.AudioContext || window.webkitAudioContext) : null;
+    const ctxRef = {ctx:null, unlocked:false};
+    const buffers = new Map();
+
+    function ensureContext(){
+      if(!AudioCtx) return null;
+      if(ctxRef.ctx) return ctxRef.ctx;
+      try {
+        ctxRef.ctx = new AudioCtx();
+      } catch(err){
+        console.warn('Audio init failed', err);
+        ctxRef.ctx = null;
+      }
+      return ctxRef.ctx;
+    }
+
+    function buildBuffer(duration, composer){
+      const ctx = ensureContext();
+      if(!ctx) return null;
+      const sampleRate = ctx.sampleRate || 44100;
+      const length = Math.max(1, Math.floor(duration * sampleRate));
+      const buffer = ctx.createBuffer(1, length, sampleRate);
+      const data = buffer.getChannelData(0);
+      for(let i=0;i<length;i++){
+        const t = i / sampleRate;
+        data[i] = clamp(composer(t, i, length), -1, 1);
+      }
+      return buffer;
+    }
+
+    function getBuffer(name){
+      if(buffers.has(name)) return buffers.get(name);
+      let buffer=null;
+      switch(name){
+        case 'enemyDeath':
+          buffer = buildBuffer(0.26, (t)=>{
+            const tone = Math.sin(Math.pow(t,0.8) * 340 * Math.PI * 2);
+            return tone * Math.exp(-t*6.5);
+          });
+          break;
+        case 'pickupPassive':
+          buffer = buildBuffer(0.32, (t)=>{
+            const chirp = Math.sin((220 + t*680) * Math.PI * 2 * t);
+            return chirp * Math.pow(1-t, 1.1);
+          });
+          break;
+        case 'pickupActive':
+          buffer = buildBuffer(0.36, (t)=>{
+            const base = Math.sin((160 + t*520) * Math.PI * 2 * t);
+            const overtone = Math.sin((base>0?1:-1) * (320 + t*360) * Math.PI * 2 * t);
+            return (base*0.7 + overtone*0.3) * Math.pow(1-t, 0.8);
+          });
+          break;
+        case 'activeUse':
+          buffer = buildBuffer(0.45, (t)=>{
+            const sweep = Math.sin((120 + t*1020) * Math.PI * 2 * t);
+            const rumble = Math.sin(60 * Math.PI * 2 * t) * 0.4;
+            return (sweep*0.7 + rumble) * Math.exp(-t*3.6);
+          });
+          break;
+        case 'brimstoneTick':
+          buffer = buildBuffer(0.18, (t)=>{
+            const buzz = Math.sin(420 * Math.PI * 2 * t);
+            return buzz * (1 - t);
+          });
+          break;
+        default:
+          break;
+      }
+      if(buffer){ buffers.set(name, buffer); }
+      return buffer;
+    }
+
+    function play(name, options={}){
+      const ctx = ensureContext();
+      if(!ctx || !ctxRef.unlocked) return;
+      const buffer = getBuffer(name);
+      if(!buffer) return;
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      const gain = ctx.createGain();
+      const volume = clamp(options.volume ?? 1, 0, 1);
+      gain.gain.value = volume * 0.8;
+      source.connect(gain).connect(ctx.destination);
+      source.start();
+    }
+
+    async function unlock(){
+      const ctx = ensureContext();
+      if(!ctx) return;
+      if(ctxRef.unlocked) return;
+      if(ctx.state === 'suspended'){
+        try {
+          await ctx.resume();
+        } catch(err){
+          console.warn('Audio resume failed', err);
+        }
+      }
+      ctxRef.unlocked = ctx.state === 'running' || ctx.state === 'interactive';
+    }
+
+    return { play, unlock, ensureContext };
+  }
+
+  const audio = createAudioManager();
+  if(typeof window !== 'undefined'){
+    ['pointerdown','touchstart','keydown'].forEach(eventName=>{
+      window.addEventListener(eventName, ()=>audio.unlock(), {once:true});
+    });
+  }
   function adjustFireRate(player, delta){
     if(!player) return;
     const currentRate = player.fireInterval>0 ? 1000/player.fireInterval : 0;
@@ -1472,7 +1584,7 @@
   const overlayPaused = document.getElementById('paused');
   const overlayOver = document.getElementById('gameover');
   const overlayManager = createOverlayManager({ menu: overlayMenu, paused: overlayPaused, over: overlayOver });
-  document.getElementById('startBtn').addEventListener('click', (e)=>{e.preventDefault(); startGame();});
+  document.getElementById('startBtn').addEventListener('click', (e)=>{e.preventDefault(); audio.unlock(); startGame();});
 
   const STATE = { MENU:0, PLAY:1, PAUSE:2, OVER:3 };
   let state = STATE.MENU;
@@ -2245,13 +2357,16 @@
   function pickupItem(pickup){
     if(!pickup || !pickup.item) return;
     const item = pickup.item;
+    const prevActiveSlug = player?.activeItem?.slug || null;
     if(typeof item.apply === 'function'){ item.apply(player); }
+    const gainedActive = !!(player?.activeItem && player.activeItem.slug === item.slug && player.activeItem.slug !== prevActiveSlug);
     if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
     registerItemDiscovery(item);
     if(pickup.room){ pickup.room.itemClaimed = true; pickup.room.itemSpawned = false; }
     runtime.itemPickupName = item.name;
     runtime.itemPickupDesc = item.description || '';
     runtime.itemPickupTimer = 3.2;
+    triggerItemPickupAnimation({item, isActive: gainedActive, source: pickup});
     maybeSpawnCardDrop(pickup.room || dungeon?.current, {x: pickup.x, y: pickup.y});
   }
   function attemptLifeTradePickup(pickup){
@@ -2267,12 +2382,15 @@
     }
     if(!applyLifeTradeCost(player, cost)) return false;
     const item = pickup.item;
+    const prevActiveSlug = player?.activeItem?.slug || null;
     if(typeof item.apply === 'function'){ item.apply(player); }
+    const gainedActive = !!(player?.activeItem && player.activeItem.slug === item.slug && player.activeItem.slug !== prevActiveSlug);
     if(player && !player.items.includes(item.name)){ player.items.push(item.name); }
     registerItemDiscovery(item);
     runtime.itemPickupName = item.name;
     runtime.itemPickupDesc = item.description || '';
     runtime.itemPickupTimer = 3.2;
+    triggerItemPickupAnimation({item, isActive: gainedActive, source: pickup});
     maybeSpawnCardDrop(pickup.room || dungeon?.current, {x: pickup.x, y: pickup.y});
     return true;
   }
@@ -3356,6 +3474,7 @@
       if(this.tickTimer <= 0){
         this.tickTimer += this.tickInterval;
         this.applyDamage();
+        audio.play('brimstoneTick', {volume: 0.35});
       }
     }
     finish(){
@@ -3585,6 +3704,8 @@
       this.x=x; this.y=y; this.r=12; this.hp=hp;
       this.speed = CONFIG.enemy.speed * randRange(0.9,1.2);
       this.knock=0;
+      this.tint = '#ff6b6b';
+      this.tintLight = '#ff9aa2';
       initializeEnemyStats(this, {speedFields:['speed']});
     }
     update(dt){
@@ -3606,6 +3727,8 @@
       this.x=x; this.y=y; this.r=10; this.hp=hp;
       this.t=rand()*Math.PI*2; this.base={x,y}; this.range=40+rand()*25;
       this.omega = 2+rand()*1.5; this.speed=40; this.flying=true;
+      this.tint = '#7aa2ff';
+      this.tintLight = '#b4c7ff';
       initializeEnemyStats(this, {
         speedFields:['speed'],
         extra:(enemy, scaling)=>{ enemy.omega *= scaling.aggression; }
@@ -3640,6 +3763,8 @@
       this.knockVx = 0;
       this.knockVy = 0;
       this.flying = false;
+      this.tint = '#f97316';
+      this.tintLight = '#fdba74';
       initializeEnemyStats(this, {
         speedFields:['speed'],
         extra:(enemy, scaling)=>{
@@ -3792,6 +3917,8 @@
       this.flying = false;
       this.splitTriggered = false;
       this.preventDrops = false;
+      this.tint = '#a855f7';
+      this.tintLight = '#d8b4fe';
     }
     update(dt){
       if(!player) return;
@@ -3905,6 +4032,8 @@
       this.flashTimer = 0;
       this.exploded = false;
       this.flying = false;
+      this.tint = '#f97316';
+      this.tintLight = '#fdba74';
     }
     startFuse(){
       if(this.state==='fuse' || this.exploded) return;
@@ -4017,6 +4146,8 @@
       this.knockVx = 0;
       this.knockVy = 0;
       this.flying = true;
+      this.tint = '#facc15';
+      this.tintLight = '#fef08a';
       initializeEnemyStats(this, {speedFields:['speed']});
     }
     update(dt){
@@ -4071,6 +4202,8 @@
       this.fireInterval = cfg.fireInterval;
       this.telegraphWindow = cfg.telegraph;
       this.projectileSpeed = cfg.projectileSpeed;
+      this.tint = '#93c5fd';
+      this.tintLight = '#dbeafe';
       initializeEnemyStats(this, {
         speedFields:['speed'],
         extra:(enemy, scaling)=>{
@@ -4164,6 +4297,8 @@
       this.knockVx = 0;
       this.knockVy = 0;
       this.flying = false;
+      this.tint = '#38bdf8';
+      this.tintLight = '#e0f2fe';
       initializeEnemyStats(this, {
         speedFields:[],
         extra:(enemy, scaling)=>{
@@ -4285,6 +4420,8 @@
       this.strafeDir = rand()<0.5?-1:1;
       this.strafeSwapTimer = randRange(1.1,2.1);
       this.trail = [];
+      this.tint = '#fb7185';
+      this.tintLight = '#fecdd3';
       initializeEnemyStats(this, {
         speedFields:['speed'],
         extra:(enemy, scaling)=>{
@@ -4424,6 +4561,8 @@
       this.flying = false;
       this.wanderAngle = rand()*Math.PI*2;
       this.wanderTimer = randRange(0.6,1.2);
+      this.tint = '#4ade80';
+      this.tintLight = '#bbf7d0';
       initializeEnemyStats(this, {
         speedFields:['speed'],
         extra:(enemy, scaling)=>{
@@ -4569,6 +4708,8 @@
       this.knockVx = 0;
       this.knockVy = 0;
       this.flying = true;
+      this.tint = '#fbbf24';
+      this.tintLight = '#fef9c3';
       initializeEnemyStats(this, {
         speedFields:[],
         extra:(enemy, scaling)=>{
@@ -4686,6 +4827,8 @@
         }
       });
       this.spawnTimer = randRange(this.spawnIntervalBase*0.6, this.spawnIntervalBase*1.1);
+      this.tint = '#f97316';
+      this.tintLight = '#fde68a';
     }
     update(dt){
       this.minionRefs = this.minionRefs.filter(m=>m && !m.dead);
@@ -4786,6 +4929,8 @@
       this.cooldown = Math.max(0.4, this.cooldown / this.aggression);
       this.telegraphDuration = Math.max(0.2, cfg.telegraph / this.aggression);
       this.leapSpeed = cfg.leapSpeed * this.scaling.speed;
+      this.tint = '#f87171';
+      this.tintLight = '#fecaca';
     }
     beginLeap(){
       const cfg = CONFIG.enemy.spider;
@@ -4900,6 +5045,8 @@
       this.speedScale = this.scaling.speed;
       this.aggression = this.scaling.aggression;
       this.attackTimer /= this.aggression;
+      this.tint = '#fb7185';
+      this.tintLight = '#fecaca';
     }
     update(dt){
       const drift = (40 + (this.enraged?25:0)) * this.speedScale;
@@ -5034,6 +5181,8 @@
       this.speedScale = this.scaling.speed;
       this.aggression = this.scaling.aggression;
       this.attackCooldown /= this.aggression;
+      this.tint = '#f97316';
+      this.tintLight = '#fed7aa';
     }
     update(dt){
       this.hitFlash = Math.max(0, this.hitFlash - dt*3.5);
@@ -5239,6 +5388,8 @@
       this.maxHp=this.hp;
       this.speedScale=this.scaling.speed;
       this.aggression=this.scaling.aggression;
+      this.tint = '#38bdf8';
+      this.tintLight = '#bae6fd';
     }
     update(dt){
       if(!player) return;
@@ -5440,6 +5591,8 @@
       this.maxHp=this.hp;
       this.speedScale=this.scaling.speed;
       this.aggression=this.scaling.aggression;
+      this.tint = '#a855f7';
+      this.tintLight = '#ede9fe';
     }
     update(dt){
       this.hitFlash = Math.max(0, this.hitFlash - dt*3.1);
@@ -5698,6 +5851,8 @@
       this.maxHp=this.hp;
       this.speedScale=this.scaling.speed;
       this.aggression=this.scaling.aggression;
+      this.tint = '#f59e0b';
+      this.tintLight = '#fef3c7';
     }
     update(dt){
       this.hitFlash = Math.max(0, this.hitFlash - dt*3.2);
@@ -6203,12 +6358,35 @@
   }
 
   function updateEffects(dt){
-    if(!runtime.effects || !runtime.effects.length) return;
-    for(let i=runtime.effects.length-1;i>=0;i--){
-      const effect = runtime.effects[i];
-      effect.life -= dt;
-      if(effect.life<=0){
-        runtime.effects.splice(i,1);
+    if(runtime.effects && runtime.effects.length){
+      for(let i=runtime.effects.length-1;i>=0;i--){
+        const effect = runtime.effects[i];
+        if(typeof effect.update === 'function'){
+          effect.update(effect, dt);
+        } else {
+          if(effect.follow && typeof effect.follow === 'object'){
+            if(Number.isFinite(effect.follow.x)) effect.x = effect.follow.x;
+            if(Number.isFinite(effect.follow.y)) effect.y = effect.follow.y;
+          }
+          if(Number.isFinite(effect.gravity)){ effect.vy = (effect.vy || 0) + effect.gravity * dt; }
+          if(Number.isFinite(effect.vx)){ effect.x = (effect.x || 0) + effect.vx * dt; }
+          if(Number.isFinite(effect.vy)){ effect.y = (effect.y || 0) + effect.vy * dt; }
+          if(Number.isFinite(effect.rotationSpeed)){ effect.rotation = (effect.rotation || 0) + effect.rotationSpeed * dt; }
+        }
+        effect.life -= dt;
+        if(effect.life<=0){ runtime.effects.splice(i,1); }
+      }
+    }
+    if(runtime.decals && runtime.decals.length){
+      for(let i=runtime.decals.length-1;i>=0;i--){
+        const decal = runtime.decals[i];
+        decal.life -= dt;
+        const ttl = Math.max(0.001, decal.ttl || 1);
+        const elapsed = clamp(ttl - decal.life, 0, ttl);
+        const fadeIn = clamp(elapsed / Math.max(0.001, ttl * 0.18), 0, 1);
+        const fadeOut = decal.life < ttl * 0.18 ? clamp(decal.life / Math.max(0.001, ttl * 0.18), 0, 1) : 1;
+        decal.alpha = (decal.baseAlpha ?? 0.45) * fadeIn * fadeOut;
+        if(decal.life<=0){ runtime.decals.splice(i,1); }
       }
     }
   }
@@ -6218,6 +6396,14 @@
     for(const effect of runtime.effects){
       if(effect.type==='burst'){
         drawBurstEffect(effect);
+      } else if(effect.type==='gib'){
+        drawGibEffect(effect);
+      } else if(effect.type==='pickup-spark'){
+        drawPickupSparkEffect(effect);
+      } else if(effect.type==='active-aura'){
+        drawActiveAuraEffect(effect);
+      } else if(effect.type==='shockwave'){
+        drawShockwaveEffect(effect);
       } else if(typeof effect.draw === 'function'){
         effect.draw(ctx, effect);
       }
@@ -6235,26 +6421,63 @@
       if(!geom || geom.length<=0) continue;
       const owner = beam?.owner;
       const width = owner?.getBrimstoneWidth?.() ?? beam?.width ?? 24;
-      const half = Math.max(4, width * 0.5);
+      const half = Math.max(5, width * 0.55);
       ctx.save();
       ctx.translate((geom.startX + geom.endX)/2, (geom.startY + geom.endY)/2);
-      ctx.rotate(Math.atan2(geom.endY - geom.startY, geom.endX - geom.startX));
-      const length = Math.max(8, geom.length);
-      const rx = length/2;
-      const ry = half;
-      const gradient = ctx.createRadialGradient(0,0,Math.max(1,ry*0.3),0,0,Math.max(rx,ry));
-      gradient.addColorStop(0, colorWithAlpha('#fde68a',0.55));
-      gradient.addColorStop(0.35, colorWithAlpha('#fca5a5',0.45));
-      gradient.addColorStop(1, colorWithAlpha('#f97316',0));
-      ctx.fillStyle = gradient;
+      const angle = Math.atan2(geom.endY - geom.startY, geom.endX - geom.startX);
+      ctx.rotate(angle);
+      const length = Math.max(12, geom.length);
+      const halfLength = length/2;
+      const bodyGradient = ctx.createLinearGradient(-halfLength,0,halfLength,0);
+      bodyGradient.addColorStop(0, colorWithAlpha('#fde68a',0.12));
+      bodyGradient.addColorStop(0.45, colorWithAlpha('#fef3c7',0.65));
+      bodyGradient.addColorStop(0.55, colorWithAlpha('#fef3c7',0.65));
+      bodyGradient.addColorStop(1, colorWithAlpha('#fde68a',0.12));
+      const edgeColor = colorWithAlpha('#fb7185', 0.55);
+      ctx.fillStyle = bodyGradient;
       ctx.beginPath();
-      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI*2);
+      ctx.moveTo(-halfLength, -half);
+      ctx.lineTo(halfLength, -half);
+      ctx.arc(halfLength, 0, half, -Math.PI/2, Math.PI/2);
+      ctx.lineTo(-halfLength, half);
+      ctx.arc(-halfLength, 0, half, Math.PI/2, -Math.PI/2);
+      ctx.closePath();
       ctx.fill();
-      ctx.strokeStyle = colorWithAlpha('#fb7185',0.35);
-      ctx.lineWidth = Math.max(2, ry*0.35);
-      ctx.beginPath();
-      ctx.ellipse(0, 0, rx*0.95, ry*0.85, 0, 0, Math.PI*2);
+      ctx.strokeStyle = edgeColor;
+      ctx.lineWidth = Math.max(3, half*0.4);
       ctx.stroke();
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const coreGradient = ctx.createLinearGradient(-halfLength,0,halfLength,0);
+      coreGradient.addColorStop(0, colorWithAlpha('#fca5a5',0.15));
+      coreGradient.addColorStop(0.5, colorWithAlpha('#f97316',0.6));
+      coreGradient.addColorStop(1, colorWithAlpha('#fca5a5',0.15));
+      ctx.fillStyle = coreGradient;
+      const coreWidth = half * 0.45;
+      ctx.beginPath();
+      ctx.moveTo(-halfLength, -coreWidth);
+      ctx.lineTo(halfLength, -coreWidth);
+      ctx.arc(halfLength, 0, coreWidth, -Math.PI/2, Math.PI/2);
+      ctx.lineTo(-halfLength, coreWidth);
+      ctx.arc(-halfLength, 0, coreWidth, Math.PI/2, -Math.PI/2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      ctx.shadowColor = colorWithAlpha('#f97316', 0.45);
+      ctx.shadowBlur = Math.max(12, half*0.9);
+      ctx.beginPath();
+      ctx.moveTo(-halfLength, -half*0.95);
+      ctx.lineTo(halfLength, -half*0.95);
+      ctx.arc(halfLength, 0, half*0.95, -Math.PI/2, Math.PI/2);
+      ctx.lineTo(-halfLength, half*0.95);
+      ctx.arc(-halfLength, 0, half*0.95, Math.PI/2, -Math.PI/2);
+      ctx.closePath();
+      ctx.strokeStyle = colorWithAlpha('#f97316',0.25);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
       ctx.restore();
     }
   }
@@ -6274,6 +6497,199 @@
     ctx.arc(effect.x, effect.y, radius, 0, Math.PI*2);
     ctx.fill();
     ctx.restore();
+  }
+
+  function drawGibEffect(effect){
+    const ttl = effect.ttl || 0.0001;
+    const progress = clamp(1 - (effect.life/ttl), 0, 1);
+    const size = (effect.size || 6) * (1 - progress*0.35);
+    ctx.save();
+    ctx.translate(effect.x || 0, effect.y || 0);
+    if(effect.rotation){ ctx.rotate(effect.rotation); }
+    ctx.globalAlpha = clamp(1 - progress*0.9, 0, 1);
+    ctx.fillStyle = effect.color || '#b91c1c';
+    ctx.fillRect(-size/2, -size*0.6, size, size*1.2);
+    ctx.restore();
+  }
+
+  function drawPickupSparkEffect(effect){
+    const ttl = effect.ttl || 0.0001;
+    const progress = clamp(1 - (effect.life/ttl), 0, 1);
+    const radius = (effect.radius || 26) * (0.7 + progress*0.5);
+    ctx.save();
+    ctx.globalAlpha = clamp(1 - progress*0.8, 0, 1);
+    const gradient = ctx.createRadialGradient(effect.x, effect.y, radius*0.2, effect.x, effect.y, radius);
+    gradient.addColorStop(0, effect.innerColor || 'rgba(255,255,255,0.95)');
+    gradient.addColorStop(0.65, effect.midColor || 'rgba(129,140,248,0.55)');
+    gradient.addColorStop(1, effect.outerColor || 'rgba(59,130,246,0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(effect.x, effect.y, radius, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawActiveAuraEffect(effect){
+    const ttl = effect.ttl || 0.0001;
+    const progress = clamp(1 - (effect.life/ttl), 0, 1);
+    const radius = (effect.radius || 48) * (0.85 + progress*0.4);
+    ctx.save();
+    ctx.globalAlpha = clamp(0.55 + Math.sin(progress*Math.PI)*0.25, 0, 1);
+    const gradient = ctx.createRadialGradient(effect.x, effect.y, radius*0.3, effect.x, effect.y, radius);
+    gradient.addColorStop(0, effect.innerColor || 'rgba(254,215,170,0.95)');
+    gradient.addColorStop(0.7, effect.midColor || 'rgba(251,191,36,0.35)');
+    gradient.addColorStop(1, effect.outerColor || 'rgba(252,211,77,0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(effect.x, effect.y, radius, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawShockwaveEffect(effect){
+    const ttl = effect.ttl || 0.0001;
+    const progress = clamp(1 - (effect.life/ttl), 0, 1);
+    const radius = (effect.maxRadius || 110) * progress;
+    const lineWidth = (effect.lineWidth || 6) * (1 - progress*0.6);
+    ctx.save();
+    ctx.globalAlpha = clamp(1 - progress, 0, 1) * 0.85;
+    ctx.strokeStyle = effect.color || 'rgba(251,191,36,0.8)';
+    ctx.lineWidth = Math.max(1.2, lineWidth);
+    ctx.beginPath();
+    ctx.arc(effect.x, effect.y, radius, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function spawnGibBurst(options={}){
+    if(!runtime.effects) runtime.effects = [];
+    const count = Math.max(2, Math.floor(options.count ?? 8));
+    for(let i=0;i<count;i++){
+      const angle = rand()*Math.PI*2;
+      const speed = randRange(options.speedMin ?? 80, options.speedMax ?? 220);
+      runtime.effects.push({
+        type:'gib',
+        x: options.x ?? player?.x ?? CONFIG.roomW/2,
+        y: options.y ?? player?.y ?? CONFIG.roomH/2,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        gravity: options.gravity ?? 480,
+        rotation: rand()*Math.PI*2,
+        rotationSpeed: randRange(-8, 8),
+        size: randRange(options.minSize ?? 4, options.maxSize ?? 10),
+        color: options.color || '#f87171',
+        life: options.life ?? 0.6,
+        ttl: options.life ?? 0.6,
+      });
+    }
+  }
+
+  function addFloorStain(x, y, radius=32, color='#991b1b', options={}){
+    if(!runtime.decals) runtime.decals = [];
+    const ttl = Math.max(3, options.life ?? 24);
+    runtime.decals.push({
+      x, y,
+      rx: radius * randRange(0.7, 1.2),
+      ry: radius * randRange(0.45, 0.9),
+      rotation: rand()*Math.PI,
+      color,
+      baseAlpha: options.alpha ?? 0.38,
+      life: ttl,
+      ttl,
+    });
+  }
+
+  function triggerEnemyDeathEffects(enemy){
+    if(!enemy) return;
+    const baseColor = enemy.tint || enemy.color || '#f87171';
+    const accent = enemy.tintLight || shadeColor(baseColor, 0.25);
+    spawnGibBurst({x: enemy.x, y: enemy.y, color: accent, minSize: 4, maxSize: Math.max(6, (enemy.r||12)*0.8)});
+    spawnCircularEffect(enemy.x, enemy.y, Math.max(26, (enemy.r||12)*1.8), {
+      duration: 0.45,
+      innerColor: colorWithAlpha('#ffffff', 0.85),
+      midColor: colorWithAlpha(accent, 0.55),
+      outerColor: colorWithAlpha(baseColor, 0),
+    });
+    addFloorStain(enemy.x, enemy.y, Math.max(18, (enemy.r||12)*1.6), colorWithAlpha(baseColor, 0.68));
+    audio.play('enemyDeath', {volume: enemy.isBossEntity ? 1 : 0.8});
+    addScreenShake(enemy.isBossEntity ? 6 : 2.4, enemy.isBossEntity ? 0.45 : 0.25);
+  }
+
+  function triggerItemPickupAnimation({item, isActive=false, source=null}={}){
+    if(!player) return;
+    const center = {x: player.x, y: player.y};
+    const origin = source ? {x: source.x, y: source.y} : center;
+    const primary = isActive ? '#fbbf24' : '#93c5fd';
+    const highlight = isActive ? '#fde68a' : '#bfdbfe';
+    runtime.effects.push({
+      type:'pickup-spark',
+      x: origin.x,
+      y: origin.y,
+      radius: isActive ? 44 : 34,
+      life: 0.5,
+      ttl: 0.5,
+      innerColor: colorWithAlpha('#ffffff', 0.95),
+      midColor: colorWithAlpha(highlight, 0.55),
+      outerColor: colorWithAlpha(primary, 0),
+    });
+    runtime.effects.push({
+      type:'pickup-spark',
+      x: center.x,
+      y: center.y,
+      radius: isActive ? 52 : 38,
+      life: 0.65,
+      ttl: 0.65,
+      follow: player,
+      innerColor: colorWithAlpha(highlight, 0.95),
+      midColor: colorWithAlpha(primary, 0.45),
+      outerColor: colorWithAlpha(primary, 0),
+    });
+    if(isActive){
+      runtime.effects.push({
+        type:'active-aura',
+        x: center.x,
+        y: center.y,
+        radius: Math.max(48, player.r * 4),
+        life: 0.6,
+        ttl: 0.6,
+        follow: player,
+        innerColor: colorWithAlpha('#fde68a', 0.95),
+        midColor: colorWithAlpha('#f59e0b', 0.45),
+        outerColor: colorWithAlpha('#f97316', 0),
+      });
+      audio.play('pickupActive');
+    } else {
+      audio.play('pickupPassive');
+    }
+  }
+
+  function triggerActiveUseAnimation(item){
+    if(!player) return;
+    const base = '#fbbf24';
+    runtime.effects.push({
+      type:'active-aura',
+      x: player.x,
+      y: player.y,
+      radius: Math.max(60, player.r * 4.5),
+      life: 0.55,
+      ttl: 0.55,
+      follow: player,
+      innerColor: colorWithAlpha('#fde68a', 0.95),
+      midColor: colorWithAlpha('#f97316', 0.45),
+      outerColor: colorWithAlpha('#fb923c', 0),
+    });
+    runtime.effects.push({
+      type:'shockwave',
+      x: player.x,
+      y: player.y,
+      maxRadius: 140,
+      lineWidth: 6,
+      life: 0.45,
+      ttl: 0.45,
+      color: colorWithAlpha(base, 0.85),
+    });
+    addScreenShake(6, 0.3);
+    audio.play('activeUse');
   }
 
   function updateRoomPortal(room, dt){
@@ -6377,6 +6793,7 @@
     itemPickupDesc: '',
     floor: currentFloor,
     effects: [],
+    decals: [],
     screenShake: {intensity:0, duration:0, offsetX:0, offsetY:0},
   };
   function resetScreenShake(){
@@ -6444,6 +6861,7 @@
     runtime.itemPickupName = '';
     runtime.itemPickupDesc = '';
     runtime.effects.length = 0;
+    if(Array.isArray(runtime.decals)) runtime.decals.length = 0;
     resetScreenShake();
     player.handleRoomChange(dungeon.current);
     syncCheatPanel();
@@ -6493,6 +6911,7 @@
     runtime.itemPickupDesc = '敌人变得更加愤怒。';
     runtime.itemPickupTimer = 2.6;
     runtime.effects.length = 0;
+    if(Array.isArray(runtime.decals)) runtime.decals.length = 0;
     resetScreenShake();
     keys.clear();
     for(const code of preservedKeys){ keys.add(code); }
@@ -6848,6 +7267,7 @@
       ctx.translate(shake.offsetX, shake.offsetY);
     }
     drawRoomBackdrop();
+    drawFloorDecals();
     drawDoors();
     drawObstacles();
 
@@ -6886,6 +7306,21 @@
     drawMiniMap();
     drawItemPickupBanner();
 
+  }
+
+  function drawFloorDecals(){
+    if(!runtime.decals || runtime.decals.length===0) return;
+    ctx.save();
+    for(const decal of runtime.decals){
+      const alpha = decal.alpha ?? 0;
+      if(alpha<=0) continue;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = decal.color || 'rgba(148,0,30,0.55)';
+      ctx.beginPath();
+      ctx.ellipse(decal.x, decal.y, decal.rx || 28, decal.ry || 18, decal.rotation || 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   function drawRoomBackdrop(){
@@ -7841,6 +8276,7 @@
     if(!enemy) return;
     if(enemy._dropHandled) return;
     enemy._dropHandled = true;
+    triggerEnemyDeathEffects(enemy);
     if(typeof enemy.onDeath === 'function'){
       enemy.onDeath(room);
     }
@@ -7958,6 +8394,7 @@
     const context = {runtime, dungeon, config: CONFIG};
     const outcome = player.useActiveItem(context);
     if(outcome === false) return;
+    triggerActiveUseAnimation(item);
     if(runtime.itemPickupTimer<=0){
       let name = `${item.name || '主动道具'} 已释放`;
       let desc = item.description || '主动效果发动。';
