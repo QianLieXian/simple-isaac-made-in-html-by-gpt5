@@ -87,6 +87,8 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
 - **炸弹**：击退、连锁与震屏；可摧毁障碍或引出隐藏掉落。
 - **阴影反馈**：飞行单位的阴影更小更淡，跃起 Boss 的阴影会随高度收缩。
 *Movement uses acceleration/drift; tears recalc stats; bombs shove/chain/shake and reveal secrets. Shadow feedback shrinks airborne foes and scales boss leaps.*
+- **冲刺与时停 · Dash & Time Control**：`冲击巧克力` 解锁双击方向键的无敌冲刺与冲击光带，`怀表` 可冻结时间 4 秒，`肾上腺素` 则在当前房间内大幅提升攻速与射程但牺牲 1 点生命。
+*Impact Chocolate adds invulnerable impact dashes, the Pocket Watch freezes enemies for four seconds, and Adrenaline trades 1 HP for a brutal room-long power surge.*
 
 ---
 
@@ -136,6 +138,10 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
 | 22 | 表弟 *Younger Cousin* | 跟班 | 跟班以 **3 次/秒** 射出 **4 点伤害** 泪滴，射程/速度为玩家 **1.5×** · *Familiar: 3 rps, 4 dmg, 1.5× range & speed* |
 | 23 | 大姨妈 *Aunt Brimstone* | 跟班 | 蓄力 2 秒喷射 1.5 秒硫磺火，每 8 帧造成 0.75 伤害 · *Familiar: 2s charge, 1.5s brimstone beam (0.75 dmg per 8 frames)* |
 | 24 | 黑屁股 *Black Buddy* | 跟班 | 自动拾取红心，累积 3 枚奖励随机资源 · *Collects red hearts; every three grants a random resource* |
+| 25 | 神圣之心 *Holy Heart* | 被动 | 上限 +2、魂心 +3，伤害 ×2.5 +2、射程 ×9，附带飞行/穿透/追踪；满血时额外再乘 ×2.5，受伤后当房失效。 · *+2 max HP, +3 soul hearts; damage ×2.5 +2, range ×9, grants flight/penetration/homing; when at full HP, damage ×2.5 again until hit (room-based).* |
+| 26 | 双瞳 *Double Eyes* | 被动 | 攻击变为双发，伤害 ×0.9；与多瞳/宝宝套装等兼容；道具房道具池；· *Fires two shots, damage ×0.9; compatible with other eye items/sets; in item room pool. * |
+| 27 | 三瞳 *Triple Eyes* | 被动 | 攻击变为三发，射速 ×0.75；与双瞳/四瞳/宝宝套装等兼容；道具房道具池 · *Fires three shots, fire rate ×0.75; compatible with other eye items/sets; in item room pool.* |
+| 28 | 四瞳 *Quad Eyes* | 被动 | 攻击变为四发，伤害 ×0.9，射速 ×0.75；与双瞳/三瞳/宝宝套装等兼容；道具房道具池 · *Fires four shots, damage ×0.9, fire rate ×0.75; compatible with other eye items/sets; in item room pool.* |
 
 ### 商店精选 · Shop Specials
 
@@ -144,6 +150,10 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
 | S1 | 血之力 *Blood Power* | 被动 | 生命越充沛，伤害越高 · *Damage scales with remaining red hearts* |
 | S2 | 钱之力 *Money Power* | 被动 | 金币越多，火力越猛 · *Damage scales with held coins* |
 | S3 | 绝望之力 *Despair Power* | 被动 | 红心越少越愤怒 · *Damage rises as health drops* |
+| S4 | 炸弹表舅 *Bomb Cousin* | 被动 | 炸弹 **+5**，爆炸范围/伤害 **×2** · *+5 bombs; ×2 blast radius & damage* |
+| S5 | 炸弹舅爷 *Bomb Uncle* | 被动 | 炸弹 **+99**，爆炸范围/伤害 **×5** 并额外震屏 · *+99 bombs; ×5 blast with heavy shake* |
+| S6 | 炸弹爷爷 *Bomb Grandpa* | 被动 | 免疫爆炸伤害并改为治疗 · *Bomb damage heals you instead* |
+| SR | 神圣之心 *Holy Heart* | 稀有被动 | 上限 **+2**、魂心 **+3**、伤害 **×2.5 +2**，附带飞行/穿透/追踪与神圣光环 · *+2 max HP, +3 soul hearts, ×2.5 dmg +2, grants flight/pierce/homing & holy aura* |
 
 > 商店还会售卖“炸弹亲戚”等主池道具的额外拷贝。
 
@@ -167,6 +177,8 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
 | L4 | 表哥 *Cousin* | 跟班 | 发射追踪弹（伤害 5，射速 2 次/秒），射程/速度 **×2** · *Familiar: 2 rps homing tears, 5 dmg, 2× range & speed* |
 | L5 | 亚巴顿 *Abaddon* | 被动 | 获得 3 点蓝心，伤害 **×2**，射程 **×3**，敌人移速下降 · *+3 soul hearts, damage ×2, range ×3, slows enemies* |
 | L6 | 逃生工具 *Escape Tool* | 被动 | 移速 **×5**、子弹速度 **×5**、无敌帧 **×3**，并减少敌人生成量 · *×5 move & tear speed, ×3 i-frame duration, fewer enemies spawn* |
+| L7 | 炸弹老祖 *Bomb Elder* | 被动 | 射击改为喷射定时炸弹（约 **320%** 伤害），同时强化炸弹半径与震动 · *Fires timed mega-bombs (~320% dmg) and buffs bomb radius/shake* |
+| L8 | 炸弹鼻祖 *Bomb Progenitor* | 被动 | 长按布置导引准星，2 秒后连环轰炸（约 **2000%** 伤害，最多 16 枚） · *Hold to aim chained 2000% guided strikes (up to 16 bombs)* |
 
 > 默认献祭 **1 点生命上限**；若有特殊代价会在道具面板上标注。
 
@@ -202,7 +214,9 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
 | 火花灵 · *Spark* | 飞行 · Flying | 小半径轨道，环形电弧弹。*Radial spark bursts.* |
 | 育母虫 · *Brood* | 地面 · Ground | 中距离孵化小飞虫。*Spawns minions in radius.* |
 | 蜘蛛跃者 · *Spider Leaper* | 地面 · Ground | 读条弹跳落地冲击，狂暴加速。*Telegraphed acrobatics.* |
-
+| 炸弹客 · *Bomber* | 漫游并周期性丢下长导火索炸弹，逼迫你换位。*Roams and plants long-fuse bombs to flush you out.* |
+| 暗影回声 · *Shadow Echo* | 悬浮援军，瞬移到主宰或玩家身侧纠缠。*Teleports around its master and lunges at the player.* |
+| 悖论碎片 · *Paradox Shard* | 围绕终焉织主旋转并射出强力碎光；Boss 狂暴时攻势同步升级。*Orbits the Paradox heart and fires empowered shards when enraged.* |
 ---
 
 ## Boss 图鉴 · Boss Gallery
@@ -227,9 +241,17 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
   隐身跃迁至预设节点；释放光矛、镜像符阵或流星雨；符阵逐个爆裂成追踪针弹。  
   *Blinks to nodes, channels lances/sigils/meteors; runes detonate to tracking bolts.*
 
-- **地窖泰坦 · Titan**  
-  缓步压境、连跳、地裂与碎片风暴；怒火提升后叠加延迟事件与更密弹幕。  
+- **地窖泰坦 · Titan**
+  缓步压境、连跳、地裂与碎片风暴；怒火提升后叠加延迟事件与更密弹幕。
   *Stalks, chains leaps, shockwaves, shard storms; stacks timed events when enraged.*
+
+- **黯影穿梭者 · Umbra**
+  瞬移追踪、暗影扇形与追踪刃雨交替施压，并可召唤暗影回声协同围攻，隐身与再现阶段短暂无敌。
+  *Blinks around the arena, fans shadow needles, hurls homing blades, and calls Shadow Echo minions; vanish/reappear windows grant brief invulnerability.*
+
+- **终焉织主 · Paradox**
+  扭曲时间、分阶段改造场景，施放螺旋/风暴/追踪弧光并召唤悖论碎片与暗影仆从；二阶段开启虚空场景与时间减速。
+  *Warps space-time, rewrites the arena, fires spirals and meteor storms, and summons paradox shards plus shadow minions; phase two drags you into the void with time dilation.*
 
 ---
 
