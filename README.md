@@ -27,7 +27,7 @@
 
 ## 概览 · Overview
 
-**当前进度 Progress:** 96%（作者自述）
+**当前进度 Progress:** 99%（作者自述）
 This is a single-file HTML5 Canvas **Basement Speedrun Lab**. It ships a top-down shooter, contextual overlays, and a live item codex—**no external assets** needed.
 
 ---
