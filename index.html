@@ -272,9 +272,9 @@
       chargeScale: 4,
     },
     progression: {
-      enemyHp: 1.2,
-      enemySpeed: 1.1,
-      enemyAggression: 1.1,
+      enemyHp: 1.15,
+      enemySpeed: 1.08,
+      enemyAggression: 1.08,
     },
     combat: {
       shotInertia: 0.32,
@@ -745,14 +745,15 @@
   }
 
   function getExchangePortalChance(){
-    return clamp(runtime?.exchangePortalChance ?? 1, 0, 1);
+    const value = clamp(runtime?.exchangePortalChance ?? 1, 0, 1);
+    return value >= 0.999 ? 1 : value;
   }
 
   function adjustExchangePortalChance(multiplier){
     if(!Number.isFinite(multiplier)) return getExchangePortalChance();
     const current = runtime?.exchangePortalChance ?? 1;
     const next = clamp(current * multiplier, 0, 1);
-    runtime.exchangePortalChance = next;
+    runtime.exchangePortalChance = next >= 0.999 ? 1 : next;
     return next;
   }
 
@@ -2184,7 +2185,7 @@
         return this.enemies;
       }
       // 按深度稍微增加数量
-      const baseCount = Math.floor(randRange(CONFIG.enemy.spawnMin, CONFIG.enemy.spawnMax+1) + (depth*0.3));
+      const baseCount = Math.floor(randRange(CONFIG.enemy.spawnMin, CONFIG.enemy.spawnMax+1) + (depth*0.24));
       const limit = CONFIG.enemy.maxPerRoom || baseCount;
       const spawnFactor = player?.getEnemySpawnFactor ? player.getEnemySpawnFactor() : 1;
       const adjustedCount = Math.max(1, Math.round(baseCount * spawnFactor));
@@ -3492,6 +3493,11 @@
       this.followerOrderCounter = 0;
       this.impactDash = this.createImpactDashState();
       this.hotChocolate = null;
+      this.followerTrail = [];
+      this.followerTrailMax = 220;
+      if(typeof this.resetFollowerTrail === 'function'){
+        this.resetFollowerTrail();
+      }
     }
     update(dt){
       this.bombCooldown = Math.max(0, this.bombCooldown - dt);
@@ -3688,6 +3694,7 @@
           this.fireTearProjectile(dirX, dirY, lvx, lvy, maxSpeed);
         }
       }
+      this.recordFollowerTrailPoint();
       this.updateFollowers(dt);
       this.recalculateDamage();
     }
@@ -3911,15 +3918,20 @@
         const ob = Number.isFinite(b?.order) ? b.order : 0;
         return oa - ob;
       });
-      let previous = this;
+      const baseSpacing = this.getFollowerBaseSpacing();
+      let totalOffset = 0;
       for(const follower of list){
         if(!follower) continue;
+        const multiplier = Number.isFinite(follower.spacingMultiplier) ? follower.spacingMultiplier : 1;
+        const spacing = Math.max(6, baseSpacing * multiplier);
+        follower.baseSpacing = spacing;
+        follower.leader = this;
         if(follower.anchorToPlayer){
-          follower.leader = this;
+          follower.trailOffset = spacing;
         } else {
-          follower.leader = previous;
+          totalOffset += spacing;
+          follower.trailOffset = totalOffset;
         }
-        previous = follower;
       }
     }
     updateFollowers(dt){
@@ -3929,6 +3941,78 @@
         if(!follower || typeof follower.update !== 'function') continue;
         follower.update(dt, this);
       }
+    }
+    getFollowerBaseSpacing(){
+      const body = this.r || CONFIG.player.radius || 12;
+      return Math.max(8, body);
+    }
+    ensureFollowerTrail(){
+      if(!Array.isArray(this.followerTrail)){
+        this.followerTrail = [];
+      }
+      return this.followerTrail;
+    }
+    resetFollowerTrail(direction){
+      const trail = this.ensureFollowerTrail();
+      trail.length = 0;
+      trail.push({x:this.x, y:this.y});
+      const maxLen = Math.max(12, this.followerTrailMax || 0);
+      if(direction && (direction.x || direction.y)){
+        const len = Math.hypot(direction.x, direction.y) || 1;
+        const nx = direction.x / len;
+        const ny = direction.y / len;
+        const spacing = this.getFollowerBaseSpacing();
+        const steps = Math.min(maxLen-1, 18);
+        for(let i=1;i<=steps;i++){
+          trail.push({
+            x: this.x - nx * spacing * i,
+            y: this.y - ny * spacing * i,
+          });
+        }
+      }
+    }
+    recordFollowerTrailPoint(){
+      const trail = this.ensureFollowerTrail();
+      const head = trail[0];
+      if(head){
+        const dx = this.x - head.x;
+        const dy = this.y - head.y;
+        const distSq = dx*dx + dy*dy;
+        if(distSq > 0.25){
+          trail.unshift({x:this.x, y:this.y});
+        } else {
+          head.x = this.x;
+          head.y = this.y;
+        }
+      } else {
+        trail.unshift({x:this.x, y:this.y});
+      }
+      const maxLen = Math.max(12, this.followerTrailMax || 0);
+      if(trail.length > maxLen){
+        trail.length = maxLen;
+      }
+    }
+    getFollowerTrailPoint(distance){
+      const trail = this.ensureFollowerTrail();
+      if(!trail.length){
+        return {x:this.x, y:this.y};
+      }
+      let remaining = Math.max(0, distance);
+      for(let i=0;i<trail.length-1;i++){
+        const from = trail[i];
+        const to = trail[i+1];
+        const seg = Math.hypot(from.x - to.x, from.y - to.y);
+        if(seg >= remaining && seg > 1e-4){
+          const t = remaining / seg;
+          return {
+            x: from.x + (to.x - from.x) * t,
+            y: from.y + (to.y - from.y) * t,
+          };
+        }
+        remaining -= seg;
+      }
+      const last = trail[trail.length-1];
+      return last ? {x:last.x, y:last.y} : {x:this.x, y:this.y};
     }
     snapFollowersToPlayer(entryDir){
       const list = this.followers;
@@ -3953,19 +4037,46 @@
           baseVec = {x:0, y:1};
         }
       }
-      const baseRadius = this.r || CONFIG.player.radius || 12;
-      const stepBase = Math.max(10, baseRadius * 1.6);
-      let index = 0;
+      this.resetFollowerTrail(baseVec);
+      const spacingBase = this.getFollowerBaseSpacing();
+      const trail = this.ensureFollowerTrail();
+      const len = Math.hypot(baseVec.x, baseVec.y) || 1;
+      const nx = baseVec.x / len;
+      const ny = baseVec.y / len;
+      let queueIndex = 0;
       for(const follower of list){
         if(!follower) continue;
-        index++;
-        const spacing = Math.max(stepBase, follower.baseSpacing || stepBase);
-        const offsetX = baseVec.x * spacing * index;
-        const offsetY = baseVec.y * spacing * index;
-        const targetX = clamp(this.x + offsetX, 40, CONFIG.roomW - 40);
-        const targetY = clamp(this.y + offsetY, 40, CONFIG.roomH - 40);
-        follower.x = targetX;
-        follower.y = targetY;
+        const spacing = follower.anchorToPlayer
+          ? Math.max(6, follower.baseSpacing || spacingBase)
+          : Math.max(spacingBase, follower.baseSpacing || spacingBase);
+        let target;
+        if(follower.anchorToPlayer && follower.behavior && typeof follower.behavior.getAnchorPosition === 'function'){
+          target = follower.behavior.getAnchorPosition(follower, this, 0);
+        }
+        if(!follower.anchorToPlayer){
+          queueIndex += 1;
+        }
+        if(!target){
+          const distance = follower.anchorToPlayer
+            ? spacing
+            : Math.max(spacing, follower.trailOffset || (spacing * queueIndex));
+          const neededSteps = Math.ceil(distance / Math.max(1, spacing)) + 2;
+          if(trail.length < neededSteps){
+            const maxLen = Math.max(12, this.followerTrailMax || 0);
+            const stepSpacing = this.getFollowerBaseSpacing();
+            for(let i=trail.length;i<=neededSteps && trail.length<maxLen;i++){
+              trail.push({
+                x: this.x - nx * stepSpacing * i,
+                y: this.y - ny * stepSpacing * i,
+              });
+            }
+          }
+          target = this.getFollowerTrailPoint(distance);
+        }
+        const tx = clamp(target?.x ?? this.x, 40, CONFIG.roomW - 40);
+        const ty = clamp(target?.y ?? this.y, 40, CONFIG.roomH - 40);
+        follower.x = tx;
+        follower.y = ty;
         if(follower.knockVel){ follower.knockVel.x = 0; follower.knockVel.y = 0; }
         if(follower.brimstoneBeam){
           endBeam(follower.brimstoneBeam);
@@ -5137,7 +5248,11 @@
       y: player.y + (config.initialOffset?.y ?? randRange(-6,6)),
       r: radius,
     };
-    follower.baseSpacing = Math.max(6, (player.r || CONFIG.player.radius || 12) * 0.5 * follower.spacingMultiplier);
+    const playerSpacing = (typeof player.getFollowerBaseSpacing === 'function')
+      ? player.getFollowerBaseSpacing()
+      : (player.r || CONFIG.player.radius || 12);
+    follower.baseSpacing = Math.max(6, playerSpacing * follower.spacingMultiplier);
+    follower.trailOffset = follower.baseSpacing;
     follower.draw = function(ctx){
       if(follower.behavior && typeof follower.behavior.draw === 'function'){
         follower.behavior.draw(follower, ctx, player);
@@ -5150,6 +5265,16 @@
         const pos = follower.behavior.getAnchorPosition(follower, owner, dt);
         if(pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)){
           return {x:pos.x, y:pos.y};
+        }
+      }
+      if(owner && !follower.anchorToPlayer && typeof owner.getFollowerTrailPoint === 'function'){
+        const base = typeof owner.getFollowerBaseSpacing === 'function'
+          ? owner.getFollowerBaseSpacing()
+          : follower.baseSpacing;
+        const distance = Math.max(base, follower.trailOffset || follower.baseSpacing);
+        const point = owner.getFollowerTrailPoint(distance);
+        if(point && Number.isFinite(point.x) && Number.isFinite(point.y)){
+          return {x: point.x, y: point.y};
         }
       }
       const leader = follower.anchorToPlayer ? owner : (follower.leader || owner);
@@ -5675,21 +5800,35 @@
   }
 
   class Bomb{
-    constructor(x,y){
+    constructor(x,y,options={}){
+      const opts = options || {};
       this.x=x;
       this.y=y;
       this.r=14;
-      this.timer=CONFIG.bomb.fuse;
+      this.timer=Number.isFinite(opts.fuse) ? opts.fuse : CONFIG.bomb.fuse;
       this.exploded=false;
       this.explosionTimer=0;
       this.done=false;
       this.vx=0;
       this.vy=0;
-      this.spawnGrace = CONFIG.bomb.spawnGrace ?? CONFIG.pickupSpawnGrace ?? 0;
-      this.radiusMultiplier = player?.bombRadiusMultiplier ?? 1;
-      this.damageMultiplier = player?.bombDamageMultiplier ?? 1;
-      this.shakeStrength = player?.bombShakeStrength ?? 0;
-      this.explosionRadius = CONFIG.bomb.radius * this.radiusMultiplier;
+      this.owner = opts.owner || null;
+      const usePlayerStats = !this.owner || this.owner === 'player';
+      this.spawnGrace = Number.isFinite(opts.spawnGrace)
+        ? opts.spawnGrace
+        : (CONFIG.bomb.spawnGrace ?? CONFIG.pickupSpawnGrace ?? 0);
+      const radiusMultiplier = Number.isFinite(opts.radiusMultiplier)
+        ? opts.radiusMultiplier
+        : (usePlayerStats ? (player?.bombRadiusMultiplier ?? 1) : 1);
+      const damageMultiplier = Number.isFinite(opts.damageMultiplier)
+        ? opts.damageMultiplier
+        : (usePlayerStats ? (player?.bombDamageMultiplier ?? 1) : 1);
+      this.radiusMultiplier = Math.max(0, radiusMultiplier);
+      this.damageMultiplier = Math.max(0, damageMultiplier);
+      this.shakeStrength = Number.isFinite(opts.shakeStrength)
+        ? opts.shakeStrength
+        : (usePlayerStats ? (player?.bombShakeStrength ?? 0) : 0);
+      const baseRadius = Number.isFinite(opts.baseRadius) ? opts.baseRadius : CONFIG.bomb.radius;
+      this.explosionRadius = baseRadius * this.radiusMultiplier;
     }
     update(dt){
       if(this.done) return;
@@ -6598,7 +6737,7 @@
   }
 
   function makeEnemy(type, pos, depth){
-    const hp = Math.max(1, Math.round(CONFIG.enemy.baseHP + depth*0.3 + rand()*1.0));
+    const hp = Math.max(1, Math.round(CONFIG.enemy.baseHP + depth*0.24 + rand()*1.0));
     let enemy;
     if(type==='chaser') enemy = new EnemyChaser(pos.x,pos.y,hp);
     else if(type==='orbiter') enemy = new EnemyOrbiter(pos.x,pos.y,hp);
@@ -6763,9 +6902,14 @@
     dropBomb(){
       const room = dungeon?.current;
       if(!room) return;
-      const bomb = new Bomb(this.x, this.y);
-      bomb.timer = this.fuse;
-      bomb.spawnGrace = 0.12;
+      const bomb = new Bomb(this.x, this.y, {
+        owner: 'enemy',
+        fuse: this.fuse,
+        spawnGrace: 0.12,
+        radiusMultiplier: 1,
+        damageMultiplier: 1,
+        shakeStrength: 0,
+      });
       bomb.vx = 0;
       bomb.vy = 0;
       room.bombs.push(bomb);
@@ -13600,7 +13744,12 @@
   function placeBomb(){
     if(!player || !dungeon?.current) return;
     if(player.bombs<=0 || player.bombCooldown>0) return;
-    const bomb = new Bomb(player.x, player.y);
+    const bomb = new Bomb(player.x, player.y, {
+      owner: 'player',
+      radiusMultiplier: player?.bombRadiusMultiplier ?? 1,
+      damageMultiplier: player?.bombDamageMultiplier ?? 1,
+      shakeStrength: player?.bombShakeStrength ?? 0,
+    });
     dungeon.current.bombs.push(bomb);
     player.bombs = Math.max(0, player.bombs-1);
     player.bombCooldown = 0.3;
