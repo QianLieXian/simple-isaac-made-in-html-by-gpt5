@@ -1392,6 +1392,61 @@
       apply(player){ grantCousinFollower(player); }
     },
     {
+      slug:'bomb-elder',
+      name:'炸弹老祖',
+      weight: 0.4,
+      description:'被动：射击改为喷射定时炸弹。基础每 2 秒发射 1 枚，随射速略微提速，造成约 320% 攻击力的爆炸伤害，并小幅增强炸弹属性。',
+      lifeTradeCost:{type:'flat', amount:2},
+      apply(player){
+        if(!player) return;
+        if(typeof player.ensureBombElderState === 'function'){
+          const state = player.ensureBombElderState();
+          state.baseInterval = 2;
+          state.minInterval = Math.min(state.minInterval || 0.55, 0.5);
+          state.damageScale = Math.max(2.6, state.damageScale || 3.2);
+          state.radiusScale = Math.max(0.8, state.radiusScale || 0.85);
+          state.launchSpeed = Math.max(260, state.launchSpeed || 320);
+          state.fuse = Math.max(0.9, state.fuse || 1.35);
+          state.shakeStrength = Math.max(state.shakeStrength || 0, 8);
+        }
+        player.bombDamageMultiplier = Math.max(0.1, (player.bombDamageMultiplier || 1) * 1.1);
+        player.bombRadiusMultiplier = Math.max(0.1, (player.bombRadiusMultiplier || 1) * 1.05);
+        player.bombShakeStrength = Math.max(player.bombShakeStrength || 0, 6);
+        if(typeof player.enableBombElderMode === 'function'){
+          player.enableBombElderMode();
+        } else {
+          player.attackMode = 'bomb-elder';
+        }
+        player.recalculateDamage?.();
+      }
+    },
+    {
+      slug:'bomb-progenitor',
+      name:'炸弹鼻祖',
+      weight: 0.35,
+      description:'被动：按下射击键在脚下生成可操控准星，2 秒后导引导弹瞬间爆炸，造成 2000% 攻击力。与瞳类或额外鼻祖叠加时会连续轰炸（最多 16 枚）。',
+      lifeTradeCost:{type:'flat', amount:3},
+      apply(player){
+        if(!player) return;
+        if(typeof player.ensureBombProgenitorState === 'function'){
+          const state = player.ensureBombProgenitorState();
+          state.chargeDuration = Math.max(1.6, state.chargeDuration || 2);
+          state.chainSpacing = Math.max(0.2, state.chainSpacing || 0.3);
+          state.damageScale = Math.max(14, state.damageScale || 20);
+          state.baseRadius = Math.max(CONFIG.bomb.radius * 1.1, state.baseRadius || CONFIG.bomb.radius * 1.25);
+          state.knockPower = Math.max(CONFIG.bomb.knock * 1.25, state.knockPower || CONFIG.bomb.knock * 1.35);
+          state.shakeStrength = Math.max(state.shakeStrength || 0, 14);
+        }
+        player.bombDamageMultiplier = Math.max(0.1, (player.bombDamageMultiplier || 1) * 1.05);
+        if(typeof player.enableBombProgenitorMode === 'function'){
+          player.enableBombProgenitorMode();
+        } else {
+          player.attackMode = 'bomb-progenitor';
+        }
+        player.recalculateDamage?.();
+      }
+    },
+    {
       slug:'abaddon',
       name:'亚巴顿',
       weight: WEIGHT_PRESETS.lifeTrade,
@@ -3307,10 +3362,22 @@
   function keepPickupInBounds(p){
     const marginX = p.r + 24;
     const marginY = p.r + 28;
-    if(p.x < marginX){ p.x = marginX; if(p.vx<0) p.vx*=-0.35; }
-    if(p.x > CONFIG.roomW - marginX){ p.x = CONFIG.roomW - marginX; if(p.vx>0) p.vx*=-0.35; }
-    if(p.y < marginY){ p.y = marginY; if(p.vy<0) p.vy*=-0.35; }
-    if(p.y > CONFIG.roomH - marginY){ p.y = CONFIG.roomH - marginY; if(p.vy>0) p.vy*=-0.35; }
+    if(p.x < marginX){
+      p.x = marginX;
+      if(p.vx<0) p.vx*=-0.55;
+    }
+    if(p.x > CONFIG.roomW - marginX){
+      p.x = CONFIG.roomW - marginX;
+      if(p.vx>0) p.vx*=-0.55;
+    }
+    if(p.y < marginY){
+      p.y = marginY;
+      if(p.vy<0) p.vy*=-0.55;
+    }
+    if(p.y > CONFIG.roomH - marginY){
+      p.y = CONFIG.roomH - marginY;
+      if(p.vy>0) p.vy*=-0.55;
+    }
   }
   function resolvePickupObstacles(p, dt=0){
     if(!dungeon?.current) return false;
@@ -3327,11 +3394,29 @@
       const len = Math.hypot(push.x, push.y) || 0;
       const nx = len ? push.x/len : 0;
       const ny = len ? push.y/len : 0;
+      if(len>0.0001){
+        const extra = Math.min(6, len * 0.35);
+        p.x += nx * extra;
+        p.y += ny * extra;
+      }
       if(physical){
         const dot = p.vx*nx + p.vy*ny;
+        let boost = 0;
         if(dot<0){
           p.vx -= dot*nx;
           p.vy -= dot*ny;
+          boost = -dot * 0.15;
+        }
+        const tx = -ny;
+        const ty = nx;
+        const tangentSpeed = p.vx*tx + p.vy*ty;
+        if(boost!==0){
+          p.vx += tx * boost;
+          p.vy += ty * boost;
+        }
+        if(Math.abs(tangentSpeed)<8){
+          p.vx += tx * 6 * dt;
+          p.vy += ty * 6 * dt;
         }
       }
       if(dt>0 && (nx || ny)){
@@ -3627,10 +3712,22 @@
   function keepBombInBounds(bomb){
     const margin = bomb.r + 24;
     const marginY = bomb.r + 24;
-    if(bomb.x < margin){ bomb.x = margin; if(bomb.vx<0) bomb.vx*=-0.4; }
-    if(bomb.x > CONFIG.roomW - margin){ bomb.x = CONFIG.roomW - margin; if(bomb.vx>0) bomb.vx*=-0.4; }
-    if(bomb.y < marginY){ bomb.y = marginY; if(bomb.vy<0) bomb.vy*=-0.4; }
-    if(bomb.y > CONFIG.roomH - marginY){ bomb.y = CONFIG.roomH - marginY; if(bomb.vy>0) bomb.vy*=-0.4; }
+    if(bomb.x < margin){
+      bomb.x = margin;
+      if(bomb.vx<0) bomb.vx*=-0.55;
+    }
+    if(bomb.x > CONFIG.roomW - margin){
+      bomb.x = CONFIG.roomW - margin;
+      if(bomb.vx>0) bomb.vx*=-0.55;
+    }
+    if(bomb.y < marginY){
+      bomb.y = marginY;
+      if(bomb.vy<0) bomb.vy*=-0.55;
+    }
+    if(bomb.y > CONFIG.roomH - marginY){
+      bomb.y = CONFIG.roomH - marginY;
+      if(bomb.vy>0) bomb.vy*=-0.55;
+    }
   }
   function resolveBombObstacles(bomb){
     if(!dungeon?.current || bomb.exploded) return;
@@ -3648,6 +3745,8 @@
           bomb.vx -= dot*nx;
           bomb.vy -= dot*ny;
         }
+        bomb.x += nx * Math.min(6, len*0.35);
+        bomb.y += ny * Math.min(6, len*0.35);
       }
     }
   }
@@ -3694,6 +3793,8 @@
       this.bombShakeStrength = 0;
       this.bombImmunity = false;
       this.explosionHealAmount = 0;
+      this.bombElder = null;
+      this.bombProgenitor = null;
       this.homingTears = false;
       this.homingStrength = 6;
       this.roomBuff = null;
@@ -3927,18 +4028,25 @@
       this.lastDisplacement.y = dy;
       this.lastVelocity.x = lvx;
       this.lastVelocity.y = lvy;
-      const shotPressed = shotX || shotY;
-      if(this.attackMode === 'brimstone'){
-        this.handleBrimstoneAttack(dt, shotX, shotY, lvx, lvy, maxSpeed);
+      const shotState = this.getShotInput();
+      const shotPressed = !!(shotState && shotState.pressed);
+      if(this.attackMode === 'bomb-progenitor'){
+        this.handleBombProgenitorAttack(dt, shotState);
+      } else if(this.attackMode === 'bomb-elder'){
+        this.handleBombElderAttack(dt, shotState, lvx, lvy, maxSpeed);
+      } else if(this.attackMode === 'brimstone'){
+        this.handleBrimstoneAttack(dt, shotState?.x || shotX, shotState?.y || shotY, lvx, lvy, maxSpeed);
       } else if(this.hasHotChocolate && this.hasHotChocolate()){
-        this.handleHotChocolateAttack(dt, shotX, shotY, lvx, lvy, maxSpeed);
+        this.handleHotChocolateAttack(dt, shotState?.x || shotX, shotState?.y || shotY, lvx, lvy, maxSpeed);
       } else {
         if(shotPressed && this.fireCd<=0){
-          const l = Math.hypot(shotX,shotY)||1;
-          const dirX = shotX/l;
-          const dirY = shotY/l;
+          const dirX = shotState.dirX;
+          const dirY = shotState.dirY;
+          const len = Math.hypot(dirX, dirY) || 1;
+          const nDirX = dirX/len;
+          const nDirY = dirY/len;
           this.fireCd = this.fireInterval;
-          this.fireTearProjectile(dirX, dirY, lvx, lvy, maxSpeed);
+          this.fireTearProjectile(nDirX, nDirY, lvx, lvy, maxSpeed);
         }
       }
       this.recordFollowerTrailPoint();
@@ -4077,6 +4185,318 @@
       for(const shot of shots){
         runtime.bullets.push(new Bullet(shot.originX, shot.originY, shot.vx, shot.vy, shot.life, shot.damage, shot.options));
         this.dispatchFollowerShot?.('tear', shot);
+      }
+    }
+    ensureBombElderState(){
+      if(!this.bombElder || typeof this.bombElder !== 'object'){
+        const defaultInterval = Number.isFinite(CONFIG.player?.fireCd) ? CONFIG.player.fireCd : 360;
+        const referenceRate = defaultInterval>0 ? 1000/defaultInterval : 2.5;
+        this.bombElder = {
+          enabled:false,
+          cooldown:0,
+          baseInterval:2,
+          minInterval:0.55,
+          referenceRate,
+          launchSpeed:320,
+          speedCarry:0.35,
+          fuse:1.35,
+          damageScale:3.2,
+          radiusScale:0.85,
+          knockPower:null,
+          shakeStrength:6,
+          baseRadius:null,
+        };
+      }
+      return this.bombElder;
+    }
+    enableBombElderMode(){
+      const state = this.ensureBombElderState();
+      state.enabled = true;
+      state.cooldown = 0;
+      this.attackMode = 'bomb-elder';
+      this.bombProgenitor = null;
+    }
+    getBombElderInterval(){
+      const state = this.ensureBombElderState();
+      const baseInterval = Math.max(0.4, Number(state.baseInterval) || 2);
+      const defaultInterval = Number.isFinite(CONFIG.player?.fireCd) ? CONFIG.player.fireCd : 360;
+      const defaultRate = defaultInterval>0 ? 1000/defaultInterval : 2.5;
+      const referenceRate = Math.max(0.2, Number(state.referenceRate) || defaultRate);
+      const currentRate = this.fireInterval>0 ? Math.max(0.05, 1000/this.fireInterval) : referenceRate;
+      const ratio = Math.max(0.35, currentRate / referenceRate);
+      const minInterval = Math.max(0.35, Number(state.minInterval) || 0.55);
+      return Math.max(minInterval, baseInterval / ratio);
+    }
+    handleBombElderAttack(dt, shotState, lvx, lvy, maxSpeed){
+      const state = this.ensureBombElderState();
+      state.enabled = true;
+      state.cooldown = Math.max(0, (state.cooldown || 0) - dt);
+      if(!shotState || !shotState.pressed) return;
+      if(state.cooldown>0) return;
+      const dirX = Number(shotState.dirX);
+      const dirY = Number(shotState.dirY);
+      const len = Math.hypot(dirX, dirY);
+      if(!(len>1e-4)) return;
+      this.fireBombElderShot(state, dirX/len, dirY/len, lvx, lvy);
+      state.cooldown = this.getBombElderInterval();
+    }
+    fireBombElderShot(state, dirX, dirY, lvx, lvy){
+      const room = dungeon?.current;
+      if(!room) return;
+      const baseRadiusValue = Number.isFinite(state.baseRadius)
+        ? state.baseRadius
+        : (CONFIG.bomb.radius * (Number(state.radiusScale) || 0.85));
+      const radiusMultiplier = Math.max(0.1, this.bombRadiusMultiplier || 1);
+      const playerDamageMultiplier = Math.max(0.05, this.bombDamageMultiplier || 1);
+      const damageScale = Math.max(0.25, Number(state.damageScale) || 3.2);
+      const launchSpeed = Math.max(120, Number(state.launchSpeed) || 320);
+      const carryFactor = clamp(Number(state.speedCarry) || 0.35, 0, 1);
+      const fuse = Math.max(0.4, Number(state.fuse) || 1.35);
+      const knockPower = Number.isFinite(state.knockPower) ? state.knockPower : null;
+      const shakeStrength = Math.max(this.bombShakeStrength || 0, Number(state.shakeStrength) || 6);
+      const offsets = typeof this.getEyePatternOffsets === 'function' ? this.getEyePatternOffsets() : [0];
+      const spawnOffset = this.r + 10;
+      const baseAngle = Math.atan2(dirY, dirX);
+      const firedShots = [];
+      for(const offset of offsets){
+        const angle = baseAngle + offset;
+        const nx = Math.cos(angle);
+        const ny = Math.sin(angle);
+        const spawnX = this.x + nx * spawnOffset;
+        const spawnY = this.y + ny * spawnOffset;
+        const bombDamage = Math.max(0.5, this.damage * damageScale * playerDamageMultiplier);
+        const bomb = new Bomb(spawnX, spawnY, {
+          owner:'player',
+          fuse,
+          baseRadius: baseRadiusValue,
+          radiusMultiplier,
+          damageMultiplier: 1,
+          customDamage: bombDamage,
+          customKnock: knockPower,
+          shakeStrength,
+          spawnGrace: 0.08,
+        });
+        bomb.vx = nx * launchSpeed + lvx * carryFactor;
+        bomb.vy = ny * launchSpeed + lvy * carryFactor;
+        room.bombs.push(bomb);
+        firedShots.push({dirX:nx, dirY:ny, damage:bombDamage});
+      }
+      if(firedShots.length){
+        this.dispatchFollowerShot?.('bomb', firedShots);
+      }
+    }
+    ensureBombProgenitorState(){
+      if(!this.bombProgenitor || typeof this.bombProgenitor !== 'object'){
+        this.bombProgenitor = {
+          enabled:false,
+          reticle:null,
+          reticleEffect:null,
+          chargeDuration:2,
+          reticleSpeed:240,
+          reticleRadius:28,
+          chainCount:0,
+          chainTimer:0,
+          chainPosition:null,
+          chainSpacing:0.3,
+          maxChain:16,
+          damageScale:20,
+          baseRadius: CONFIG.bomb.radius * 1.25,
+          knockPower: CONFIG.bomb.knock * 1.35,
+          shakeStrength:14,
+        };
+      }
+      return this.bombProgenitor;
+    }
+    enableBombProgenitorMode(){
+      const state = this.ensureBombProgenitorState();
+      state.enabled = true;
+      state.chainCount = 0;
+      state.chainTimer = 0;
+      state.chainPosition = null;
+      if(state.reticleEffect){ state.reticleEffect.life = Math.min(state.reticleEffect.life, 0.02); }
+      state.reticleEffect = null;
+      state.reticle = null;
+      this.attackMode = 'bomb-progenitor';
+      this.bombElder = null;
+    }
+    getBombProgenitorChainCount(){
+      const state = this.ensureBombProgenitorState();
+      const stacks = this.getItemStack ? Math.max(1, this.getItemStack('bomb-progenitor') || 1) : 1;
+      const pattern = typeof this.getEyePatternOffsets === 'function' ? Math.max(1, this.getEyePatternOffsets().length) : 1;
+      const maxChain = Math.max(1, Number(state.maxChain) || 16);
+      return Math.min(maxChain, Math.max(1, Math.floor(stacks * pattern)));
+    }
+    getBombProgenitorCycleTime(){
+      const state = this.ensureBombProgenitorState();
+      const count = this.getBombProgenitorChainCount();
+      const charge = Math.max(0.2, Number(state.chargeDuration) || 2);
+      const spacing = Math.max(0, Number(state.chainSpacing) || 0.3);
+      return charge + Math.max(0, count - 1) * spacing;
+    }
+    handleBombProgenitorAttack(dt, shotState){
+      const state = this.ensureBombProgenitorState();
+      state.enabled = true;
+      if(state.reticle){
+        this.updateBombProgenitorReticle(state, dt, shotState);
+        return;
+      }
+      if(state.chainCount>0){
+        state.chainTimer = Math.max(0, (state.chainTimer || 0) - dt);
+        if(state.chainTimer<=0){
+          this.fireBombProgenitorMissile(state);
+        }
+        return;
+      }
+      if(shotState && shotState.justPressed){
+        this.startBombProgenitorReticle(state, shotState);
+      }
+    }
+    startBombProgenitorReticle(state, shotState){
+      const dirLen = shotState ? Math.hypot(shotState.dirX, shotState.dirY) : 0;
+      const offset = dirLen>1e-4 ? {x: (shotState.dirX/dirLen) * (this.r + 14), y: (shotState.dirY/dirLen) * (this.r + 14)} : {x:0,y:0};
+      const reticle = {
+        x: clamp(this.x + offset.x, 36, CONFIG.roomW - 36),
+        y: clamp(this.y + offset.y, 42, CONFIG.roomH - 42),
+        timer: 0,
+      };
+      state.reticle = reticle;
+      state.chainCount = 0;
+      state.chainTimer = 0;
+      state.chainPosition = null;
+      if(state.reticleEffect){
+        state.reticleEffect.life = Math.min(state.reticleEffect.life, 0.02);
+        state.reticleEffect = null;
+      }
+      if(runtime?.effects){
+        const effect = {
+          type:'bomb-progenitor-reticle',
+          life:9999,
+          ttl:9999,
+          state,
+          x: reticle.x,
+          y: reticle.y,
+          radius: state.reticleRadius || 28,
+          progress:0,
+          phase:0,
+          update(self, dt){
+            if(!state.reticle){
+              self.life = Math.min(self.life, 0.02);
+              return;
+            }
+            const duration = Math.max(0.2, Number(state.chargeDuration) || 2);
+            self.x = state.reticle.x;
+            self.y = state.reticle.y;
+            self.radius = state.reticleRadius || 28;
+            self.progress = clamp(state.reticle.timer / duration, 0, 1);
+            self.phase = (self.phase || 0) + dt * 4.2;
+            self.life = 9999;
+          }
+        };
+        runtime.effects.push(effect);
+        state.reticleEffect = effect;
+      }
+    }
+    updateBombProgenitorReticle(state, dt, shotState){
+      const reticle = state.reticle;
+      if(!reticle) return;
+      reticle.timer += dt;
+      const speed = Math.max(80, Number(state.reticleSpeed) || 240);
+      const rawX = shotState ? shotState.x : 0;
+      const rawY = shotState ? shotState.y : 0;
+      if(rawX || rawY){
+        const len = Math.hypot(rawX, rawY) || 1;
+        reticle.x += (rawX/len) * speed * dt;
+        reticle.y += (rawY/len) * speed * dt;
+      }
+      const margin = Math.max(32, (state.reticleRadius || 28) + 8);
+      reticle.x = clamp(reticle.x, margin, CONFIG.roomW - margin);
+      reticle.y = clamp(reticle.y, margin, CONFIG.roomH - margin);
+      const duration = Math.max(0.2, Number(state.chargeDuration) || 2);
+      if(reticle.timer >= duration){
+        this.triggerBombProgenitorStrike(state);
+      }
+    }
+    triggerBombProgenitorStrike(state){
+      const reticle = state.reticle;
+      if(!reticle) return;
+      const position = {x: reticle.x, y: reticle.y};
+      state.reticle = null;
+      if(state.reticleEffect){
+        state.reticleEffect.life = Math.min(state.reticleEffect.life, 0.12);
+        state.reticleEffect = null;
+      }
+      const count = this.getBombProgenitorChainCount();
+      state.chainCount = count;
+      state.chainTimer = 0;
+      state.chainPosition = position;
+      if(runtime?.effects){
+        spawnCircularEffect(position.x, position.y, (state.reticleRadius || 28) * 1.05, {
+          duration:0.4,
+          innerColor:'#fff8',
+          midColor:'#fdba74',
+          outerColor:'#fb923c',
+        });
+      }
+    }
+    fireBombProgenitorMissile(state){
+      if(!state.chainCount || !state.chainPosition){
+        state.chainCount = 0;
+        state.chainPosition = null;
+        state.chainTimer = 0;
+        return;
+      }
+      const room = dungeon?.current;
+      if(!room){
+        state.chainCount = 0;
+        state.chainPosition = null;
+        return;
+      }
+      const pos = state.chainPosition;
+      const baseRadius = Number.isFinite(state.baseRadius)
+        ? state.baseRadius
+        : (CONFIG.bomb.radius * 1.25);
+      const radiusMultiplier = Math.max(0.1, this.bombRadiusMultiplier || 1);
+      const radius = baseRadius * radiusMultiplier;
+      const damageScale = Math.max(0.5, Number(state.damageScale) || 20);
+      const playerDamageMultiplier = Math.max(0.05, this.bombDamageMultiplier || 1);
+      const damage = Math.max(0.5, this.damage * damageScale * playerDamageMultiplier);
+      const knockPower = Number.isFinite(state.knockPower) ? state.knockPower : CONFIG.bomb.knock * 1.35;
+      const shake = Math.max(this.bombShakeStrength || 0, Number(state.shakeStrength) || 14);
+      if(runtime?.effects){
+        runtime.effects.push({
+          type:'shockwave',
+          x: pos.x,
+          y: pos.y,
+          maxRadius: radius * 1.25,
+          lineWidth: 7,
+          life: 0.5,
+          ttl: 0.5,
+          color: colorWithAlpha('#fb923c', 0.88),
+        });
+        spawnCircularEffect(pos.x, pos.y, radius * 0.9, {
+          duration:0.35,
+          innerColor:'#fff7',
+          midColor:'#fdba74',
+          outerColor:'#fb923c',
+        });
+      }
+      addScreenShake(shake, 0.35);
+      handleBombExplosion(room, {
+        x: pos.x,
+        y: pos.y,
+        explosionRadius: radius,
+        damageMultiplier: 1,
+        customDamage: damage,
+        customKnock: knockPower,
+        shakeStrength: shake,
+        owner: 'player',
+      });
+      state.chainCount = Math.max(0, state.chainCount - 1);
+      if(state.chainCount>0){
+        state.chainTimer = Math.max(0.12, Number(state.chainSpacing) || 0.3);
+      } else {
+        state.chainPosition = null;
+        state.chainTimer = 0;
       }
     }
     getShotInput(){
@@ -5200,6 +5620,21 @@
     getIFrameMultiplier(){
       return Math.max(0.1, this.ifrBoostMultiplier || 1);
     }
+    getAttackRatePerSecond(){
+      if(this.attackMode === 'bomb-elder'){
+        const interval = this.getBombElderInterval();
+        return interval>0 ? 1/interval : 0;
+      }
+      if(this.attackMode === 'bomb-progenitor'){
+        const cycle = this.getBombProgenitorCycleTime();
+        return cycle>0 ? 1/cycle : 0;
+      }
+      if(this.attackMode === 'brimstone'){
+        const charge = Math.max(0.0001, this.brimstoneChargeTime || ((CONFIG.player?.fireCd || 360) / 1000));
+        return charge>0 ? 1/charge : 0;
+      }
+      return this.fireInterval>0 ? 1000/this.fireInterval : 0;
+    }
     updateBrimstoneChargeMetrics(){
       const interval = Number.isFinite(this.fireInterval) ? this.fireInterval : (CONFIG.player.fireCd || 360);
       const brimstoneChargeScale = CONFIG?.brimstone?.chargeScale ?? 11.25;
@@ -5470,6 +5905,17 @@
         this.clearRoomBuff();
       } else if(this.roomBuff && !this.roomBuff.roomKey){
         this.clearRoomBuff();
+      }
+      if(this.bombProgenitor){
+        const state = this.bombProgenitor;
+        state.chainCount = 0;
+        state.chainTimer = 0;
+        state.chainPosition = null;
+        if(state.reticleEffect){
+          state.reticleEffect.life = Math.min(state.reticleEffect.life, 0.02);
+          state.reticleEffect = null;
+        }
+        state.reticle = null;
       }
     }
     setActiveItem(item){
@@ -6364,6 +6810,9 @@
         : (usePlayerStats ? (player?.bombShakeStrength ?? 0) : 0);
       const baseRadius = Number.isFinite(opts.baseRadius) ? opts.baseRadius : CONFIG.bomb.radius;
       this.explosionRadius = baseRadius * this.radiusMultiplier;
+      this.customDamage = Number.isFinite(opts.customDamage) ? opts.customDamage : null;
+      this.customKnock = Number.isFinite(opts.customKnock) ? opts.customKnock : null;
+      this.damageSource = opts.damageSource || null;
     }
     update(dt){
       if(this.done) return;
@@ -7156,7 +7605,12 @@
     if(!room) return;
     const radius = bomb?.explosionRadius || (CONFIG.bomb.radius * (bomb?.radiusMultiplier ?? 1));
     const circle = {x:bomb.x, y:bomb.y, r:radius};
-    const damage = CONFIG.bomb.damage * (bomb?.damageMultiplier ?? 1);
+    const damage = Number.isFinite(bomb?.customDamage)
+      ? bomb.customDamage
+      : CONFIG.bomb.damage * (bomb?.damageMultiplier ?? 1);
+    const knockPower = Number.isFinite(bomb?.customKnock)
+      ? bomb.customKnock
+      : CONFIG.bomb.knock;
     for(const enemy of room.enemies){
       if(enemy.dead) continue;
       const d = dist(bomb, enemy);
@@ -7182,7 +7636,7 @@
     if(player){
       const dp = dist(player, bomb);
       if(dp <= radius + player.r){
-        player.applyImpulse(player.x - bomb.x, player.y - bomb.y, CONFIG.bomb.knock);
+        player.applyImpulse(player.x - bomb.x, player.y - bomb.y, knockPower);
         player.hurt(CONFIG.bomb.playerDamage, {cause:'explosion'});
       }
     }
@@ -7197,7 +7651,7 @@
       for(const drop of room.pickups){
         if(!isPhysicalPickup(drop)) continue;
         if(dist(drop, bomb) <= radius + drop.r){
-          pushPickup(drop, bomb, CONFIG.bomb.knock * 1.45, {force:true});
+          pushPickup(drop, bomb, knockPower * 1.45, {force:true});
           ensurePickupMotion(drop);
           drop.vx *= 1.25;
           drop.vy *= 1.25;
@@ -7208,7 +7662,7 @@
       if(other===bomb || other.done || other.exploded) continue;
       const db = dist(other, bomb);
       if(db <= radius + other.r){
-        other.applyImpulse(other.x - bomb.x, other.y - bomb.y, CONFIG.bomb.knock * 1.1);
+        other.applyImpulse(other.x - bomb.x, other.y - bomb.y, knockPower * 1.1);
       }
     }
     for(const proj of runtime.enemyProjectiles){
@@ -11442,6 +11896,8 @@
         drawActiveAuraEffect(effect);
       } else if(effect.type==='shockwave'){
         drawShockwaveEffect(effect);
+      } else if(effect.type==='bomb-progenitor-reticle'){
+        drawBombProgenitorReticle(effect);
       } else if(typeof effect.draw === 'function'){
         effect.draw(ctx, effect);
       }
@@ -11515,6 +11971,39 @@
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.arc(effect.x, effect.y, radius, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBombProgenitorReticle(effect){
+    if(!effect) return;
+    const radius = Math.max(12, effect.radius || 24);
+    const progress = clamp(effect.progress ?? 0, 0, 1);
+    const phase = effect.phase || 0;
+    ctx.save();
+    ctx.translate(effect.x || 0, effect.y || 0);
+    const pulse = 0.55 + 0.35 * Math.sin(phase * 2.2);
+    ctx.globalAlpha = clamp(0.6 + progress*0.4, 0, 1) * pulse;
+    ctx.strokeStyle = colorWithAlpha('#fb923c', 0.85);
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(0,0,radius,0,Math.PI*2);
+    ctx.stroke();
+    ctx.strokeStyle = colorWithAlpha('#fde68a', 0.9);
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(0,0,radius*0.64,0,Math.PI*2);
+    ctx.stroke();
+    ctx.strokeStyle = colorWithAlpha('#f97316', 0.8);
+    ctx.lineWidth = 2;
+    const arm = radius * (0.95 - progress*0.35);
+    ctx.beginPath();
+    ctx.moveTo(-arm,0); ctx.lineTo(arm,0);
+    ctx.moveTo(0,-arm); ctx.lineTo(0,arm);
+    ctx.stroke();
+    ctx.fillStyle = colorWithAlpha('#fde68a', 0.75 + 0.2*progress);
+    ctx.beginPath();
+    ctx.arc(0,0,radius*0.18*(1+0.6*progress),0,Math.PI*2);
     ctx.fill();
     ctx.restore();
   }
@@ -12451,18 +12940,95 @@
       }
     }
   }
+
+  function resolveEnemyBombBlocking(enemy){
+    if(!enemy || !dungeon?.current) return;
+    const bombs = dungeon.current.bombs;
+    if(!Array.isArray(bombs) || !bombs.length) return;
+    for(const bomb of bombs){
+      if(!bomb || bomb.done || bomb.exploded) continue;
+      if(bomb.spawnGrace>0) continue;
+      const br = bomb.r || 0;
+      const er = enemy.r || 0;
+      if(er<=0 || br<=0) continue;
+      const dx = enemy.x - bomb.x;
+      const dy = enemy.y - bomb.y;
+      const minDist = er + br;
+      const distSq = dx*dx + dy*dy;
+      if(distSq >= minDist*minDist) continue;
+      const dist = Math.sqrt(distSq) || 0.0001;
+      const overlap = minDist - dist;
+      if(!(overlap>0)) continue;
+      const nx = dx / dist;
+      const ny = dy / dist;
+      const push = overlap + 0.6;
+      const prevX = enemy.x;
+      const prevY = enemy.y;
+      enemy.x += nx * push;
+      enemy.y += ny * push;
+      if(enemy.base && typeof enemy.base === 'object'){
+        if(Number.isFinite(enemy.base.x)) enemy.base.x += enemy.x - prevX;
+        if(Number.isFinite(enemy.base.y)) enemy.base.y += enemy.y - prevY;
+      }
+      if(enemy.knockVel){
+        const dot = enemy.knockVel.x*nx + enemy.knockVel.y*ny;
+        if(dot>0){
+          enemy.knockVel.x -= dot*nx*0.85;
+          enemy.knockVel.y -= dot*ny*0.85;
+        }
+      }
+      if(typeof enemy.vx === 'number' && typeof enemy.vy === 'number'){
+        const velDot = enemy.vx*nx + enemy.vy*ny;
+        if(velDot>0){
+          enemy.vx -= velDot*nx;
+          enemy.vy -= velDot*ny;
+        }
+      }
+      if(typeof enemy.onBombBlocked === 'function'){
+        enemy.onBombBlocked(bomb, {nx, ny, overlap: push});
+      }
+    }
+  }
   function circleRectResolve(circle, rect){
-    const nx = clamp(circle.x, rect.x, rect.x+rect.w);
-    const ny = clamp(circle.y, rect.y, rect.y+rect.h);
-    const dx = circle.x - nx;
-    const dy = circle.y - ny;
+    if(!circle || !rect) return null;
+    const closestX = clamp(circle.x, rect.x, rect.x + rect.w);
+    const closestY = clamp(circle.y, rect.y, rect.y + rect.h);
+    const dx = circle.x - closestX;
+    const dy = circle.y - closestY;
+    const r = circle.r || 0;
     const distSq = dx*dx + dy*dy;
-    const r = circle.r;
     if(distSq >= r*r) return null;
+    const insideX = closestX === circle.x;
+    const insideY = closestY === circle.y;
+    if(insideX && insideY){
+      const centerX = rect.x + rect.w/2;
+      const centerY = rect.y + rect.h/2;
+      const diffX = circle.x - centerX;
+      const diffY = circle.y - centerY;
+      const absX = Math.abs(diffX);
+      const absY = Math.abs(diffY);
+      if(absX > absY){
+        const sign = diffX>=0 ? 1 : -1;
+        return {x: (rect.w/2 + r - absX) * sign, y:0};
+      } else {
+        const sign = diffY>=0 ? 1 : -1;
+        return {x:0, y: (rect.h/2 + r - absY) * sign};
+      }
+    }
+    if(insideX){
+      const sign = dy>=0 ? 1 : -1;
+      const overlap = r - Math.abs(dy);
+      return {x:0, y: overlap * sign};
+    }
+    if(insideY){
+      const sign = dx>=0 ? 1 : -1;
+      const overlap = r - Math.abs(dx);
+      return {x: overlap * sign, y:0};
+    }
     const dist = Math.sqrt(distSq) || 0.0001;
     const overlap = r - dist;
-    const ox = dist ? (dx/dist) * overlap : 0;
-    const oy = dist ? (dy/dist) * overlap : -overlap;
+    const ox = (dx/dist) * overlap;
+    const oy = (dy/dist) * overlap;
     return {x:ox, y:oy};
   }
 
@@ -12531,6 +13097,7 @@
     const enemies = dungeon.current.enemies;
     for(const e of enemies){
       e.update(worldDt);
+      resolveEnemyBombBlocking(e);
       if(typeof e.damageFlashTimer === 'number' && e.damageFlashTimer>0){
         e.damageFlashTimer = Math.max(0, e.damageFlashTimer - worldDt);
       }
@@ -12682,7 +13249,10 @@
     const soulDisplay = player.soulHearts>0 ? `<span class="kbd" style="color:#60a5fa">💙 ${player.soulHearts}</span>` : '';
     const runClock = runtime.runTimer ? runtime.runTimer.format() : '00:00.00';
     HUDL.innerHTML = `生命：<span style="letter-spacing:1px">${redHearts}${emptyHearts}</span>${soulDisplay}<span class="kbd">💣 ${player.bombs}</span><span class="kbd">🔑 ${player.keys}</span><span class="kbd">🪙 ${player.coins}</span><span class="kbd">⏱ ${runClock}</span>`;
-    const fireRate = player.fireInterval>0 ? (1000/player.fireInterval).toFixed(2) : '∞';
+    const attackRate = typeof player.getAttackRatePerSecond === 'function'
+      ? player.getAttackRatePerSecond()
+      : (player.fireInterval>0 ? 1000/player.fireInterval : 0);
+    const fireRate = attackRate>0 ? attackRate.toFixed(2) : '0.00';
     const damage = Number.isInteger(player.damage) ? player.damage : player.damage.toFixed(1);
     const moveSpeed = Math.round(player.speed);
     const tearSpeed = Math.round(player.tearSpeed);
@@ -13445,6 +14015,39 @@
       g.beginPath(); g.arc(0,0,r*0.95,0,Math.PI*2); g.stroke();
       g.fillStyle='#34d399';
       g.beginPath(); g.arc(0,r*0.05,r*0.18,0,Math.PI*2); g.fill();
+    } else if(id==='bomb-elder'){
+      g.fillStyle='#111827';
+      g.beginPath(); g.arc(0,0,r*0.8,0,Math.PI*2); g.fill();
+      g.strokeStyle='#facc15';
+      g.lineWidth=2.5;
+      g.beginPath(); g.arc(0,0,r*0.92,0,Math.PI*2); g.stroke();
+      g.fillStyle='#f97316';
+      g.beginPath(); g.arc(0,0,r*0.48,0,Math.PI*2); g.fill();
+      g.fillStyle='#fde68a';
+      g.beginPath();
+      g.moveTo(-r*0.22, -r*0.85);
+      g.quadraticCurveTo(0, -r*1.2, r*0.22, -r*0.85);
+      g.lineTo(0, -r*0.45);
+      g.closePath();
+      g.fill();
+      g.fillStyle='#fbbf24';
+      g.beginPath(); g.arc(-r*0.32, -r*0.2, r*0.12, 0, Math.PI*2); g.fill();
+      g.beginPath(); g.arc(r*0.28, -r*0.15, r*0.1, 0, Math.PI*2); g.fill();
+    } else if(id==='bomb-progenitor'){
+      g.strokeStyle='#fde68a';
+      g.lineWidth=2.5;
+      g.beginPath(); g.arc(0,0,r*0.88,0,Math.PI*2); g.stroke();
+      g.strokeStyle='#fb923c';
+      g.lineWidth=2;
+      g.beginPath(); g.arc(0,0,r*0.6,0,Math.PI*2); g.stroke();
+      g.strokeStyle='#f97316';
+      g.lineWidth=2;
+      g.beginPath(); g.moveTo(-r*0.88,0); g.lineTo(r*0.88,0); g.stroke();
+      g.beginPath(); g.moveTo(0,-r*0.88); g.lineTo(0,r*0.88); g.stroke();
+      g.fillStyle='#fb923c';
+      g.beginPath(); g.arc(0,0,r*0.18,0,Math.PI*2); g.fill();
+      g.fillStyle='#fef3c7';
+      g.beginPath(); g.arc(0,0,r*0.08,0,Math.PI*2); g.fill();
     } else if(id==='brother'){
       g.fillStyle = '#fde68a';
       g.beginPath(); g.arc(-r*0.35,0,r*0.35,0,Math.PI*2); g.fill();
@@ -14015,7 +14618,7 @@
 
   function drawItemPickupBanner(){
     if(runtime.itemPickupTimer<=0 || !runtime.itemPickupName) return;
-    const baseText = `${runtime.itemPickupName} 入手！`;
+    const baseText = `${runtime.itemPickupName}`;
     const desc = runtime.itemPickupDesc;
     ctx.save();
     const lifeRatio = Math.min(1, runtime.itemPickupTimer / 1.2);
