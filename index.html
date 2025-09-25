@@ -3418,6 +3418,7 @@
       this.hp = this.maxHp; this.ifr=0; // 无敌帧
       this.soulHearts = 0;
       this.soulHeartCapMultiplier = 1;
+      this.unlimitedSoulHearts = true;
       this.ifrBoostMultiplier = 1;
       this.enemySpeedMultiplier = 1;
       this.enemySpawnFactor = 1;
@@ -4691,6 +4692,9 @@
       this.recalculateDamage();
     }
     getSoulHeartCap(){
+      if(this.unlimitedSoulHearts){
+        return Number.POSITIVE_INFINITY;
+      }
       const mult = Number.isFinite(this.soulHeartCapMultiplier) ? Math.max(0, this.soulHeartCapMultiplier) : 1;
       return Math.max(0, Math.floor(this.maxHp * mult));
     }
@@ -6757,6 +6761,48 @@
     return prepareEnemy(enemy);
   }
 
+  const BOSS_TUNING = Object.freeze({
+    sizeScale: 0.8,
+    tempoScale: 1.2,
+    heavyAttackWeight: 0.8,
+    deathShake: { intensity: 7.5, duration: 0.5 },
+  });
+  function scaleBossRadius(value){
+    if(!Number.isFinite(value)) return value;
+    return value * BOSS_TUNING.sizeScale;
+  }
+  function scaleBossTempo(value){
+    if(!Number.isFinite(value)) return value;
+    return value * BOSS_TUNING.tempoScale;
+  }
+  function applyBossHeavyChance(baseChance){
+    if(!Number.isFinite(baseChance)) return baseChance;
+    return clamp(baseChance * BOSS_TUNING.heavyAttackWeight, 0, 0.98);
+  }
+  function adjustBossHeavyThreshold(baseThreshold){
+    if(!Number.isFinite(baseThreshold)) return baseThreshold;
+    return 1 - (1 - baseThreshold) * BOSS_TUNING.heavyAttackWeight;
+  }
+  function pickWeightedOption(options){
+    if(!Array.isArray(options) || options.length===0) return null;
+    let total = 0;
+    for(const opt of options){
+      total += Math.max(0, Number(opt.weight) || 0);
+    }
+    if(total<=0){
+      return options[0];
+    }
+    const roll = rand() * total;
+    let acc = 0;
+    for(const opt of options){
+      acc += Math.max(0, Number(opt.weight) || 0);
+      if(roll <= acc){
+        return opt;
+      }
+    }
+    return options[options.length-1];
+  }
+
   function makeBoss(pos, room){
     const bossId = room?.bossId || 'idol';
     let boss;
@@ -8242,11 +8288,11 @@
 
   class EnemyBoss{
     constructor(x,y,name){
-      this.x=x; this.y=y; this.r=36;
+      this.x=x; this.y=y; this.r=scaleBossRadius(36);
       this.hp=70; this.maxHp=this.hp;
       this.name=name;
       this.state='idle';
-      this.attackTimer=1.5; this.chargeTimer=0; this.recoverTimer=0;
+      this.attackTimer=scaleBossTempo(1.5); this.chargeTimer=0; this.recoverTimer=0;
       this.hitFlash=0; this.enraged=false;
       this.telegraphTimer=0; this.telegraphTotal=0; this.telegraphType='';
       this.attackPlan=null; this.nextCooldown=0; this.afterChargePlan=null;
@@ -8266,7 +8312,7 @@
         this.x += this.vx*dt; this.y += this.vy*dt;
         if(this.chargeTimer<=0){
           this.state='recover';
-          const plan = this.afterChargePlan || {recover:0.6, cooldown:1.8};
+          const plan = this.afterChargePlan || {recover:scaleBossTempo(0.6), cooldown:scaleBossTempo(1.8)};
           this.recoverTimer = plan.recover;
           this.nextCooldown = plan.cooldown;
           this.afterChargePlan = null;
@@ -8284,7 +8330,7 @@
           this.recoverTimer -= dt * this.aggression;
           if(this.recoverTimer<=0){
             this.state='idle';
-            this.attackTimer = this.nextCooldown || (this.enraged ? 1.6 : 2.2);
+            this.attackTimer = this.nextCooldown || scaleBossTempo(this.enraged ? 1.6 : 2.2);
             this.nextCooldown = 0;
           }
         } else if(this.state==='windup'){
@@ -8303,20 +8349,21 @@
       if(this.hitFlash>0) this.hitFlash -= dt;
       if(!this.enraged && this.hp <= this.maxHp*0.55){
         this.enraged=true;
-        this.attackTimer = Math.min(this.attackTimer, 1.1);
+        this.attackTimer = Math.min(this.attackTimer, scaleBossTempo(1.1));
       }
     }
     scheduleAttack(type, config, execute){
       const plan = {
         type,
         execute,
-        recover: (config?.recover ?? 0.7),
-        cooldown: (config?.cooldown ?? 1.8),
+        recover: scaleBossTempo(config?.recover ?? 0.7),
+        cooldown: scaleBossTempo(config?.cooldown ?? 1.8),
         post: config?.post || 'recover'
       };
       this.attackPlan = plan;
       this.telegraphType = type;
-      this.telegraphTimer = Math.max(0.2, (config?.windup ?? 0.6));
+      const windup = scaleBossTempo(config?.windup ?? 0.6);
+      this.telegraphTimer = Math.max(0.2, windup);
       this.telegraphTotal = this.telegraphTimer;
       this.state = 'windup';
     }
@@ -8338,13 +8385,14 @@
     }
     chooseAttack(){
       const roll = rand();
+      const heavyThreshold = adjustBossHeavyThreshold(0.75);
       if(roll < 0.45){
         this.scheduleAttack('spray', {
           windup: this.enraged ? 0.65 : 0.85,
           recover: this.enraged ? 0.55 : 0.7,
           cooldown: this.enraged ? 1.6 : 2.2
         }, this.sprayAttack);
-      } else if(roll < 0.75){
+      } else if(roll < heavyThreshold){
         this.scheduleAttack('summon', {
           windup: this.enraged ? 0.75 : 0.95,
           recover: this.enraged ? 0.65 : 0.85,
@@ -8458,11 +8506,11 @@
 
   class EnemyBossMaster{
     constructor(x,y,name){
-      this.x=x; this.y=y; this.r=34;
+      this.x=x; this.y=y; this.r=scaleBossRadius(34);
       this.hp=85; this.maxHp=this.hp;
       this.name=name;
       this.state='idle';
-      this.attackCooldown = 1.8;
+      this.attackCooldown = scaleBossTempo(1.8);
       this.telegraphTimer = 0;
       this.hitFlash = 0;
       this.enraged=false;
@@ -8517,23 +8565,23 @@
           this.state='slam';
           this.altitude = 0;
           this.performSlam();
-          this.recoverTimer = (this.enraged ? 0.6 : 0.75);
+          this.recoverTimer = scaleBossTempo(this.enraged ? 0.6 : 0.75);
         }
       } else if(this.state==='slam'){
         this.recoverTimer -= dt * this.aggression;
         this.altitude = Math.max(0, this.altitude - dt*4*this.aggression);
         if(this.recoverTimer<=0){
           this.state='recover';
-          this.attackCooldown = (this.enraged ? 1.2 : 1.6);
-          this.recoverTimer = (this.enraged ? 0.5 : 0.7);
+          this.attackCooldown = scaleBossTempo(this.enraged ? 1.2 : 1.6);
+          this.recoverTimer = scaleBossTempo(this.enraged ? 0.5 : 0.7);
         }
       } else if(this.state==='wave'){
         this.recoverTimer -= dt * this.aggression;
         this.altitude = Math.max(0, this.altitude - dt*3.5*this.aggression);
         if(this.recoverTimer<=0){
           this.state='recover';
-          this.attackCooldown = (this.enraged ? 1.35 : 1.8);
-          this.recoverTimer = (this.enraged ? 0.45 : 0.6);
+          this.attackCooldown = scaleBossTempo(this.enraged ? 1.35 : 1.8);
+          this.recoverTimer = scaleBossTempo(this.enraged ? 0.45 : 0.6);
         }
       } else if(this.state==='recover'){
         this.recoverTimer -= dt * this.aggression;
@@ -8544,14 +8592,15 @@
       this.y = clamp(this.y, 90, CONFIG.roomH-90);
     }
     chooseAttack(){
-      if(rand() < 0.55){
+      const jumpChance = applyBossHeavyChance(0.55);
+      if(rand() < jumpChance){
         this.state='telegraph-jump';
-        this.telegraphTimer = (this.enraged ? 1.05 : 1.3);
+        this.telegraphTimer = scaleBossTempo(this.enraged ? 1.05 : 1.3);
         this.telegraphTotal = this.telegraphTimer;
         this.telegraphType = 'jump';
       } else {
         this.state='telegraph-wave';
-        this.telegraphTimer = (this.enraged ? 1.0 : 1.2);
+        this.telegraphTimer = scaleBossTempo(this.enraged ? 1.0 : 1.2);
         this.telegraphTotal = this.telegraphTimer;
         this.telegraphType = 'wave';
       }
@@ -8579,7 +8628,7 @@
       this.state='jumping';
     }
     performSlam(){
-      const radius = 90 + (this.enraged ? 20 : 0);
+      const radius = scaleBossRadius(90 + (this.enraged ? 20 : 0));
       if(player && dist(this, player) <= this.r + radius){
         player.hurt(2);
         player.applyImpulse(player.x - this.x, player.y - this.y, 220);
@@ -8620,7 +8669,7 @@
         queueEnemySpawn(makeEnemy('spider', pos, dungeon.depth+1), {bossSummon:true, summoner:this});
       }
       this.state='wave';
-      this.recoverTimer = (this.enraged ? 0.8 : 1.0);
+      this.recoverTimer = scaleBossTempo(this.enraged ? 0.8 : 1.0);
     }
     damage(d){
       if(this.state==='jumping'){ d *= 0.6; }
@@ -8686,11 +8735,11 @@
 
   class EnemyBossHydra{
     constructor(x,y,name){
-      this.x=x; this.y=y; this.r=34;
+      this.x=x; this.y=y; this.r=scaleBossRadius(34);
       this.hp=78; this.maxHp=this.hp;
       this.name=name;
       this.state='orbit';
-      this.attackTimer=1.5;
+      this.attackTimer=scaleBossTempo(1.5);
       this.hitFlash=0;
       this.enraged=false;
       this.rotation=rand()*Math.PI*2;
@@ -8745,7 +8794,7 @@
         this.recoverTimer -= dt * this.aggression;
         if(this.recoverTimer<=0){
           this.state='orbit';
-          this.attackTimer = this.nextCooldown || (this.enraged ? 1.6 : 2.0);
+          this.attackTimer = this.nextCooldown || scaleBossTempo(this.enraged ? 1.6 : 2.0);
           this.nextCooldown = 0;
         }
       } else {
@@ -8777,12 +8826,18 @@
       }
     }
     chooseAttack(){
-      const options = ['fans','spiral','orbs'];
+      const baseOptions = [
+        {type:'fans', weight:1},
+        {type:'spiral', weight:BOSS_TUNING.heavyAttackWeight},
+        {type:'orbs', weight:1},
+      ];
+      const options = baseOptions.slice();
       if(this.lastAttack){
-        const idx = options.indexOf(this.lastAttack);
+        const idx = options.findIndex(opt => opt.type === this.lastAttack);
         if(idx>=0 && options.length>1){ options.splice(idx,1); }
       }
-      const pick = options[Math.floor(rand()*options.length)];
+      const choice = pickWeightedOption(options) || options[0];
+      const pick = choice?.type || (options[0]?.type ?? 'fans');
       this.lastAttack = pick;
       if(pick==='fans'){
         this.scheduleAttack('fans', {
@@ -8808,11 +8863,12 @@
       this.attackPlan = {
         type,
         execute,
-        recover: (config?.recover ?? 0.7),
-        cooldown: (config?.cooldown ?? 1.8)
+        recover: scaleBossTempo(config?.recover ?? 0.7),
+        cooldown: scaleBossTempo(config?.cooldown ?? 1.8)
       };
       this.telegraphType = type;
-      this.telegraphTimer = Math.max(0.25, (config?.windup ?? 0.6));
+      const windup = scaleBossTempo(config?.windup ?? 0.6);
+      this.telegraphTimer = Math.max(0.25, windup);
       this.telegraphTotal = this.telegraphTimer;
       this.state='windup';
     }
@@ -8964,13 +9020,13 @@
 
   class EnemyBossSeer{
     constructor(x,y,name){
-      this.x=x; this.y=y; this.r=30;
+      this.x=x; this.y=y; this.r=scaleBossRadius(30);
       this.hp=74; this.maxHp=this.hp;
       this.name=name;
       this.state='glide';
-      this.attackTimer=1.4;
+      this.attackTimer=scaleBossTempo(1.4);
       this.telegraphTimer=0;
-      this.telegraphTotal=0.5;
+      this.telegraphTotal=scaleBossTempo(0.5);
       this.channelTimer=0;
       this.channelType='';
       this.channelTotal=0;
@@ -8983,7 +9039,7 @@
       this.lastAttack='';
       this.nextAttackType='';
       this.warpTarget={x,y};
-      this.recoverTimer=0.6;
+      this.recoverTimer=scaleBossTempo(0.6);
       this.isBossEntity=true;
       this.scaling=getFloorScalingFactors();
       this.hp=Math.round(this.hp*this.scaling.hp);
@@ -9028,9 +9084,10 @@
         this.state='channel';
         this.channelType=this.nextAttackType;
         const base = this.channelType==='lance' ? 0.58 : (this.channelType==='mirror'?0.65:0.7);
-        this.channelTimer = base;
-        if(this.enraged) this.channelTimer *= 0.9;
-        this.channelTotal = this.channelTimer;
+        let channel = scaleBossTempo(base);
+        if(this.enraged) channel *= 0.9;
+        this.channelTimer = channel;
+        this.channelTotal = channel;
         this.channelDirection = Math.atan2((player?.y ?? this.y) - this.y, (player?.x ?? this.x) - this.x);
         this.fade = 1;
       }
@@ -9051,12 +9108,18 @@
       }
     }
     chooseAttack(){
-      const options = ['lance','mirror','meteor'];
+      const baseOptions = [
+        {type:'lance', weight:1},
+        {type:'mirror', weight:1},
+        {type:'meteor', weight:BOSS_TUNING.heavyAttackWeight},
+      ];
+      const options = baseOptions.slice();
       if(this.lastAttack){
-        const idx = options.indexOf(this.lastAttack);
+        const idx = options.findIndex(opt => opt.type===this.lastAttack);
         if(idx>=0 && options.length>1){ options.splice(idx,1); }
       }
-      const pick = options[Math.floor(rand()*options.length)];
+      const choice = pickWeightedOption(options) || options[0];
+      const pick = choice?.type || (options[0]?.type ?? 'lance');
       this.lastAttack = pick;
       this.startWarp(pick);
     }
@@ -9064,9 +9127,10 @@
       this.state='warp';
       this.nextAttackType = type;
       const baseWindup = type==='lance' ? 0.65 : (type==='mirror' ? 0.7 : 0.75);
-      this.telegraphTotal = baseWindup;
-      if(this.enraged) this.telegraphTotal *= 0.85;
-      this.telegraphTimer = this.telegraphTotal;
+      let windup = scaleBossTempo(baseWindup);
+      if(this.enraged) windup *= 0.85;
+      this.telegraphTotal = windup;
+      this.telegraphTimer = windup;
       if(type==='lance' && player){
         const distTarget = this.enraged ? 210 : 240;
         const angle = Math.atan2(player.y - this.y, player.x - this.x) + Math.PI;
@@ -9109,8 +9173,8 @@
       }
       addScreenShake(4,0.25);
       spawnCircularEffect(this.x, this.y, this.r+16, {innerColor:'#ede9fe', midColor:'#c4b5fd', outerColor:'#a855f7'});
-      this.recoverTimer = (this.enraged?0.7:0.85);
-      this.attackTimer = (this.enraged?1.2:1.5);
+      this.recoverTimer = scaleBossTempo(this.enraged?0.7:0.85);
+      this.attackTimer = scaleBossTempo(this.enraged?1.2:1.5);
     }
     performMirror(){
       const centerX = CONFIG.roomW/2;
@@ -9123,15 +9187,15 @@
         const rune = {
           x: clamp(centerX + Math.cos(angle)*radius, 60, CONFIG.roomW-60),
           y: clamp(centerY + Math.sin(angle)*radius, 80, CONFIG.roomH-80),
-          timer: (0.35 + i*0.1) * (this.enraged?0.85:1),
+          timer: scaleBossTempo((0.35 + i*0.1) * (this.enraged?0.85:1)),
           fired:false,
           life:1.1,
         };
         this.runes.push(rune);
       }
       spawnCircularEffect(centerX, centerY, radius+12, {innerColor:'#ede9fe', midColor:'#c4b5fd', outerColor:'#a855f7'});
-      this.recoverTimer = (this.enraged?0.75:0.95);
-      this.attackTimer = (this.enraged?1.35:1.65);
+      this.recoverTimer = scaleBossTempo(this.enraged?0.75:0.95);
+      this.attackTimer = scaleBossTempo(this.enraged?1.35:1.65);
     }
     performMeteor(){
       const count = this.enraged ? 8 : 6;
@@ -9147,8 +9211,8 @@
           color: '#a855f7',
         }));
       }
-      this.recoverTimer = (this.enraged?0.8:1.0);
-      this.attackTimer = (this.enraged?1.4:1.7);
+      this.recoverTimer = scaleBossTempo(this.enraged?0.8:1.0);
+      this.attackTimer = scaleBossTempo(this.enraged?1.4:1.7);
     }
     updateRunes(dt){
       for(let i=this.runes.length-1;i>=0;i--){
@@ -9258,12 +9322,12 @@
 
   class EnemyBossTitan{
     constructor(x,y,name){
-      this.x=x; this.y=y; this.r=36;
+      this.x=x; this.y=y; this.r=scaleBossRadius(36);
       this.hp=90; this.maxHp=this.hp;
       this.name=name;
       this.state='stalk';
-      this.attackTimer=1.8;
-      this.recoverTimer=0.7;
+      this.attackTimer=scaleBossTempo(1.8);
+      this.recoverTimer=scaleBossTempo(0.7);
       this.leapTimer=0;
       this.leapDuration=0.7;
       this.leapStart={x,y};
@@ -9348,7 +9412,7 @@
       if(ratio>=1){
         this.state='recover';
         this.altitude = 0;
-        const plan = this.afterLeapPlan || {recover:(this.enraged?0.55:0.7), cooldown:(this.enraged?1.3:1.6)};
+        const plan = this.afterLeapPlan || {recover:scaleBossTempo(this.enraged?0.55:0.7), cooldown:scaleBossTempo(this.enraged?1.3:1.6)};
         this.recoverTimer = plan.recover;
         this.nextCooldown = plan.cooldown;
         this.afterLeapPlan = null;
@@ -9362,7 +9426,7 @@
       if(this.telegraphTimer<=0){
         this.performQuakeImpact();
         this.state='recover';
-        const plan = this.manualRecoverPlan || {recover:(this.enraged?0.6:0.8), cooldown:(this.enraged?1.4:1.7)};
+        const plan = this.manualRecoverPlan || {recover:scaleBossTempo(this.enraged?0.6:0.8), cooldown:scaleBossTempo(this.enraged?1.4:1.7)};
         this.recoverTimer = plan.recover;
         this.nextCooldown = plan.cooldown;
         this.manualRecoverPlan = null;
@@ -9373,7 +9437,7 @@
       if(this.recoverTimer<=0){
         this.state='stalk';
         this.altitude = 0;
-        this.attackTimer = this.nextCooldown || (this.enraged?1.3:1.6);
+        this.attackTimer = this.nextCooldown || scaleBossTempo(this.enraged?1.3:1.6);
         this.nextCooldown = 0;
         this.telegraphType='';
         this.telegraphTotal=0;
@@ -9381,12 +9445,18 @@
       }
     }
     chooseAttack(){
-      const options = ['slam','quake','boulder'];
+      const baseOptions = [
+        {type:'slam', weight:1},
+        {type:'quake', weight:BOSS_TUNING.heavyAttackWeight},
+        {type:'boulder', weight:1},
+      ];
+      const options = baseOptions.slice();
       if(this.lastAttack){
-        const idx = options.indexOf(this.lastAttack);
+        const idx = options.findIndex(opt => opt.type===this.lastAttack);
         if(idx>=0 && options.length>1){ options.splice(idx,1); }
       }
-      const pick = options[Math.floor(rand()*options.length)];
+      const choice = pickWeightedOption(options) || options[0];
+      const pick = choice?.type || (options[0]?.type ?? 'slam');
       this.lastAttack = pick;
       if(pick==='slam'){
         this.scheduleAttack('slam', {
@@ -9414,12 +9484,13 @@
       this.attackPlan = {
         type,
         execute,
-        recover: (config.recover ?? 0.7),
-        cooldown: (config.cooldown ?? 1.6),
+        recover: scaleBossTempo(config.recover ?? 0.7),
+        cooldown: scaleBossTempo(config.cooldown ?? 1.6),
         post: config.post || 'recover'
       };
       this.telegraphType = type;
-      this.telegraphTimer = Math.max(0.3, (config.windup ?? 0.6));
+      const windup = scaleBossTempo(config.windup ?? 0.6);
+      this.telegraphTimer = Math.max(0.3, windup);
       this.telegraphTotal = this.telegraphTimer;
       this.state='windup';
     }
@@ -9464,12 +9535,12 @@
     }
     startQuake(){
       this.state='brace';
-      this.telegraphTimer = (this.enraged?0.85:1.05);
+      this.telegraphTimer = scaleBossTempo(this.enraged?0.85:1.05);
       this.altitude = 0;
       spawnCircularEffect(this.x, this.y, this.r+24, {innerColor:'#fef3c7', midColor:'#fcd34d', outerColor:'#f97316'});
       const pulses = this.enraged ? 3 : 2;
       for(let i=0;i<pulses;i++){
-        this.pendingEvents.push({type:'quakePulse', delay:0.1 + i*0.22, power:i});
+        this.pendingEvents.push({type:'quakePulse', delay:scaleBossTempo(0.1 + i*0.22), power:i});
       }
     }
     startBoulder(){
@@ -9499,7 +9570,7 @@
       }
       const waveCount = this.enraged ? 2 : 1;
       for(let i=0;i<waveCount;i++){
-        this.pendingEvents.push({type:'shockwave', delay:i*0.15, radius:this.r+16 + i*14});
+        this.pendingEvents.push({type:'shockwave', delay:scaleBossTempo(i*0.15), radius:this.r+16 + i*14});
       }
     }
     performQuakeImpact(){
@@ -10006,13 +10077,13 @@
 
   class EnemyBossUmbra{
     constructor(x,y,name){
-      this.x=x; this.y=y; this.r=30;
+      this.x=x; this.y=y; this.r=scaleBossRadius(30);
       this.hp=80; this.maxHp=this.hp;
       this.name=name;
       this.state='stalk';
-      this.teleportTimer=2.2;
-      this.attackTimer=1.6;
-      this.teleportDuration=0.45;
+      this.teleportTimer=scaleBossTempo(2.2);
+      this.attackTimer=scaleBossTempo(1.6);
+      this.teleportDuration=scaleBossTempo(0.45);
       this.teleportProgress=0;
       this.invulnerableTimer=0;
       this.enraged=false;
@@ -10036,7 +10107,7 @@
       if(this.invulnerableTimer>0){ this.invulnerableTimer = Math.max(0, this.invulnerableTimer - dt); }
       if(!this.enraged && this.hp <= this.maxHp*0.55){
         this.enraged = true;
-        this.teleportTimer = Math.min(this.teleportTimer, 1.3);
+        this.teleportTimer = Math.min(this.teleportTimer, scaleBossTempo(1.3));
       }
       if(this.state==='vanish'){
         this.teleportProgress += dt * this.aggression / this.teleportDuration;
@@ -10058,7 +10129,7 @@
         this.recoverTimer -= dt * this.aggression;
         if(this.recoverTimer<=0){
           this.state='stalk';
-          this.attackTimer = this.nextCooldown || (this.enraged?1.2:1.7);
+          this.attackTimer = this.nextCooldown || scaleBossTempo(this.enraged?1.2:1.7);
           this.nextCooldown = 0;
         }
         return;
@@ -10089,7 +10160,7 @@
     beginTeleport(){
       this.state='vanish';
       this.teleportProgress = 0;
-      this.teleportTimer = randRange(1.8, 2.4);
+      this.teleportTimer = scaleBossTempo(randRange(1.8, 2.4));
       this.invulnerableTimer = Math.max(this.invulnerableTimer, 0.6);
       spawnCircularEffect(this.x, this.y, this.r+24, {
         innerColor: colorWithAlpha('#ede9fe', 0.85),
@@ -10115,13 +10186,14 @@
     }
     chooseAttack(){
       const roll = rand();
+      const heavyThreshold = adjustBossHeavyThreshold(0.75);
       if(roll < 0.45){
         this.scheduleAttack('fan', {
           windup: this.enraged ? 0.6 : 0.8,
           recover: this.enraged ? 0.55 : 0.75,
           cooldown: this.enraged ? 1.2 : 1.7
         }, this.launchShadowFan);
-      } else if(roll < 0.75){
+      } else if(roll < heavyThreshold){
         this.scheduleAttack('summon', {
           windup: this.enraged ? 0.75 : 0.95,
           recover: this.enraged ? 0.7 : 0.9,
@@ -10139,11 +10211,12 @@
       this.attackPlan = {
         type,
         execute,
-        recover: (config.recover ?? 0.6),
-        cooldown: config.cooldown ?? (this.enraged?1.2:1.7),
+        recover: scaleBossTempo(config.recover ?? 0.6),
+        cooldown: scaleBossTempo(config.cooldown ?? (this.enraged?1.2:1.7)),
       };
       this.telegraphType = type;
-      this.telegraphTimer = Math.max(0.25, (config.windup ?? 0.6));
+      const windup = scaleBossTempo(config.windup ?? 0.6);
+      this.telegraphTimer = Math.max(0.25, windup);
       this.telegraphTotal = this.telegraphTimer;
       this.state='windup';
     }
@@ -10259,14 +10332,14 @@
 
   class EnemyBossParadox{
     constructor(x,y,name){
-      this.x=x; this.y=y; this.r=34;
+      this.x=x; this.y=y; this.r=scaleBossRadius(34);
       this.hp=110; this.maxHp=this.hp;
       this.name=name;
       this.state='float';
-      this.teleportTimer=2.1;
-      this.attackTimer=1.5;
+      this.teleportTimer=scaleBossTempo(2.1);
+      this.attackTimer=scaleBossTempo(1.5);
       this.warpProgress=0;
-      this.warpDuration=0.5;
+      this.warpDuration=scaleBossTempo(0.5);
       this.invulnerableTimer=0;
       this.hitFlash=0;
       this.phase=1;
@@ -10323,7 +10396,7 @@
         this.recoverTimer -= dt * this.aggression;
         if(this.recoverTimer<=0){
           this.state='float';
-          this.attackTimer = this.nextCooldown || 1.5;
+          this.attackTimer = this.nextCooldown || scaleBossTempo(1.5);
           this.nextCooldown = 0;
         }
         return;
@@ -10340,7 +10413,7 @@
     enterPhaseTwo(){
       this.phase = 2;
       this.enraged = true;
-      this.teleportTimer = Math.min(this.teleportTimer, 1.4);
+      this.teleportTimer = Math.min(this.teleportTimer, scaleBossTempo(1.4));
       const room = dungeon?.current;
       if(room){ room.sceneVariant = 'void'; }
       spawnCircularEffect(this.x, this.y, this.r+50, {
@@ -10356,7 +10429,7 @@
     beginWarp(){
       this.state='warp-out';
       this.warpProgress=0;
-      this.teleportTimer = randRange(1.6, 2.2);
+      this.teleportTimer = scaleBossTempo(randRange(1.6, 2.2));
       this.invulnerableTimer = Math.max(this.invulnerableTimer, 0.55);
       spawnCircularEffect(this.x, this.y, this.r+28, {
         innerColor: colorWithAlpha('#bae6fd',0.8),
@@ -10383,13 +10456,14 @@
     performAttack(){
       if(this.phase===1){
         const roll = rand();
+        const heavyThreshold = adjustBossHeavyThreshold(0.75);
         if(roll < 0.4){
           this.scheduleAttack('spiral', {
             windup: this.enraged ? 0.7 : 0.85,
             recover: this.enraged ? 0.6 : 0.75,
             cooldown: 1.6
           }, ()=>this.castSpiral());
-        } else if(roll < 0.75){
+        } else if(roll < heavyThreshold){
           this.scheduleAttack('crossfire', {
             windup: this.enraged ? 0.75 : 0.9,
             recover: this.enraged ? 0.65 : 0.8,
@@ -10404,13 +10478,14 @@
         }
       } else {
         const roll = rand();
+        const heavyThreshold = adjustBossHeavyThreshold(0.66);
         if(roll < 0.33){
           this.scheduleAttack('shards', {
             windup: this.enraged ? 0.8 : 1.0,
             recover: this.enraged ? 0.7 : 0.85,
             cooldown: 1.7
           }, this.castShardStorm);
-        } else if(roll < 0.66){
+        } else if(roll < heavyThreshold){
           this.scheduleAttack('snare', {
             windup: this.enraged ? 0.9 : 1.1,
             recover: this.enraged ? 0.85 : 1.05,
@@ -10429,11 +10504,12 @@
       this.attackPlan = {
         type,
         execute,
-        recover: (config.recover ?? 0.7),
-        cooldown: config.cooldown ?? 1.6,
+        recover: scaleBossTempo(config.recover ?? 0.7),
+        cooldown: scaleBossTempo(config.cooldown ?? 1.6),
       };
       this.telegraphType = type;
-      this.telegraphTimer = Math.max(0.3, (config.windup ?? 0.6));
+      const windup = scaleBossTempo(config.windup ?? 0.6);
+      this.telegraphTimer = Math.max(0.3, windup);
       this.telegraphTotal = this.telegraphTimer;
       this.state='windup';
     }
@@ -11009,7 +11085,12 @@
     });
     addFloorStain(enemy.x, enemy.y, Math.max(18, (enemy.r||12)*1.6), colorWithAlpha(baseColor, 0.68));
     audio.play('enemyDeath', {volume: enemy.isBossEntity ? 1 : 0.8});
-    addScreenShake(enemy.isBossEntity ? 6 : 2.4, enemy.isBossEntity ? 0.45 : 0.25);
+    if(enemy.isBossEntity){
+      const shake = BOSS_TUNING.deathShake || {};
+      addScreenShake(Number.isFinite(shake.intensity) ? shake.intensity : 6.5, Number.isFinite(shake.duration) ? shake.duration : 0.48);
+    } else {
+      addScreenShake(2.4, 0.25);
+    }
   }
 
   function triggerItemPickupAnimation({item, isActive=false, source=null}={}){
