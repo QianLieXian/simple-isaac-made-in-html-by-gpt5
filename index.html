@@ -263,6 +263,10 @@
       dropChanceOnItemPickup: 0.35,
       shopCardChance: 0.22,
     },
+    roomTransition: {
+      duration: 0.42,
+      lockDuration: 0.5,
+    },
     lifeTrade: {
       spawnChance: 0.25,
       defaultCost: 2,
@@ -491,6 +495,64 @@
             const sweep = Math.sin((120 + t*1020) * Math.PI * 2 * t);
             const rumble = Math.sin(60 * Math.PI * 2 * t) * 0.4;
             return (sweep*0.7 + rumble) * Math.exp(-t*3.6);
+          });
+          break;
+        case 'playerShoot':
+          buffer = buildBuffer(0.2, (t)=>{
+            const env = Math.exp(-t*11.5);
+            const tone = Math.sin((420 + t*720) * Math.PI * 2 * t);
+            const click = Math.sin(Math.pow(t*1800 + 30, 1.12)) * Math.pow(1 - t, 2);
+            return (tone*0.7 + click*0.4) * env;
+          });
+          break;
+        case 'playerHurt':
+          buffer = buildBuffer(0.48, (t)=>{
+            const env = Math.exp(-t*4.2);
+            const growl = Math.sin((90 + Math.sin(t*6)*18) * Math.PI * 2 * t) * 0.6;
+            const rasp = Math.sin(520 * Math.PI * 2 * t) * Math.sin(80 * Math.PI * 2 * t) * 0.4;
+            const tone = Math.sin((180 - t*120) * Math.PI * 2 * t) * 0.5;
+            return (growl + rasp + tone) * env;
+          });
+          break;
+        case 'dashReady':
+          buffer = buildBuffer(0.3, (t)=>{
+            const env = Math.pow(1 - t, 1.6);
+            const chime = Math.sin((760 + t*680) * Math.PI * 2 * t);
+            const shimmer = Math.sin((chime>0?1:-1) * (1180 + t*360) * Math.PI * 2 * t) * 0.55;
+            return (chime*0.7 + shimmer*0.5) * env;
+          });
+          break;
+        case 'brimstoneReady':
+          buffer = buildBuffer(0.46, (t)=>{
+            const env = Math.pow(1 - t, 1.4);
+            const rumble = Math.sin((70 + Math.sin(t*4)*18) * Math.PI * 2 * t) * 0.55;
+            const flare = Math.sin((280 + t*920) * Math.PI * 2 * t) * 0.65;
+            return (flare + rumble) * env;
+          });
+          break;
+        case 'bossRumble':
+          buffer = buildBuffer(1.2, (t)=>{
+            const env = Math.pow(1 - t, 1.05);
+            const pulse = Math.sin(2 * Math.PI * t * 2.4) * Math.exp(-t*2.6);
+            const low = Math.sin((36 + Math.sin(t*3)*6) * Math.PI * 2 * t) * 0.7;
+            const grit = Math.sin(440 * Math.PI * 2 * t) * Math.sin(90 * Math.PI * 2 * t) * 0.25;
+            return (low + pulse*0.6 + grit) * env;
+          });
+          break;
+        case 'roomTransition':
+          buffer = buildBuffer(0.38, (t)=>{
+            const env = Math.pow(1 - t, 1.8);
+            const sweep = Math.sin((240 + t*980) * Math.PI * 2 * t);
+            const hush = Math.sin(Math.pow(t*2100 + 40, 1.1)) * 0.4;
+            return (sweep*0.7 + hush*0.5) * env;
+          });
+          break;
+        case 'enemySpawn':
+          buffer = buildBuffer(0.34, (t)=>{
+            const env = Math.pow(1 - t, 1.9);
+            const breath = Math.sin((110 + t*260) * Math.PI * 2 * t) * 0.6;
+            const dust = Math.sin(620 * Math.PI * 2 * t) * Math.sin(140 * Math.PI * 2 * t) * 0.45;
+            return (breath + dust) * env;
           });
           break;
         case 'brimstoneTick':
@@ -3841,13 +3903,24 @@
       this.hotChocolate = null;
       this.followerTrail = [];
       this.followerTrailMax = 220;
+      this.entryLockActive = false;
+      this.entryLockTimer = 0;
       this.eyePattern = null;
       this.holyHeartState = null;
       if(typeof this.resetFollowerTrail === 'function'){
         this.resetFollowerTrail();
       }
     }
-    update(dt){
+    update(dt, options={}){
+      const entryLocked = !!options.entryLocked;
+      const lockTime = Number.isFinite(options.entryLockTime) ? Math.max(0, options.entryLockTime) : 0;
+      if(entryLocked){
+        this.entryLockActive = true;
+        this.entryLockTimer = Math.max(this.entryLockTimer || 0, lockTime);
+      } else {
+        this.entryLockTimer = Math.max(0, (this.entryLockTimer || 0) - dt);
+        this.entryLockActive = this.entryLockTimer>0;
+      }
       this.bombCooldown = Math.max(0, this.bombCooldown - dt);
       const dash = this.ensureImpactDashState();
       if(dash){
@@ -3860,6 +3933,9 @@
           }
           if(prevCooldown>0 && dash.cooldown===0){
             dash.readyPulse = Math.max(dash.readyPulse, 1.1);
+            if(dash.unlocked && !dash.active){
+              audio.play('dashReady', {volume: 0.55});
+            }
           }
         } else {
           const cooldownSynergy = this.collectSynergyOptions('impact-dash-cooldown', {cooldown: dash.cooldown});
@@ -3868,6 +3944,9 @@
             dash.cooldown = Math.max(0, cooldownSynergy.cooldown);
             if(prevCooldown>0 && dash.cooldown===0){
               dash.readyPulse = Math.max(dash.readyPulse, 1.1);
+              if(dash.unlocked && !dash.active){
+                audio.play('dashReady', {volume: 0.55});
+              }
             }
           }
           if(dash.readyPulse>0){
@@ -3892,8 +3971,16 @@
       const startX = this.x;
       const startY = this.y;
       let dashing = !!(dash && dash.active);
-      const rawMoveX = dashing ? dash.dashDir.x : resolveAxis('KeyA','KeyD');
-      const rawMoveY = dashing ? dash.dashDir.y : resolveAxis('KeyW','KeyS');
+      if(entryLocked && dashing){
+        this.endImpactDash({blocked:true});
+        dashing = false;
+      }
+      let rawMoveX = dashing ? dash.dashDir.x : resolveAxis('KeyA','KeyD');
+      let rawMoveY = dashing ? dash.dashDir.y : resolveAxis('KeyW','KeyS');
+      if(entryLocked && !dashing){
+        rawMoveX = 0;
+        rawMoveY = 0;
+      }
       let mv = {x:0,y:0};
       if(dashing){
         const len = Math.hypot(rawMoveX, rawMoveY) || 1;
@@ -3908,10 +3995,11 @@
       const decelTime = Math.max(0, this.decelTime ?? CONFIG.player.decelTime ?? 0.6);
       const maxSpeedScale = (this.maxSpeedScale ?? CONFIG.player.maxSpeedScale ?? 1.1);
       const accelRate = accelTime > 0 ? (this.speed / accelTime) : Infinity;
+      const moveDt = entryLocked ? 0 : dt;
       let maxSpeed = this.speed * maxSpeedScale;
       const approachAxis = (current, target, rate)=>{
         if(!Number.isFinite(rate) || rate <= 0) return target;
-        const maxStep = rate * dt;
+        const maxStep = rate * moveDt;
         if(!Number.isFinite(maxStep) || maxStep <= 0) return target;
         const delta = target - current;
         if(Math.abs(delta) <= maxStep) return target;
@@ -3957,14 +4045,14 @@
           this.vel.y *= scale;
         }
       }
-      this.x += this.vel.x * dt;
-      this.y += this.vel.y * dt;
+      this.x += this.vel.x * moveDt;
+      this.y += this.vel.y * moveDt;
       if(this.knockTimer>0 && !dashing){
-        this.x += this.knockVel.x * dt;
-        this.y += this.knockVel.y * dt;
+        this.x += this.knockVel.x * moveDt;
+        this.y += this.knockVel.y * moveDt;
         this.knockVel.x *= 0.86;
         this.knockVel.y *= 0.86;
-        this.knockTimer = Math.max(0, this.knockTimer - dt);
+        this.knockTimer = Math.max(0, this.knockTimer - moveDt);
       } else if(dashing){
         this.knockTimer = 0;
         this.knockVel.x = 0;
@@ -3988,7 +4076,13 @@
       if(keys.has('ArrowDown')) shotY += 1;
       if(keys.has('ArrowLeft')) shotX -= 1;
       if(keys.has('ArrowRight')) shotX += 1;
+      if(entryLocked){ shotX = 0; shotY = 0; }
       this.updateShotInputState(shotX, shotY);
+      if(entryLocked && this.shotInput){
+        this.shotInput.pressed = false;
+        this.shotInput.justPressed = false;
+        this.shotInput.justReleased = false;
+      }
       const preResolveX = this.x;
       const preResolveY = this.y;
       resolveEntityObstacles(this);
@@ -3996,9 +4090,9 @@
         if(dash && dash.trail && typeof dash.trail.addPoint === 'function'){
           dash.trail.addPoint(this.x, this.y);
         }
-        dash.dashTimer = Math.max(0, dash.dashTimer - dt);
+        dash.dashTimer = Math.max(0, dash.dashTimer - moveDt);
         const forwardMove = (this.x - startX) * mv.x + (this.y - startY) * mv.y;
-        const expectedStep = Math.abs(dash.dashSpeed || 0) * dt * 0.35;
+        const expectedStep = Math.abs(dash.dashSpeed || 0) * moveDt * 0.35;
         const blocked = forwardMove <= expectedStep && dash.dashTimer > 0;
         if(blocked || dash.dashTimer <= 0){
           this.endImpactDash({blocked});
@@ -4022,31 +4116,45 @@
       }
       const dx = this.x - startX;
       const dy = this.y - startY;
-      const lvx = dt>0 ? dx/dt : 0;
-      const lvy = dt>0 ? dy/dt : 0;
+      const sampleDt = moveDt>0 ? moveDt : dt;
+      const lvx = sampleDt>0 ? dx/sampleDt : 0;
+      const lvy = sampleDt>0 ? dy/sampleDt : 0;
       this.lastDisplacement.x = dx;
       this.lastDisplacement.y = dy;
       this.lastVelocity.x = lvx;
       this.lastVelocity.y = lvy;
       const shotState = this.getShotInput();
-      const shotPressed = !!(shotState && shotState.pressed);
-      if(this.attackMode === 'bomb-progenitor'){
-        this.handleBombProgenitorAttack(dt, shotState);
-      } else if(this.attackMode === 'bomb-elder'){
-        this.handleBombElderAttack(dt, shotState, lvx, lvy, maxSpeed);
-      } else if(this.attackMode === 'brimstone'){
-        this.handleBrimstoneAttack(dt, shotState?.x || shotX, shotState?.y || shotY, lvx, lvy, maxSpeed);
-      } else if(this.hasHotChocolate && this.hasHotChocolate()){
-        this.handleHotChocolateAttack(dt, shotState?.x || shotX, shotState?.y || shotY, lvx, lvy, maxSpeed);
+      const shotPressed = !entryLocked && !!(shotState && shotState.pressed);
+      if(!entryLocked){
+        if(this.attackMode === 'bomb-progenitor'){
+          this.handleBombProgenitorAttack(dt, shotState);
+        } else if(this.attackMode === 'bomb-elder'){
+          this.handleBombElderAttack(dt, shotState, lvx, lvy, maxSpeed);
+        } else if(this.attackMode === 'brimstone'){
+          this.handleBrimstoneAttack(dt, shotState?.x || shotX, shotState?.y || shotY, lvx, lvy, maxSpeed);
+        } else if(this.hasHotChocolate && this.hasHotChocolate()){
+          this.handleHotChocolateAttack(dt, shotState?.x || shotX, shotState?.y || shotY, lvx, lvy, maxSpeed);
+        } else {
+          if(shotPressed && this.fireCd<=0){
+            const dirX = shotState.dirX;
+            const dirY = shotState.dirY;
+            const len = Math.hypot(dirX, dirY) || 1;
+            const nDirX = dirX/len;
+            const nDirY = dirY/len;
+            this.fireCd = this.fireInterval;
+            this.fireTearProjectile(nDirX, nDirY, lvx, lvy, maxSpeed);
+          }
+        }
       } else {
-        if(shotPressed && this.fireCd<=0){
-          const dirX = shotState.dirX;
-          const dirY = shotState.dirY;
-          const len = Math.hypot(dirX, dirY) || 1;
-          const nDirX = dirX/len;
-          const nDirY = dirY/len;
-          this.fireCd = this.fireInterval;
-          this.fireTearProjectile(nDirX, nDirY, lvx, lvy, maxSpeed);
+        if(this.attackMode === 'brimstone'){
+          this.brimstoneCharging = false;
+          this.brimstoneCharge = 0;
+          this.brimstoneCharged = false;
+        }
+        if(this.hasHotChocolate && this.hasHotChocolate()){
+          const state = this.ensureHotChocolateState();
+          state.charging = false;
+          state.chargeTime = 0;
         }
       }
       this.recordFollowerTrailPoint();
@@ -4185,6 +4293,10 @@
       for(const shot of shots){
         runtime.bullets.push(new Bullet(shot.originX, shot.originY, shot.vx, shot.vy, shot.life, shot.damage, shot.options));
         this.dispatchFollowerShot?.('tear', shot);
+      }
+      if(shots.length>0){
+        const volume = Math.min(0.75, 0.42 + shots.length*0.04);
+        audio.play('playerShoot', {volume});
       }
     }
     ensureBombElderState(){
@@ -4896,6 +5008,7 @@
         homing: enableHoming || this.homingTears,
         homingStrength,
       });
+      audio.play('playerShoot', {volume: 0.55});
       state.chargeTime = 0;
       state.charging = false;
       this.fireCd = 0;
@@ -5134,6 +5247,7 @@
     handleDirectionalKeyTap(code, timestampMs){
       const dash = this.ensureImpactDashState();
       if(!dash.unlocked) return;
+      if(this.isEntryLocked && this.isEntryLocked()) return;
       if(code!=='KeyW' && code!=='KeyA' && code!=='KeyS' && code!=='KeyD') return;
       if(dash.active) return;
       const nowMs = Number.isFinite(timestampMs) ? timestampMs : (typeof performance!=='undefined' && performance.now ? performance.now() : Date.now());
@@ -5152,6 +5266,7 @@
     tryStartImpactDash(dir, code){
       const dash = this.ensureImpactDashState();
       if(!dash.unlocked) return false;
+      if(this.isEntryLocked && this.isEntryLocked()) return false;
       if(dash.active) return false;
       if(dash.cooldown>0){
         const cooldownCheck = this.collectSynergyOptions('impact-dash-cooldown', {cooldown: dash.cooldown});
@@ -5251,6 +5366,9 @@
     isImpactDashing(){
       return !!(this.impactDash && this.impactDash.active);
     }
+    isEntryLocked(){
+      return !!this.entryLockActive;
+    }
     hasImpactDashInvulnerability(){
       const dash = this.impactDash;
       if(!dash) return false;
@@ -5294,15 +5412,21 @@
         this.suppressHolyHeartBlessingForRoom();
       }
       let remaining = amount;
+      let tookDamage = false;
       const hadSoulBefore = this.soulHearts > 0;
       if(remaining>0 && this.soulHearts>0){
         const consumed = Math.min(this.soulHearts, remaining);
         this.soulHearts -= consumed;
         remaining -= consumed;
+        if(consumed>0){ tookDamage = true; }
       }
       const tookRedDamage = remaining>0;
       if(tookRedDamage){
         this.hp = Math.max(0, this.hp - remaining);
+        if(remaining>0){ tookDamage = true; }
+      }
+      if(tookDamage){
+        audio.play('playerHurt', {volume: 0.65});
       }
       const ifrBase = Number.isFinite(options.ifr) ? Math.max(0, options.ifr) : 0.75;
       const ifrDuration = ifrBase * this.getIFrameMultiplier();
@@ -5713,6 +5837,9 @@
         this.brimstoneCharge += dt;
         if(this.brimstoneCharge >= this.brimstoneChargeTime){
           this.brimstoneCharge = this.brimstoneChargeTime;
+          if(!this.brimstoneCharged){
+            audio.play('brimstoneReady', {volume: 0.58});
+          }
           this.brimstoneCharged = true;
         }
       } else {
@@ -11004,10 +11131,23 @@
     ctx.restore();
   }
 
+  function getEntitySpawnFade(entity){
+    if(!entity) return 1;
+    const timer = Number(entity.spawnFadeTimer) || 0;
+    if(timer<=0) return 1;
+    const duration = Math.max(0.001, Number(entity.spawnFadeDuration) || ENEMY_SPAWN_FADE_DEFAULT);
+    const ratio = clamp(timer / duration, 0, 1);
+    return clamp(0.35 + 0.65 * (1 - ratio), 0.35, 1);
+  }
+
   function drawEntityShadow(entity){
     if(!entity) return;
     const cfg = getShadowConfigForEntity(entity);
     if(!cfg) return;
+    const fade = getEntitySpawnFade(entity);
+    if(fade<1){
+      cfg.alpha = (cfg.alpha ?? 0.4) * fade;
+    }
     drawShadowFromConfig(cfg);
   }
 
@@ -11798,6 +11938,104 @@
     });
   }
 
+  const ENEMY_SPAWN_FADE_DEFAULT = 0.45;
+
+  function spawnEnemySmoke(x, y, options={}){
+    if(!runtime?.effects) runtime.effects = [];
+    const radius = Math.max(8, Number(options.radius) || 20);
+    const ttl = Math.max(0.18, Number(options.ttl) || 0.52);
+    const count = Math.max(6, Math.floor(options.count ?? 16));
+    const particles = [];
+    for(let i=0;i<count;i++){
+      const angle = rand() * Math.PI * 2;
+      const speed = randRange(30, 90);
+      const drift = randRange(-20, 28);
+      const life = ttl * randRange(0.45, 1.05);
+      particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed * 0.6 + drift,
+        life,
+        ttl: life,
+        size: radius * randRange(0.18, 0.32),
+        alpha: randRange(0.25, 0.55),
+      });
+    }
+    const effect = {
+      type:'spawn-smoke',
+      x,
+      y,
+      life: ttl,
+      ttl,
+      particles,
+      update(self, dt){
+        if(!Array.isArray(self.particles)) return;
+        for(let i=self.particles.length-1;i>=0;i--){
+          const p = self.particles[i];
+          p.life -= dt;
+          if(p.life<=0){
+            self.particles.splice(i,1);
+            continue;
+          }
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.vx *= 0.88;
+          p.vy = p.vy * 0.88 - dt * 14;
+        }
+        self.life = Math.max(0, self.life - dt);
+        if(self.particles.length===0){
+          self.life = 0;
+        }
+      },
+      draw(ctx){
+        if(!ctx || !Array.isArray(this.particles)) return;
+        ctx.save();
+        for(const p of this.particles){
+          if(p.life<=0) continue;
+          const ratio = p.ttl>0 ? clamp(p.life / p.ttl, 0, 1) : 0;
+          if(ratio<=0) continue;
+          const alpha = p.alpha * ratio;
+          if(alpha<=0.01) continue;
+          const size = p.size * (1 + (1 - ratio) * 0.8);
+          const gradient = ctx.createRadialGradient(p.x, p.y, size*0.2, p.x, p.y, size);
+          gradient.addColorStop(0, 'rgba(209,213,219,0.68)');
+          gradient.addColorStop(1, 'rgba(75,85,99,0)');
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, size, 0, Math.PI*2);
+          ctx.fill();
+        }
+        ctx.restore();
+      },
+    };
+    runtime.effects.push(effect);
+    return effect;
+  }
+
+  function triggerEnemySpawnEffects(enemies, options={}){
+    if(!Array.isArray(enemies) || enemies.length===0) return 0;
+    const fadeDuration = Math.max(0.18, Number(options.fadeDuration) || ENEMY_SPAWN_FADE_DEFAULT);
+    let triggered = 0;
+    for(const enemy of enemies){
+      if(!enemy || enemy.spawnVisualized) continue;
+      const ex = Number.isFinite(enemy.x) ? enemy.x : CONFIG.roomW/2;
+      const ey = Number.isFinite(enemy.y) ? enemy.y : CONFIG.roomH/2;
+      const radius = Math.max(10, (enemy.r || 12) * 1.35);
+      spawnEnemySmoke(ex, ey, {radius, ttl: fadeDuration * 0.85});
+      enemy.spawnVisualized = true;
+      enemy.spawnFadeDuration = fadeDuration;
+      enemy.spawnFadeTimer = fadeDuration;
+      triggered++;
+    }
+    if(triggered>0 && options.playSound !== false){
+      const volume = Number.isFinite(options.soundVolume) ? options.soundVolume : 0.52;
+      audio.play('enemySpawn', {volume: clamp(volume, 0, 1)});
+    }
+    return triggered;
+  }
+
   function spawnBulletDisperse(x, y, options={}){
     if(!runtime?.effects) return null;
     const baseColor = typeof options.color === 'string' ? options.color : '#a6e3ff';
@@ -12485,6 +12723,7 @@
     player.x = clamp(center.x, 80, CONFIG.roomW-80);
     player.y = clamp(center.y + 38, 100, CONFIG.roomH-80);
     player.snapFollowersToPlayer();
+    handleRoomEntry(exchange, 'center', {spawnEffects:false});
     if(runtime.itemPickupTimer<=0){
       runtime.itemPickupName = '进入交换房';
       runtime.itemPickupDesc = '献祭红心换取强力道具。';
@@ -12523,6 +12762,7 @@
     runtime.bullets.length = 0;
     runtime.enemyProjectiles.length = 0;
     runtime.pendingEnemySpawns.length = 0;
+    handleRoomEntry(targetRoom, 'center', {spawnEffects:false});
     if(runtime.itemPickupTimer<=0){
       runtime.itemPickupName = '返回 Boss 房';
       runtime.itemPickupDesc = '交换房入口仍然敞开。';
@@ -12688,6 +12928,8 @@
     loopCount: 0,
     endingStats: null,
     weightedPity: Object.create(null),
+    roomTransition: null,
+    roomEntryLock: 0,
   };
   function resetScreenShake(){
     if(!runtime.screenShake) runtime.screenShake = {intensity:0, duration:0, offsetX:0, offsetY:0};
@@ -12696,6 +12938,168 @@
       runtime.screenShake.duration = 0;
       runtime.screenShake.offsetX = 0;
       runtime.screenShake.offsetY = 0;
+    }
+  }
+
+  function getRoomTransitionDuration(){
+    const cfg = CONFIG.roomTransition || {};
+    const value = Number(cfg.duration);
+    return Number.isFinite(value) ? Math.max(0.12, value) : 0.42;
+  }
+
+  function getRoomEntryLockDuration(){
+    const cfg = CONFIG.roomTransition || {};
+    const value = Number(cfg.lockDuration);
+    return Number.isFinite(value) ? Math.max(0, value) : 0.5;
+  }
+
+  function setRoomEntryLock(duration){
+    const target = Math.max(0, Number(duration) || 0);
+    runtime.roomEntryLock = Math.max(runtime.roomEntryLock || 0, target);
+    if(player){
+      player.entryLockTimer = Math.max(player.entryLockTimer || 0, runtime.roomEntryLock);
+      if(runtime.roomEntryLock<=0){
+        player.entryLockActive = false;
+      }
+    }
+  }
+
+  function startRoomEntryTransition(direction, options={}){
+    const duration = Math.max(0, Number(options.duration) || getRoomTransitionDuration());
+    if(duration>0){
+      runtime.roomTransition = {
+        active: true,
+        timer: duration,
+        duration,
+        progress: 0,
+        direction: options.direction || direction || 'center',
+      };
+    } else {
+      runtime.roomTransition = null;
+    }
+    const lockValue = options.lock ?? getRoomEntryLockDuration();
+    if(lockValue>0){
+      setRoomEntryLock(lockValue);
+    }
+    if(options.playSound !== false){
+      const rawVolume = Number.isFinite(options.soundVolume) ? options.soundVolume : 0.45;
+      audio.play('roomTransition', {volume: clamp(rawVolume, 0, 1)});
+    }
+  }
+
+  function updateRoomTransition(dt){
+    const trans = runtime.roomTransition;
+    if(!trans) return;
+    if(trans.active){
+      const currentTimer = Number.isFinite(trans.timer) ? trans.timer : trans.duration;
+      trans.timer = Math.max(0, currentTimer - dt);
+      const denom = Math.max(0.0001, trans.duration || 0.0001);
+      trans.progress = clamp(1 - (trans.timer / denom), 0, 1);
+      if(trans.timer<=0){
+        trans.active = false;
+      }
+    }
+    if(!trans.active && (!Number.isFinite(trans.progress) || trans.progress>=1)){
+      runtime.roomTransition = null;
+    }
+  }
+
+  function drawRoomTransitionOverlay(){
+    const trans = runtime.roomTransition;
+    if(!trans) return;
+    const progress = clamp(trans.progress ?? 0, 0, 1);
+    const fade = Math.sin(progress * Math.PI);
+    if(fade <= 0.001) return;
+    ctx.save();
+    ctx.globalAlpha = 0.45 * fade;
+    ctx.fillStyle = '#080b12';
+    ctx.fillRect(0,0,CONFIG.roomW, CONFIG.roomH);
+    ctx.restore();
+
+    ctx.save();
+    const dir = trans.direction || 'center';
+    let startX = 0, startY = 0, endX = 0, endY = 0;
+    if(dir==='left'){
+      startX = CONFIG.roomW;
+      endX = 0;
+    } else if(dir==='right'){
+      startX = 0;
+      endX = CONFIG.roomW;
+    } else if(dir==='up'){
+      startY = CONFIG.roomH;
+      endY = 0;
+    } else if(dir==='down'){
+      startY = 0;
+      endY = CONFIG.roomH;
+    } else {
+      startX = CONFIG.roomW/2;
+      startY = CONFIG.roomH/2;
+      endX = startX;
+      endY = startY;
+    }
+    const gradient = ctx.createLinearGradient(startX, startY, endX, endY);
+    gradient.addColorStop(0, 'rgba(148,163,184,0)');
+    gradient.addColorStop(0.4, 'rgba(148,163,184,0.28)');
+    gradient.addColorStop(0.7, 'rgba(15,23,42,0.62)');
+    gradient.addColorStop(1, 'rgba(8,11,17,0.9)');
+    const slideBase = (dir==='left' || dir==='right') ? CONFIG.roomW : CONFIG.roomH;
+    const offset = (1 - progress) * slideBase * 0.6;
+    let tx = 0, ty = 0;
+    if(dir==='left') tx = -offset;
+    else if(dir==='right') tx = offset;
+    else if(dir==='up') ty = -offset;
+    else if(dir==='down') ty = offset;
+    ctx.translate(tx, ty);
+    ctx.globalAlpha = 0.7 * fade;
+    ctx.fillStyle = gradient;
+    ctx.fillRect(-CONFIG.roomW, -CONFIG.roomH, CONFIG.roomW*3, CONFIG.roomH*3);
+    ctx.restore();
+  }
+
+  function handleRoomEntry(room, direction='center', options={}){
+    if(!room) return;
+    const spawnList = Array.isArray(options.enemies)
+      ? options.enemies
+      : Array.isArray(room.enemies)
+        ? room.enemies
+        : [];
+
+    if(options.transition !== false){
+      const transitionOptions = { direction };
+      if(Number.isFinite(options.transitionDuration)){
+        transitionOptions.duration = options.transitionDuration;
+      }
+      if(Number.isFinite(options.lockDuration)){
+        transitionOptions.lock = options.lockDuration;
+      }
+      if(options.transitionSound === false){
+        transitionOptions.playSound = false;
+      }
+      if(Number.isFinite(options.transitionVolume)){
+        transitionOptions.soundVolume = options.transitionVolume;
+      }
+      startRoomEntryTransition(direction, transitionOptions);
+    } else if(Number.isFinite(options.lockDuration) && options.lockDuration>0){
+      setRoomEntryLock(options.lockDuration);
+    }
+
+    if(options.spawnEffects !== false && spawnList.length){
+      const spawnOptions = {};
+      if(Number.isFinite(options.fadeDuration)){
+        spawnOptions.fadeDuration = options.fadeDuration;
+      }
+      if(options.spawnSound === false){
+        spawnOptions.playSound = false;
+      }
+      if(Number.isFinite(options.spawnSoundVolume)){
+        spawnOptions.soundVolume = options.spawnSoundVolume;
+      }
+      triggerEnemySpawnEffects(spawnList, spawnOptions);
+    }
+
+    if(room.isBoss && !room.cleared && options.bossRumble !== false){
+      const volume = Number.isFinite(options.bossRumbleVolume) ? options.bossRumbleVolume : 0.7;
+      audio.play('bossRumble', {volume: clamp(volume, 0, 1)});
     }
   }
 
@@ -12757,7 +13161,7 @@
     keys.clear();
     dungeon.current.visited=true;
     dungeon.revealRoom(dungeon.current);
-    dungeon.current.spawnEnemies(dungeon.depth);
+    const initialEnemies = dungeon.current.spawnEnemies(dungeon.depth);
     state = STATE.PLAY;
     lastTime = performance.now();
     runtime.bullets.length = 0;
@@ -12784,6 +13188,7 @@
     resetScreenShake();
     player.handleRoomChange(dungeon.current);
     player.snapFollowersToPlayer();
+    handleRoomEntry(dungeon.current, 'center', {enemies: initialEnemies});
     syncCheatPanel();
   }
 
@@ -12806,7 +13211,7 @@
         dungeon.revealAllRooms();
       }
     }
-    dungeon.current.spawnEnemies(dungeon.depth);
+    const spawned = dungeon.current.spawnEnemies(dungeon.depth);
     player.handleRoomChange(dungeon.current);
     player.x = CONFIG.roomW/2;
     player.y = CONFIG.roomH/2;
@@ -12846,6 +13251,7 @@
     keys.clear();
     for(const code of preservedKeys){ keys.add(code); }
     player.snapFollowersToPlayer();
+    handleRoomEntry(dungeon.current, 'center', {enemies: spawned});
     syncCheatPanel();
   }
 
@@ -12868,7 +13274,7 @@
         dungeon.revealAllRooms();
       }
     }
-    dungeon.current.spawnEnemies(dungeon.depth);
+    const loopEnemies = dungeon.current.spawnEnemies(dungeon.depth);
     player.handleRoomChange(dungeon.current);
     player.x = CONFIG.roomW/2;
     player.y = CONFIG.roomH/2;
@@ -12905,6 +13311,7 @@
     keys.clear();
     for(const code of preservedKeys){ keys.add(code); }
     player.snapFollowersToPlayer();
+    handleRoomEntry(dungeon.current, 'center', {enemies: loopEnemies});
     syncCheatPanel();
     if(options.fromEnding){
       runtime.runTimer?.setPauseSource('gameover', false);
@@ -12956,6 +13363,50 @@
     return !!room.cleared;
   }
 
+  function enterRoom(nextRoom, direction, options={}){
+    if(!nextRoom) return;
+    dungeon.current = nextRoom;
+    if(!nextRoom.visited){ dungeon.depth++; }
+    nextRoom.visited = true;
+    dungeon.revealRoom(nextRoom);
+    clearBossSummonTracker();
+    clearRoomDecals();
+    player.handleRoomChange(nextRoom);
+
+    const dir = direction || 'center';
+    if(dir==='up'){ player.x=CONFIG.roomW/2; player.y=CONFIG.roomH-60; }
+    else if(dir==='down'){ player.x=CONFIG.roomW/2; player.y=60; }
+    else if(dir==='left'){ player.x=CONFIG.roomW-60; player.y=CONFIG.roomH/2; }
+    else if(dir==='right'){ player.x=60; player.y=CONFIG.roomH/2; }
+    else {
+      player.x = CONFIG.roomW/2;
+      player.y = CONFIG.roomH/2;
+    }
+
+    player.snapFollowersToPlayer(dir);
+
+    runtime.bullets.length = 0;
+    runtime.enemyProjectiles.length = 0;
+    runtime.pendingEnemySpawns.length = 0;
+    runtime.beams = [];
+
+    if(nextRoom.isBoss && !nextRoom.introPlayed){
+      runtime.bossIntroText = nextRoom.bossName;
+      runtime.bossIntroTimer = 3.2;
+      nextRoom.introPlayed = true;
+    }
+    if(nextRoom.isItemRoom){ nextRoom.ensureItem(); }
+    if(nextRoom.isShop){ nextRoom.prepareShop(); }
+
+    let spawnSet = null;
+    if(!nextRoom.cleared || nextRoom.isBoss){
+      spawnSet = nextRoom.spawnEnemies(dungeon.depth);
+    }
+    const enemiesForEntry = Array.isArray(spawnSet) ? spawnSet : nextRoom.enemies;
+    const entryOptions = Object.assign({}, options, {enemies: enemiesForEntry});
+    handleRoomEntry(nextRoom, dir, entryOptions);
+  }
+
   function tryRoomTransition(){
     const r = dungeon.current;
     const doors = roomDoors(r);
@@ -12990,28 +13441,10 @@
         }
         continue;
       }
-      dungeon.current = nr;
-      if(!nr.visited){ dungeon.depth++; }
-      nr.visited = true;
-      dungeon.revealRoom(nr);
-      clearBossSummonTracker();
-      clearRoomDecals();
-      player.handleRoomChange(nr);
-      // 入口位置
-      if(d.dir==='up'){ player.x=CONFIG.roomW/2; player.y=CONFIG.roomH-60; }
-      if(d.dir==='down'){ player.x=CONFIG.roomW/2; player.y=60; }
-      if(d.dir==='left'){ player.x=CONFIG.roomW-60; player.y=CONFIG.roomH/2; }
-      if(d.dir==='right'){ player.x=60; player.y=CONFIG.roomH/2; }
-      player.snapFollowersToPlayer(d.dir);
-      runtime.bullets.length = 0; runtime.enemyProjectiles.length = 0;
-      if(nr.isBoss && !nr.introPlayed){
-        runtime.bossIntroText = nr.bossName;
-        runtime.bossIntroTimer = 3.2;
-        nr.introPlayed = true;
-      }
-      if(nr.isItemRoom){ nr.ensureItem(); }
-      if(nr.isShop){ nr.prepareShop(); }
-      if(!nr.cleared || nr.isBoss){ nr.spawnEnemies(dungeon.depth); }
+      const bossOptions = (nr.isBoss && !nr.cleared)
+        ? {bossRumbleVolume: 0.85, transitionVolume: 0.58, spawnSoundVolume: 0.62}
+        : {};
+      enterRoom(nr, d.dir, bossOptions);
       break;
     }
   }
@@ -13182,13 +13615,19 @@
       }
     }
     updateRunClock(dt, {timeStop: timeStopActive});
+    if(runtime.roomEntryLock>0){
+      runtime.roomEntryLock = Math.max(0, runtime.roomEntryLock - dt);
+    }
+    updateRoomTransition(dt);
     const worldDt = timeStopActive ? 0 : dt;
-    player.update(dt);
+    const entryLocked = runtime.roomEntryLock>0;
+    player.update(dt, {entryLocked, entryLockTime: runtime.roomEntryLock});
 
     const bombs = dungeon.current.bombs;
+    const bombDt = entryLocked ? 0 : worldDt;
     for(let i=bombs.length-1;i>=0;i--){
       const b = bombs[i];
-      b.update(worldDt);
+      b.update(bombDt);
       if(b.done){ bombs.splice(i,1); }
     }
     updatePickups(worldDt);
@@ -13214,16 +13653,27 @@
     }
 
     // 子弹
-    for(const b of runtime.bullets) b.update(dt);
+    const bulletDt = entryLocked ? 0 : dt;
+    for(const b of runtime.bullets) b.update(bulletDt);
     runtime.bullets = runtime.bullets.filter(b=>b.alive);
 
     // 敌人
     const enemies = dungeon.current.enemies;
+    const enemyDt = entryLocked ? 0 : worldDt;
     for(const e of enemies){
-      e.update(worldDt);
+      e.update(enemyDt);
       resolveEnemyBombBlocking(e);
       if(typeof e.damageFlashTimer === 'number' && e.damageFlashTimer>0){
         e.damageFlashTimer = Math.max(0, e.damageFlashTimer - worldDt);
+      }
+      if(typeof e.spawnFadeTimer === 'number' && e.spawnFadeTimer>0){
+        const duration = Math.max(0.001, Number(e.spawnFadeDuration) || ENEMY_SPAWN_FADE_DEFAULT);
+        e.spawnFadeTimer = Math.max(0, e.spawnFadeTimer - dt);
+        if(e.spawnFadeTimer<=0){
+          e.spawnFadeTimer = 0;
+        } else if(!Number.isFinite(e.spawnFadeDuration)){
+          e.spawnFadeDuration = duration;
+        }
       }
     }
     if(!timeStopActive && runtime.pendingEnemySpawns.length){
@@ -13235,13 +13685,15 @@
           }
           if(spawn.isBossSummon){ registerBossSummon(spawn); }
           enemies.push(spawn);
+          triggerEnemySpawnEffects([spawn], {playSound:false, fadeDuration: ENEMY_SPAWN_FADE_DEFAULT * 0.8});
         }
       }
     }
     updateBeams(dt);
 
     // 敌方弹幕
-    for(const eb of runtime.enemyProjectiles){ eb.update(worldDt); }
+    const enemyProjectileDt = entryLocked ? 0 : worldDt;
+    for(const eb of runtime.enemyProjectiles){ eb.update(enemyProjectileDt); }
     runtime.enemyProjectiles = runtime.enemyProjectiles.filter(p=>p.alive);
 
     // 碰撞：子弹-敌人
@@ -13439,12 +13891,16 @@
 
     for(const e of dungeon.current.enemies){
       drawEntityShadow(e);
+      const fade = getEntitySpawnFade(e);
+      ctx.save();
+      if(fade<1){ ctx.globalAlpha *= fade; }
       e.draw();
+      ctx.restore();
       if(e.damageFlashTimer>0){
         const ratio = clamp(e.damageFlashTimer / ENEMY_DAMAGE_FLASH_DURATION, 0, 1);
         const radius = (e.r || 12) * 1.15;
         ctx.save();
-        ctx.globalAlpha = 0.3 + ratio * 0.35;
+        ctx.globalAlpha = (0.3 + ratio * 0.35) * fade;
         ctx.fillStyle = '#ff4d4f';
         ctx.beginPath();
         ctx.arc(e.x, e.y, radius, 0, Math.PI*2);
@@ -13487,6 +13943,8 @@
       }
       ctx.restore();
     }
+
+    drawRoomTransitionOverlay();
 
     drawBossHealth();
     drawMiniMap();
