@@ -253,6 +253,10 @@
       doubleItemChance: 0.05,
       dropPrice: 5,
       itemPrice: 15,
+      rareItemChance: 0.035,
+    },
+    loot: {
+      bossRareChance: 0.06,
     },
     cards: {
       price: 5,
@@ -288,6 +292,8 @@
       radius: 36,
       interactRadius: 52,
       spawnDelay: 0.45,
+      exchangeMinChance: 0.05,
+      exchangePityStep: 0.18,
     },
     rngSeed: Date.now() % 1000000,
   };
@@ -752,9 +758,22 @@
   function adjustExchangePortalChance(multiplier){
     if(!Number.isFinite(multiplier)) return getExchangePortalChance();
     const current = runtime?.exchangePortalChance ?? 1;
-    const next = clamp(current * multiplier, 0, 1);
-    runtime.exchangePortalChance = next >= 0.999 ? 1 : next;
-    return next;
+    const minChance = Math.max(0, CONFIG.portal?.exchangeMinChance ?? 0);
+    let next = clamp(current * multiplier, 0, 1);
+    if(next > 0 && next < minChance){
+      next = minChance;
+    }
+    const normalized = next >= 0.999 ? 1 : next;
+    if(runtime){
+      runtime.exchangePortalChance = normalized;
+      if(normalized >= 1){
+        runtime.exchangePortalPity = 0;
+      } else if(runtime.exchangePortalPity>0){
+        const cap = Math.max(0, 1 - normalized);
+        runtime.exchangePortalPity = Math.min(cap, runtime.exchangePortalPity);
+      }
+    }
+    return normalized;
   }
 
 
@@ -848,6 +867,74 @@
       weight: WEIGHT_PRESETS.item,
       description:'越看越顺眼，子弹速度 x0.75，射速 +0.75，射程 x1.25',
       apply(player){ player.tearSpeed*=0.75; adjustFireRate(player,0.75); player.tearLife*=1.25; }
+    },
+    {
+      slug:'double-gaze',
+      name:'双瞳',
+      weight: WEIGHT_PRESETS.item,
+      description:'双发齐射，攻击 x0.9。负面效果仅触发一次。',
+      apply(player){
+        if(!player) return;
+        const firstPickup = !(typeof player.hasItem === 'function' && player.hasItem('double-gaze'));
+        if(typeof player.registerEyePattern === 'function'){
+          player.registerEyePattern('double-gaze', {
+            extraShots: 1,
+            step: 0.18,
+            penalty: firstPickup ? {damage: 0.9} : null,
+          });
+        } else {
+          if(firstPickup){ player.damageMultiplier *= 0.9; }
+        }
+      }
+    },
+    {
+      slug:'triple-gaze',
+      name:'三瞳',
+      weight: WEIGHT_PRESETS.item,
+      description:'三道视线，射速 x0.75。负面效果仅触发一次。',
+      apply(player){
+        if(!player) return;
+        const firstPickup = !(typeof player.hasItem === 'function' && player.hasItem('triple-gaze'));
+        const firePenalty = 1/0.75;
+        if(typeof player.registerEyePattern === 'function'){
+          player.registerEyePattern('triple-gaze', {
+            extraShots: 2,
+            step: 0.22,
+            penalty: firstPickup ? {fireInterval: firePenalty} : null,
+          });
+        } else {
+          if(firstPickup){
+            player.fireInterval = Math.max(12, player.fireInterval * firePenalty);
+            player.fireCd = Math.min(player.fireCd, player.fireInterval);
+            player.updateBrimstoneChargeMetrics?.();
+          }
+        }
+      }
+    },
+    {
+      slug:'quad-gaze',
+      name:'四瞳',
+      weight: WEIGHT_PRESETS.item,
+      description:'四向齐鸣，攻击 x0.9，射速 x0.75。负面效果仅触发一次。',
+      apply(player){
+        if(!player) return;
+        const firstPickup = !(typeof player.hasItem === 'function' && player.hasItem('quad-gaze'));
+        const firePenalty = 1/0.75;
+        if(typeof player.registerEyePattern === 'function'){
+          player.registerEyePattern('quad-gaze', {
+            extraShots: 3,
+            step: 0.26,
+            penalty: firstPickup ? {damage: 0.9, fireInterval: firePenalty} : null,
+          });
+        } else {
+          if(firstPickup){
+            player.damageMultiplier *= 0.9;
+            player.fireInterval = Math.max(12, player.fireInterval * firePenalty);
+            player.fireCd = Math.min(player.fireCd, player.fireInterval);
+            player.updateBrimstoneChargeMetrics?.();
+          }
+        }
+      }
     },
     {
       slug:'impact-chocolate',
@@ -998,7 +1085,10 @@
             });
             p.hp = Math.max(0, p.hp - 1);
             if(p.hp<=0){ gameOver(); }
-            else { p.recalculateDamage(); }
+            else {
+              p.recalculateDamage();
+              p.updateHolyHeartBlessing?.();
+            }
             return {message:'肾上腺素·爆发', detail:'当前房间属性飙升，生命 -1。'};
           }
         };
@@ -1065,6 +1155,82 @@
   const ITEM_REF_MAGIC_BULLET = ITEM_POOL.find(item=>item.slug==='magic-bullet');
   const ITEM_REF_HOT_CHOCOLATE = ITEM_POOL.find(item=>item.slug==='hot-chocolate');
   const ITEM_REF_POCKET_WATCH = ITEM_POOL.find(item=>item.slug==='pocket-watch');
+  const HOLY_HEART_ITEM = {
+    slug:'holy-heart',
+    name:'神圣之心',
+    weight:0.12,
+    description:'受赐神圣之力：上限 +2，魂心 +3，射速 x0.95，伤害 x2.5 +2，移速 x1.2，弹速 x0.85，射程 x9，飞行、穿透与追踪；子弹环绕灼辉，并在满红心时额外将伤害再乘 2.5。受伤后本房间失效，下房间满血时再度生效。',
+    apply(player){
+      if(!player) return;
+      const hasDouble = typeof player.hasItem === 'function' && player.hasItem('holy-heart');
+      const state = typeof player.ensureHolyHeartState === 'function'
+        ? player.ensureHolyHeartState()
+        : (player.holyHeartState ||= {
+            enabled:false,
+            auraEnabled:false,
+            aura:{},
+            blessingMultiplier:2.5,
+            blessingActive:false,
+            roomSuppressed:false,
+          });
+      if(typeof player.adjustMaxHp === 'function'){
+        player.adjustMaxHp(2);
+      } else {
+        const prev = player.maxHp;
+        player.maxHp = Math.min(player.maxHpCap || 20, Math.max(1, (player.maxHp||0) + 2));
+        if(player.hp > player.maxHp){ player.hp = player.maxHp; }
+        else { player.hp = Math.min(player.maxHp, (player.hp||0) + (player.maxHp - prev)); }
+        player.recalculateDamage?.();
+      }
+      if(typeof player.addSoulHearts === 'function'){
+        const gained = player.addSoulHearts(3);
+        if(!gained && player.soulHearts!=null){ player.soulHearts += 3; player.recalculateDamage?.(); }
+      } else {
+        player.soulHearts = Math.max(0, (player.soulHearts||0) + 3);
+        player.recalculateDamage?.();
+      }
+      if(!hasDouble){
+        player.fireInterval = Math.max(12, player.fireInterval / 0.95);
+        player.fireCd = Math.min(player.fireCd, player.fireInterval);
+        player.updateBrimstoneChargeMetrics?.();
+        player.damageMultiplier *= 2.5;
+        player.speed *= 1.2;
+        player.tearSpeed *= 0.85;
+        player.tearLife *= 9;
+        player.ifrBoostMultiplier = Math.max(0.1, (player.ifrBoostMultiplier || 1) * 2);
+      }
+      player.addDamage?.(2);
+      if(!player.addDamage){
+        player.baseDamage = +(player.baseDamage + 2);
+      }
+      player.canPierceObstacles = true;
+      player.canPierceEnemies = true;
+      player.homingTears = true;
+      player.homingStrength = Math.max(player.homingStrength || 6, 14);
+      player.flying = true;
+      if(state){
+        state.enabled = true;
+        state.auraEnabled = true;
+        state.blessingMultiplier = Math.max(1, state.blessingMultiplier || 2.5);
+        state.pickups = (state.pickups || 0) + 1;
+        state.roomSuppressed = false;
+        state.aura = {
+          radiusMultiplier: 3,
+          interval: 8/60,
+          damageRatio: 0.4,
+          fillColor: '#fef9c3',
+          strokeColor: '#fde68a',
+        };
+      }
+      if(typeof player.updateHolyHeartBlessing === 'function'){
+        player.updateHolyHeartBlessing();
+      }
+      player.recalculateDamage?.();
+    }
+  };
+  const SHOP_RARE_ITEM_POOL = [
+    {...HOLY_HEART_ITEM, weight:0.1}
+  ];
   const SHOP_ITEM_POOL = [
     {
       slug:'blood-power',
@@ -1108,6 +1274,9 @@
       description: ITEM_REF_BOMB_GRANDPA?.description || '免疫炸弹伤害，受到爆炸时反而恢复生命。',
       apply(player){ ITEM_REF_BOMB_GRANDPA?.apply?.(player); }
     }
+  ];
+  const BOSS_RARE_ITEM_POOL = [
+    {...HOLY_HEART_ITEM, weight:0.1}
   ];
   const BOSS_ITEM_POOL = [
     {
@@ -1345,6 +1514,7 @@
         const prevHp = player.hp;
         player.hp = Math.min(player.maxHp, player.hp + 1);
         if(player.hp!==prevHp){ player.recalculateDamage(); }
+        player.updateHolyHeartBlessing?.();
         const healGain = player.hp - prevHp;
         return {message:'杂耍牌·补给', detail:`钥匙 +${keyGain}，炸弹 +${bombGain}，生命 +${healGain}`};
       }
@@ -1367,6 +1537,7 @@
       use(player){
         player.hp = player.maxHp;
         player.recalculateDamage();
+        player.updateHolyHeartBlessing?.();
         return {message:'血牌·再生', detail:'生命回复至上限。'};
       }
     },
@@ -1403,7 +1574,7 @@
     }
   ];
   const ITEM_ID_REGISTRY = (()=>{
-    const pools = [ITEM_POOL, SHOP_ITEM_POOL, BOSS_ITEM_POOL, LIFE_TRADE_EXTRA_POOL];
+    const pools = [ITEM_POOL, SHOP_ITEM_POOL, SHOP_RARE_ITEM_POOL, BOSS_ITEM_POOL, BOSS_RARE_ITEM_POOL, LIFE_TRADE_EXTRA_POOL];
     const byKey = new Map();
     const byId = new Map();
     let nextId = 1;
@@ -1721,6 +1892,7 @@
     if(Number.isFinite(tearSpeed) && tearSpeed>0){ player.tearSpeed = tearSpeed; }
     if(player.hp>player.maxHp) player.hp = player.maxHp;
     player.recalculateDamage();
+    player.updateHolyHeartBlessing?.();
     clearCheatDirty('hp','maxHp','damage','speed','firerate','tearSpeed');
     syncCheatPanel();
   }
@@ -2671,20 +2843,78 @@
       if(fallback) return {...fallback};
       return {...(pool[0]||{})};
     }
+    const minWeight = Number.isFinite(options.minWeight) ? Math.max(0, options.minWeight) : 0;
+    const pityKey = options.poolKey || options.pityKey || null;
+    const pityStep = Number.isFinite(options.pityStep) ? Math.max(0, options.pityStep) : 0.12;
+    const pityCap = Number.isFinite(options.pityCap) ? Math.max(0, options.pityCap) : 1;
+    const rareThresholdFactor = Number.isFinite(options.rareThreshold) ? Math.max(1, options.rareThreshold) : 1.5;
+    let pityStore = null;
+    let pityValue = 0;
+    if(pityKey && typeof runtime !== 'undefined' && runtime){
+      pityStore = runtime.weightedPity || (runtime.weightedPity = Object.create(null));
+      pityValue = Math.max(0, Number(pityStore[pityKey]) || 0);
+    }
     const weights = candidates.map(item=>{
-      const w = Number(item.weight);
-      return Number.isFinite(w) && w>0 ? w : 0;
+      const w = Number(item?.weight);
+      if(Number.isFinite(w) && w>0){
+        return minWeight>0 ? Math.max(w, minWeight) : w;
+      }
+      if(minWeight>0){
+        return minWeight;
+      }
+      return 0.0001;
     });
-    const total = weights.reduce((sum,w)=>sum+w,0);
-    let pick = total>0 ? rand()*total : rand()*candidates.length;
-    for(let i=0;i<candidates.length;i++){
-      const weight = total>0 ? weights[i] : 1;
-      pick -= weight;
-      if(pick<=0){
-        return {...candidates[i]};
+    const positives = weights.filter(w=>w>0);
+    const minPositive = positives.length ? Math.min(...positives) : 0;
+    let rareIndices = [];
+    if(minPositive>0){
+      const threshold = minPositive * rareThresholdFactor;
+      for(let i=0;i<weights.length;i++){
+        if(weights[i]>0 && weights[i] <= threshold){
+          rareIndices.push(i);
+        }
       }
     }
-    return {...candidates[candidates.length-1]};
+    if(!rareIndices.length){ rareIndices = null; }
+    const total = weights.reduce((sum,w)=>sum+w,0);
+    const extraSpan = pityValue>0 ? pityValue : 0;
+    let pick = total>0 ? rand()*(total + extraSpan) : rand()*candidates.length;
+    let chosenIndex = -1;
+    let usedPity = false;
+    if(total>0){
+      if(extraSpan>0 && pick>total && rareIndices && rareIndices.length){
+        chosenIndex = rareIndices[Math.floor(rand()*rareIndices.length)];
+        usedPity = true;
+      } else {
+        if(pick>total){ pick = rand()*total; }
+        for(let i=0;i<candidates.length;i++){
+          const weight = weights[i]>0 ? weights[i] : (total>0 ? Math.max(0.0001, minWeight || 0.0001) : 1);
+          pick -= weight;
+          if(pick<=0){
+            chosenIndex = i;
+            break;
+          }
+        }
+      }
+    }
+    if(chosenIndex<0){
+      if(total<=0){
+        chosenIndex = Math.floor(rand()*candidates.length);
+      }
+      if(chosenIndex<0 || chosenIndex>=candidates.length){
+        chosenIndex = candidates.length-1;
+      }
+    }
+    if(pityStore){
+      const rareSet = rareIndices ? new Set(rareIndices) : null;
+      if(usedPity || (rareSet && rareSet.has(chosenIndex))){
+        pityStore[pityKey] = 0;
+      } else if(pityStep>0){
+        const current = Math.max(0, Number(pityStore[pityKey]) || 0);
+        pityStore[pityKey] = Math.min(pityCap, current + pityStep);
+      }
+    }
+    return {...candidates[chosenIndex]};
   }
   const recentItemHistory = [];
   const recentShopItemHistory = [];
@@ -2696,7 +2926,7 @@
     if(history.length>limit){ history.splice(0, history.length-limit); }
   }
   function rollItem(){
-    const item = weightedRoll(ITEM_POOL, {exclude: recentItemHistory});
+    const item = weightedRoll(ITEM_POOL, {exclude: recentItemHistory, poolKey:'item', minWeight:0.001});
     rememberRecent(recentItemHistory, item.slug, 3);
     return item;
   }
@@ -2705,7 +2935,7 @@
     if(!pool.length){
       return rollItem();
     }
-    const item = weightedRoll(pool, {exclude: recentItemHistory});
+    const item = weightedRoll(pool, {exclude: recentItemHistory, poolKey:'item', minWeight:0.001});
     rememberRecent(recentItemHistory, item.slug, 3);
     return item;
   }
@@ -2723,7 +2953,14 @@
     const cardChance = Math.max(0, CONFIG.cards?.shopCardChance ?? 0);
     for(let i=0;i<5;i++){
       if(itemSlots.has(i)){
-        const shopItem = weightedRoll(SHOP_ITEM_POOL, {exclude: recentShopItemHistory});
+        const rareChance = Math.max(0, CONFIG.shop?.rareItemChance ?? 0);
+        let poolRef = SHOP_ITEM_POOL;
+        let rollOptions = {exclude: recentShopItemHistory, poolKey:'shop', minWeight:0.001, pityStep:0.08, pityCap:0.8};
+        if(SHOP_RARE_ITEM_POOL.length && rand() < rareChance){
+          poolRef = SHOP_RARE_ITEM_POOL;
+          rollOptions = {exclude: recentShopItemHistory, poolKey:'shop-rare', minWeight:0.0005, pityStep:0.08, pityCap:0.8};
+        }
+        const shopItem = weightedRoll(poolRef, rollOptions);
         rememberRecent(recentShopItemHistory, shopItem.slug, 2);
         entries.push({type:'item', item: shopItem});
       } else {
@@ -2739,10 +2976,14 @@
     return entries;
   }
   function rollBossItem(){
-    return weightedRoll(BOSS_ITEM_POOL);
+    const rareChance = Math.max(0, CONFIG.loot?.bossRareChance ?? 0);
+    if(BOSS_RARE_ITEM_POOL.length && rand() < rareChance){
+      return weightedRoll(BOSS_RARE_ITEM_POOL, {poolKey:'boss-rare', minWeight:0.0005, pityStep:0.1, pityCap:1});
+    }
+    return weightedRoll(BOSS_ITEM_POOL, {poolKey:'boss', minWeight:0.0005, pityStep:0.1, pityCap:1});
   }
   function rollLifeTradeItem(){
-    return weightedRoll(LIFE_TRADE_POOL);
+    return weightedRoll(LIFE_TRADE_POOL, {poolKey:'life-trade', minWeight:0.0005, pityStep:0.1, pityCap:0.9});
   }
 
   function makeItemPickup(x,y,room){
@@ -2815,6 +3056,7 @@
         playerInstance.hp = Math.min(playerInstance.hp, 1);
         playerInstance.maxHp = 1;
         playerInstance.recalculateDamage?.();
+        playerInstance.updateHolyHeartBlessing?.();
       }
       return true;
     }
@@ -2826,6 +3068,7 @@
       playerInstance.maxHp = Math.max(1, playerInstance.maxHp - amount);
       if(playerInstance.hp > playerInstance.maxHp){ playerInstance.hp = playerInstance.maxHp; }
       playerInstance.recalculateDamage?.();
+      playerInstance.updateHolyHeartBlessing?.();
     }
     return true;
   }
@@ -3438,6 +3681,7 @@
       this.knockTimer = 0;
       this.flying = false;
       this.canPierceObstacles = false;
+      this.canPierceEnemies = false;
       this.effects = {bloodPower:false, moneyPower:false, despairPower:false};
       this.baseActiveMaxCharge = Math.max(0, CONFIG.player.activeMaxCharge ?? 0);
       this.activeItem = null;
@@ -3496,6 +3740,8 @@
       this.hotChocolate = null;
       this.followerTrail = [];
       this.followerTrailMax = 220;
+      this.eyePattern = null;
+      this.holyHeartState = null;
       if(typeof this.resetFollowerTrail === 'function'){
         this.resetFollowerTrail();
       }
@@ -3769,6 +4015,7 @@
       const baseDamageValue = Number.isFinite(options.damage) ? options.damage : (this.damage * damageScale);
       const bulletOptions = {
         pierce: this.canPierceObstacles,
+        pierceEnemies: this.canPierceEnemies,
         homing: this.homingTears,
         homingStrength: this.homingStrength
       };
@@ -3783,9 +4030,24 @@
       const tripleBonus = this.getSetBonus ? this.getSetBonus('baby-super') : (this.setBonuses?.['baby-super'] || null);
       const tripleActive = !!(tripleBonus && (tripleBonus.active ?? true));
       const damageMultiplier = tripleActive ? Math.max(0.05, tripleBonus.damageScale ?? 0.95) : 1;
-      const spread = tripleActive ? clamp(tripleBonus.spread ?? 0.2, 0, Math.PI/2) : 0;
+      const tripleSpread = tripleActive ? clamp(tripleBonus.spread ?? 0.2, 0, Math.PI/2) : 0;
       const baseAngle = Math.atan2(vy, vx);
-      const offsets = tripleActive ? [-spread, 0, spread] : [0];
+      const multiOffsets = typeof this.getEyePatternOffsets === 'function' ? this.getEyePatternOffsets() : [0];
+      const tripleOffsets = tripleActive ? [-tripleSpread, 0, tripleSpread] : [0];
+      const offsets = [];
+      for(const baseOffset of multiOffsets){
+        if(tripleActive){
+          for(const extra of tripleOffsets){
+            offsets.push(baseOffset + extra);
+          }
+        } else {
+          offsets.push(baseOffset);
+        }
+      }
+      const hasHolyAura = typeof this.hasHolyHeartAura === 'function' ? this.hasHolyHeartAura() : false;
+      const holyAuraConfig = hasHolyAura && typeof this.getHolyHeartAuraConfig === 'function'
+        ? this.getHolyHeartAuraConfig()
+        : null;
       for(const offset of offsets){
         let outVx = vx;
         let outVy = vy;
@@ -3796,6 +4058,9 @@
         }
         const shotDamage = Math.max(0.01, baseDamageValue * damageMultiplier);
         const shotOptions = {...bulletOptions};
+        if(holyAuraConfig){
+          shotOptions.holyAura = {...holyAuraConfig};
+        }
         const speedLen = Math.hypot(outVx, outVy) || 1;
         shots.push({
           originX,
@@ -4179,7 +4444,7 @@
       const ratio = Math.max(0.05, rawRatio);
       const damage = Math.max(0.05, this.damage * ratio * damageBonus);
       const pierceObstacles = this.canPierceObstacles || chargeSeconds >= 5;
-      const pierceEnemies = chargeSeconds >= 8;
+      const pierceEnemies = this.canPierceEnemies || chargeSeconds >= 8;
       const enableHoming = chargeSeconds >= 3;
       let color = '#fcd34d';
       let trailColor = '#fde68a';
@@ -4214,6 +4479,171 @@
       state.chargeTime = 0;
       state.charging = false;
       this.fireCd = 0;
+    }
+    ensureEyePatternState(){
+      if(!this.eyePattern || typeof this.eyePattern !== 'object'){
+        this.eyePattern = {
+          entries: new Map(),
+          totalExtraShots: 0,
+          baseStep: 0.18,
+          step: 0.18,
+        };
+      } else {
+        if(!(this.eyePattern.entries instanceof Map)){
+          this.eyePattern.entries = new Map();
+        }
+        if(!Number.isFinite(this.eyePattern.baseStep)){
+          this.eyePattern.baseStep = 0.18;
+        }
+        if(!Number.isFinite(this.eyePattern.step)){
+          this.eyePattern.step = this.eyePattern.baseStep;
+        }
+      }
+      return this.eyePattern;
+    }
+    recalculateEyePattern(){
+      const state = this.ensureEyePatternState();
+      let extra = 0;
+      let step = 0;
+      for(const entry of state.entries.values()){
+        extra += Math.max(0, entry?.totalExtraShots || 0);
+        step = Math.max(step, Math.max(0, entry?.step || 0));
+      }
+      state.totalExtraShots = Math.max(0, extra);
+      const baseStep = Number.isFinite(state.baseStep) ? Math.max(0.05, state.baseStep) : 0.18;
+      state.step = Math.max(baseStep, step);
+      return state;
+    }
+    registerEyePattern(slug, config={}){
+      if(!slug) return this.ensureEyePatternState();
+      const state = this.ensureEyePatternState();
+      const entries = state.entries;
+      let entry = entries.get(slug);
+      if(!entry){
+        entry = {count:0, totalExtraShots:0, step:0, penaltyApplied:false};
+        entries.set(slug, entry);
+      }
+      entry.count += 1;
+      const extraShots = Math.max(0, Math.floor(Number(config?.extraShots) || 0));
+      if(extraShots>0){
+        entry.totalExtraShots = (entry.totalExtraShots || 0) + extraShots;
+      }
+      if(Number.isFinite(config?.step)){
+        entry.step = Math.max(entry.step || 0, config.step);
+      }
+      const penalty = config?.penalty;
+      if(penalty && !entry.penaltyApplied){
+        entry.penaltyApplied = true;
+        if(Number.isFinite(penalty.damage) && penalty.damage !== 1){
+          this.damageMultiplier *= Math.max(0.01, penalty.damage);
+        }
+        if(Number.isFinite(penalty.fireInterval) && penalty.fireInterval !== 1){
+          const scale = Math.max(0.01, penalty.fireInterval);
+          this.fireInterval = Math.max(12, this.fireInterval * scale);
+          this.fireCd = Math.min(this.fireCd, this.fireInterval);
+          this.updateBrimstoneChargeMetrics?.();
+        } else if(Number.isFinite(penalty.fireRateMultiplier) && penalty.fireRateMultiplier !== 1){
+          const rate = Math.max(0.05, penalty.fireRateMultiplier);
+          const currentRate = this.fireInterval>0 ? 1000/this.fireInterval : 0;
+          const nextRate = currentRate * rate;
+          if(nextRate>0){
+            this.fireInterval = Math.max(12, 1000/nextRate);
+            this.fireCd = Math.min(this.fireCd, this.fireInterval);
+            this.updateBrimstoneChargeMetrics?.();
+          }
+        }
+      }
+      this.recalculateEyePattern();
+      this.recalculateDamage();
+      return state;
+    }
+    getEyePatternOffsets(){
+      const state = this.ensureEyePatternState();
+      const extra = Math.max(0, Math.floor(state.totalExtraShots || 0));
+      const count = 1 + extra;
+      if(count<=1){
+        return [0];
+      }
+      const step = Math.max(0.08, Number(state.step) || Number(state.baseStep) || 0.18);
+      const totalSpan = step * (count - 1);
+      const start = -totalSpan / 2;
+      const offsets = [];
+      for(let i=0;i<count;i++){
+        offsets.push(start + step * i);
+      }
+      return offsets;
+    }
+    ensureHolyHeartState(){
+      if(!this.holyHeartState || typeof this.holyHeartState !== 'object'){
+        this.holyHeartState = {
+          enabled: false,
+          auraEnabled: false,
+          aura: {},
+          blessingMultiplier: 2.5,
+          blessingActive: false,
+          roomSuppressed: false,
+        };
+      } else {
+        if(typeof this.holyHeartState.aura !== 'object' || !this.holyHeartState.aura){
+          this.holyHeartState.aura = {};
+        }
+        if(!Number.isFinite(this.holyHeartState.blessingMultiplier)){
+          this.holyHeartState.blessingMultiplier = 2.5;
+        }
+      }
+      return this.holyHeartState;
+    }
+    hasHolyHeartAura(){
+      return !!(this.holyHeartState && this.holyHeartState.enabled && this.holyHeartState.auraEnabled);
+    }
+    getHolyHeartAuraConfig(){
+      if(!this.hasHolyHeartAura()) return null;
+      const aura = this.holyHeartState?.aura || {};
+      return {
+        radiusMultiplier: Math.max(0.5, Number(aura.radiusMultiplier) || 3),
+        interval: Math.max(1/120, Number(aura.interval) || (8/60)),
+        damageRatio: Math.max(0, Number(aura.damageRatio) || 0.4),
+        fillColor: aura.fillColor || '#fef9c3',
+        strokeColor: aura.strokeColor || '#fde68a',
+        player: this,
+      };
+    }
+    updateHolyHeartBlessing(){
+      const state = this.holyHeartState;
+      if(!state || !state.enabled){
+        return;
+      }
+      if(state.roomSuppressed){
+        if(state.blessingActive){
+          state.blessingActive = false;
+          this.recalculateDamage();
+        }
+        return;
+      }
+      const shouldActivate = this.hp >= this.maxHp && this.maxHp>0;
+      if(state.blessingActive !== shouldActivate){
+        state.blessingActive = shouldActivate;
+        this.recalculateDamage();
+      }
+    }
+    suppressHolyHeartBlessingForRoom(){
+      const state = this.holyHeartState;
+      if(!state || !state.enabled){
+        return;
+      }
+      state.roomSuppressed = true;
+      if(state.blessingActive){
+        state.blessingActive = false;
+        this.recalculateDamage();
+      }
+    }
+    onHolyHeartRoomChange(){
+      const state = this.holyHeartState;
+      if(!state || !state.enabled){
+        return;
+      }
+      state.roomSuppressed = false;
+      this.updateHolyHeartBlessing();
     }
     createImpactDashState(){
       const baseRadius = this.r || CONFIG.player.radius || 12;
@@ -4440,6 +4870,9 @@
         return;
       }
       if(this.ifr>0 && !options.bypassIFrames) return;
+      if(typeof this.suppressHolyHeartBlessingForRoom === 'function'){
+        this.suppressHolyHeartBlessingForRoom();
+      }
       let remaining = amount;
       const hadSoulBefore = this.soulHearts > 0;
       if(remaining>0 && this.soulHearts>0){
@@ -4461,10 +4894,15 @@
       if(cause==='explosion' && this.explosionHealAmount>0){
         const prevHp = this.hp;
         this.hp = Math.min(this.maxHp, this.hp + this.explosionHealAmount);
-        if(this.hp!==prevHp){ this.recalculateDamage(); return; }
+        if(this.hp!==prevHp){
+          this.recalculateDamage();
+          this.updateHolyHeartBlessing?.();
+          return;
+        }
       }
       if(this.soulHearts<0){ this.soulHearts = 0; }
       this.recalculateDamage();
+      this.updateHolyHeartBlessing?.();
     }
     addDamage(amount){
       this.baseDamage = +(this.baseDamage + amount).toFixed(2);
@@ -4690,6 +5128,9 @@
       const cap = this.getSoulHeartCap();
       if(this.soulHearts > cap){ this.soulHearts = cap; }
       this.recalculateDamage();
+      if(typeof this.updateHolyHeartBlessing === 'function'){
+        this.updateHolyHeartBlessing();
+      }
     }
     getSoulHeartCap(){
       if(this.unlimitedSoulHearts){
@@ -4790,6 +5231,9 @@
       this.maxHp = 1;
       if(this.hp > this.maxHp){ this.hp = this.maxHp; }
       this.recalculateDamage();
+      if(typeof this.updateHolyHeartBlessing === 'function'){
+        this.updateHolyHeartBlessing();
+      }
     }
     getBrimstoneWidth(){
       const base = this.r * 2 * 1.5;
@@ -5015,6 +5459,9 @@
         }
       }
       this.recalculateDamage();
+      if(typeof this.onHolyHeartRoomChange === 'function'){
+        this.onHolyHeartRoomChange();
+      }
     }
     handleRoomChange(room){
       if(!room){ this.clearRoomBuff(); return; }
@@ -5109,7 +5556,10 @@
       if(this.effects.bloodPower){ dmg += this.hp * 0.3; }
       if(this.effects.moneyPower){ dmg += this.coins * 0.05; }
       if(this.effects.despairPower){ const missing = this.maxHp - this.hp; dmg += missing * 0.6; }
-      this.damage = +(Math.max(0.4, dmg) * this.damageMultiplier).toFixed(2);
+      const holyMultiplier = (this.holyHeartState && this.holyHeartState.enabled && this.holyHeartState.blessingActive)
+        ? Math.max(0.01, this.holyHeartState.blessingMultiplier || 2.5)
+        : 1;
+      this.damage = +(Math.max(0.4, dmg) * this.damageMultiplier * holyMultiplier).toFixed(2);
     }
   }
 
@@ -5705,6 +6155,25 @@
       if(this.pierceEnemies){
         this.hitEnemies = new WeakSet();
       }
+      if(options && options.holyAura){
+        const auraOpts = options.holyAura;
+        const radiusMultiplier = Math.max(0.5, Number(auraOpts.radiusMultiplier) || 3);
+        const interval = Math.max(1/120, Number(auraOpts.interval) || (8/60));
+        const damageRatio = Math.max(0, Number(auraOpts.damageRatio) || 0.4);
+        const fillColor = typeof auraOpts.fillColor === 'string' ? auraOpts.fillColor : '#fef9c3';
+        const strokeColor = typeof auraOpts.strokeColor === 'string' ? auraOpts.strokeColor : '#fde68a';
+        const playerRef = auraOpts.player || null;
+        this.holyAura = {
+          radiusMultiplier,
+          interval,
+          timer: interval,
+          damageRatio,
+          fillColor,
+          strokeColor,
+          player: playerRef,
+          pulse: 0,
+        };
+      }
     }
     destroy(options={}){
       if(!this.alive) return;
@@ -5762,6 +6231,9 @@
           if(circleRectOverlap(this, obs)){ this.destroy({glowStrength:0.45}); break; }
         }
       }
+      if(this.holyAura){
+        this.updateHolyAura(dt);
+      }
     }
     hasHitEnemy(enemy){
       if(!this.pierceEnemies || !enemy) return false;
@@ -5778,6 +6250,9 @@
       const highlight = shadeColor(baseColor, 0.28);
       const shadow = shadeColor(baseColor, -0.35);
       ctx.save();
+      if(this.holyAura){
+        this.drawHolyAura();
+      }
       const gradient = ctx.createRadialGradient(
         this.x - this.r*0.25,
         this.y - this.r*0.32,
@@ -5798,6 +6273,62 @@
       ctx.lineWidth = Math.max(1.1, this.r * 0.32);
       ctx.beginPath();
       ctx.arc(this.x, this.y, this.r*0.66, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    updateHolyAura(dt){
+      const aura = this.holyAura;
+      if(!aura) return;
+      const playerRef = aura.player;
+      const room = dungeon?.current;
+      aura.pulse += dt;
+      aura.timer -= dt;
+      const radius = Math.max(this.r * aura.radiusMultiplier, this.r * 1.2);
+      aura.radius = radius;
+      if(!room || !Array.isArray(room.enemies) || !playerRef){
+        return;
+      }
+      const damageBase = Math.max(0.01, (playerRef.damage || 0) * aura.damageRatio);
+      while(aura.timer <= 0){
+        aura.timer += aura.interval;
+        if(damageBase <= 0){
+          continue;
+        }
+        for(const enemy of room.enemies){
+          if(!enemy || enemy.dead) continue;
+          const range = radius + (enemy.r || 0);
+          if(dist(this, enemy) <= range){
+            const killed = enemy.damage ? enemy.damage(damageBase) : false;
+            if(killed){
+              handleEnemyDeath(enemy, room);
+            } else if(typeof enemy.damageFlashTimer === 'number'){
+              enemy.damageFlashTimer = Math.max(enemy.damageFlashTimer, 0.08);
+            }
+          }
+        }
+      }
+    }
+    drawHolyAura(){
+      const aura = this.holyAura;
+      if(!aura || !aura.radius) return;
+      const radius = aura.radius;
+      const pulsePhase = aura.pulse || 0;
+      const alpha = 0.22 + 0.12 * Math.sin(pulsePhase * 6.5);
+      const outerAlpha = 0.28 + 0.18 * Math.sin((pulsePhase + 0.6) * 5.2);
+      ctx.save();
+      ctx.globalAlpha = clamp(alpha, 0.05, 0.6);
+      const fill = ctx.createRadialGradient(this.x, this.y, radius*0.1, this.x, this.y, radius);
+      fill.addColorStop(0, colorWithAlpha(aura.fillColor || '#fef9c3', 0.9));
+      fill.addColorStop(1, colorWithAlpha(aura.fillColor || '#fef9c3', 0));
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, radius, 0, Math.PI*2);
+      ctx.fill();
+      ctx.globalAlpha = clamp(outerAlpha, 0.1, 0.75);
+      ctx.strokeStyle = colorWithAlpha(aura.strokeColor || '#fde68a', 0.85);
+      ctx.lineWidth = Math.max(1.2, radius * 0.12);
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, radius * 0.82, 0, Math.PI*2);
       ctx.stroke();
       ctx.restore();
     }
@@ -11537,11 +12068,13 @@
     timeStopSource: null,
     timeStopFlash: 0,
     exchangePortalChance: 1,
+    exchangePortalPity: 0,
     roomStack: [],
     exchangeRoom: null,
     runTimer: createRunTimer(),
     loopCount: 0,
     endingStats: null,
+    weightedPity: Object.create(null),
   };
   function resetScreenShake(){
     if(!runtime.screenShake) runtime.screenShake = {intensity:0, duration:0, offsetX:0, offsetY:0};
@@ -11624,6 +12157,7 @@
     runtime.itemPickupName = '';
     runtime.itemPickupDesc = '';
     runtime.exchangePortalChance = 1;
+    runtime.exchangePortalPity = 0;
     runtime.roomStack.length = 0;
     runtime.exchangeRoom = null;
     runtime.effects.length = 0;
@@ -11633,6 +12167,7 @@
     runtime.timeStopDuration = 0;
     runtime.timeStopSource = null;
     runtime.timeStopFlash = 0;
+    runtime.weightedPity = Object.create(null);
     resetScreenShake();
     player.handleRoomChange(dungeon.current);
     player.snapFollowersToPlayer();
@@ -11683,6 +12218,7 @@
     runtime.itemPickupDesc = '敌人变得更加愤怒。';
     runtime.itemPickupTimer = 2.6;
     runtime.exchangePortalChance = 1;
+    runtime.exchangePortalPity = 0;
     runtime.roomStack.length = 0;
     runtime.exchangeRoom = null;
     runtime.effects.length = 0;
@@ -11692,6 +12228,7 @@
     runtime.timeStopDuration = 0;
     runtime.timeStopSource = null;
     runtime.timeStopFlash = 0;
+    runtime.weightedPity = Object.create(null);
     resetScreenShake();
     keys.clear();
     for(const code of preservedKeys){ keys.add(code); }
@@ -11740,6 +12277,7 @@
     runtime.itemPickupDesc = '携带全部装备重返第一层。';
     runtime.itemPickupTimer = 2.4;
     runtime.exchangePortalChance = 1;
+    runtime.exchangePortalPity = 0;
     runtime.roomStack.length = 0;
     runtime.exchangeRoom = null;
     runtime.effects.length = 0;
@@ -11749,6 +12287,7 @@
     runtime.timeStopDuration = 0;
     runtime.timeStopSource = null;
     runtime.timeStopFlash = 0;
+    runtime.weightedPity = Object.create(null);
     resetScreenShake();
     keys.clear();
     for(const code of preservedKeys){ keys.add(code); }
@@ -12756,6 +13295,76 @@
       g.beginPath(); g.arc(0,0,r*0.9,0,Math.PI*2); g.fill();
       g.strokeStyle='#f472b6'; g.lineWidth=2;
       g.beginPath(); g.arc(0,0,r*0.55,0,Math.PI*2); g.stroke();
+    } else if(id==='double-gaze'){
+      g.save();
+      const eyeR = r*0.38;
+      const offsets = [-r*0.55, r*0.55];
+      for(const ox of offsets){
+        const grad = g.createRadialGradient(ox,0,eyeR*0.2, ox,0,eyeR);
+        grad.addColorStop(0,'#f8fafc');
+        grad.addColorStop(1,'#38bdf8');
+        g.fillStyle = grad;
+        g.beginPath(); g.arc(ox,0,eyeR,0,Math.PI*2); g.fill();
+        g.fillStyle = '#0f172a';
+        g.beginPath(); g.arc(ox,0,eyeR*0.45,0,Math.PI*2); g.fill();
+        g.fillStyle = '#e0f2fe';
+        g.beginPath(); g.arc(ox - eyeR*0.25, -eyeR*0.15, eyeR*0.22, 0, Math.PI*2); g.fill();
+      }
+      g.strokeStyle = colorWithAlpha('#38bdf8',0.6);
+      g.lineWidth = Math.max(1.2, r*0.12);
+      g.beginPath(); g.moveTo(-r*0.25, -r*0.45); g.lineTo(r*0.25, -r*0.45); g.stroke();
+      g.restore();
+    } else if(id==='triple-gaze'){
+      g.save();
+      const eyeR = r*0.32;
+      const centers = [
+        {x:0, y:-r*0.42},
+        {x:-r*0.55, y:r*0.25},
+        {x:r*0.55, y:r*0.25},
+      ];
+      for(const c of centers){
+        const grad = g.createRadialGradient(c.x,c.y,eyeR*0.2,c.x,c.y,eyeR);
+        grad.addColorStop(0,'#f8fafc');
+        grad.addColorStop(1,'#a855f7');
+        g.fillStyle = grad;
+        g.beginPath(); g.arc(c.x,c.y,eyeR,0,Math.PI*2); g.fill();
+        g.fillStyle = '#1f1036';
+        g.beginPath(); g.arc(c.x,c.y,eyeR*0.45,0,Math.PI*2); g.fill();
+        g.fillStyle = '#ede9fe';
+        g.beginPath(); g.arc(c.x - eyeR*0.2, c.y - eyeR*0.12, eyeR*0.2, 0, Math.PI*2); g.fill();
+      }
+      g.strokeStyle = colorWithAlpha('#c084fc',0.7);
+      g.lineWidth = Math.max(1.1, r*0.1);
+      g.beginPath();
+      g.moveTo(-r*0.2, -r*0.65);
+      g.lineTo(0, -r*0.82);
+      g.lineTo(r*0.2, -r*0.65);
+      g.stroke();
+      g.restore();
+    } else if(id==='quad-gaze'){
+      g.save();
+      const eyeR = r*0.28;
+      const centers = [
+        {x:-r*0.55, y:-r*0.3},
+        {x:r*0.55, y:-r*0.3},
+        {x:-r*0.55, y:r*0.3},
+        {x:r*0.55, y:r*0.3},
+      ];
+      for(const c of centers){
+        const grad = g.createRadialGradient(c.x,c.y,eyeR*0.18,c.x,c.y,eyeR);
+        grad.addColorStop(0,'#fef3c7');
+        grad.addColorStop(1,'#f59e0b');
+        g.fillStyle = grad;
+        g.beginPath(); g.arc(c.x,c.y,eyeR,0,Math.PI*2); g.fill();
+        g.fillStyle = '#422006';
+        g.beginPath(); g.arc(c.x,c.y,eyeR*0.48,0,Math.PI*2); g.fill();
+        g.fillStyle = '#fff7ed';
+        g.beginPath(); g.arc(c.x - eyeR*0.18, c.y - eyeR*0.12, eyeR*0.18, 0, Math.PI*2); g.fill();
+      }
+      g.strokeStyle = colorWithAlpha('#f59e0b',0.7);
+      g.lineWidth = Math.max(1.2, r*0.12);
+      g.strokeRect(-r*0.7, -r*0.5, r*1.4, r*1.0);
+      g.restore();
     } else if(id==='blood-power'){
       g.fillStyle='#ef4444';
       g.beginPath(); g.arc(0,0,r*0.85,0,Math.PI*2); g.fill();
@@ -12969,6 +13578,37 @@
       g.moveTo(r*0.45, -r*0.65);
       g.lineTo(r*0.65, -r*0.4);
       g.lineTo(r*0.35, -r*0.2);
+      g.stroke();
+      g.restore();
+    } else if(id==='holy-heart'){
+      g.save();
+      const glow = g.createRadialGradient(0,0,r*0.25,0,0,r*1.05);
+      glow.addColorStop(0,colorWithAlpha('#fef3c7',0.95));
+      glow.addColorStop(1,colorWithAlpha('#fde68a',0));
+      g.fillStyle = glow;
+      g.beginPath(); g.arc(0,0,r*1.05,0,Math.PI*2); g.fill();
+      g.globalAlpha = 1;
+      g.fillStyle = '#fcd34d';
+      g.beginPath();
+      g.moveTo(0, r*0.7);
+      g.bezierCurveTo(r*0.95, r*0.1, r*0.7, -r*0.95, 0, -r*0.35);
+      g.bezierCurveTo(-r*0.7, -r*0.95, -r*0.95, r*0.1, 0, r*0.7);
+      g.closePath();
+      g.fill();
+      g.strokeStyle = '#fbbf24';
+      g.lineWidth = Math.max(2, r*0.16);
+      g.stroke();
+      g.strokeStyle = colorWithAlpha('#fef3c7',0.9);
+      g.lineWidth = Math.max(1.2, r*0.12);
+      g.beginPath();
+      g.moveTo(-r*0.1, -r*0.6);
+      g.lineTo(-r*0.1, -r*1.05);
+      g.moveTo(-r*0.45, -r*0.85);
+      g.lineTo(-r*0.1, -r*0.6);
+      g.moveTo(r*0.1, -r*0.6);
+      g.lineTo(r*0.45, -r*0.85);
+      g.moveTo(r*0.1, -r*0.6);
+      g.lineTo(r*0.1, -r*1.05);
       g.stroke();
       g.restore();
     } else if(id==='magic-bullet'){
@@ -13547,10 +14187,15 @@
     repelPickupsFromPortal(room, portal, {forcePower: 140});
     let spawnedExchange = false;
     const chance = getExchangePortalChance();
-    if(rand() < chance){
+    const pity = Math.max(0, runtime?.exchangePortalPity ?? 0);
+    const threshold = clamp(chance + pity, 0, 1);
+    const roll = rand();
+    if(roll < threshold){
       const exchangePortal = spawnExchangePortal(room);
       if(exchangePortal){
         spawnedExchange = true;
+        runtime.exchangePortalChance = 1;
+        if(runtime){ runtime.exchangePortalPity = 0; }
         if(!runtime.exchangeRoom){
           runtime.exchangeRoom = createExchangeRoom(room);
         } else {
@@ -13565,8 +14210,18 @@
           runtime.itemPickupTimer = 2.2;
         }
       }
+      if(!spawnedExchange){
+        const pityStep = Math.max(0, cfg.exchangePityStep ?? 0.18);
+        const maxPity = Math.max(0, 1 - chance);
+        if(runtime){ runtime.exchangePortalPity = Math.min(maxPity, pity + pityStep); }
+        runtime.exchangePortalChance = chance;
+      }
+    } else {
+      const pityStep = Math.max(0, cfg.exchangePityStep ?? 0.18);
+      const maxPity = Math.max(0, 1 - chance);
+      if(runtime){ runtime.exchangePortalPity = Math.min(maxPity, pity + pityStep); }
+      runtime.exchangePortalChance = chance;
     }
-    runtime.exchangePortalChance = spawnedExchange ? 1 : 0;
     return portal;
   }
 
@@ -13611,6 +14266,7 @@
     repelPickupsFromPortal(room, endingPortal, {forcePower: 160});
     repelPickupsFromPortal(room, loopPortal, {forcePower: 160});
     runtime.exchangePortalChance = 0;
+    runtime.exchangePortalPity = 0;
     runtime.itemPickupName = '命运双门敞开';
     runtime.itemPickupDesc = '左侧归于终章，右侧再入轮回。';
     runtime.itemPickupTimer = 3.2;
@@ -13690,6 +14346,9 @@
       }
       if(typeof playerRef.recalculateDamage === 'function'){
         playerRef.recalculateDamage();
+      }
+      if(typeof playerRef.updateHolyHeartBlessing === 'function'){
+        playerRef.updateHolyHeartBlessing();
       }
       result.collected = true;
       result.gained = true;
