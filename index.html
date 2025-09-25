@@ -12635,6 +12635,7 @@
     const room = {
       i: -999,
       j: -999,
+      doors: {up:false, down:false, left:false, right:false},
       isExchangeRoom: true,
       isSafeRoom: true,
       cleared: true,
@@ -13379,13 +13380,15 @@
 
   // ======= 门与换房 =======
   function roomDoors(r){
+    if(!r) return [];
+    const state = r.doors || {up:false, down:false, left:false, right:false};
     const doors = [];
     const w=CONFIG.roomW, h=CONFIG.roomH;
     const doorW=60, doorH=10, offset=22;
-    if(r.doors.up) doors.push({dir:'up',   x:w/2-doorW/2, y:offset,      w:doorW, h:doorH});
-    if(r.doors.down) doors.push({dir:'down', x:w/2-doorW/2, y:h-offset-doorH, w:doorW, h:doorH});
-    if(r.doors.left) doors.push({dir:'left', x:offset,      y:h/2-doorW/2, w:doorH, h:doorW});
-    if(r.doors.right) doors.push({dir:'right',x:w-offset-doorH, y:h/2-doorW/2, w:doorH, h:doorW});
+    if(state.up) doors.push({dir:'up',   x:w/2-doorW/2, y:offset,      w:doorW, h:doorH});
+    if(state.down) doors.push({dir:'down', x:w/2-doorW/2, y:h-offset-doorH, w:doorW, h:doorH});
+    if(state.left) doors.push({dir:'left', x:offset,      y:h/2-doorW/2, w:doorH, h:doorW});
+    if(state.right) doors.push({dir:'right',x:w-offset-doorH, y:h/2-doorW/2, w:doorH, h:doorW});
     return doors;
   }
   function isRoomReadyForExit(room){
