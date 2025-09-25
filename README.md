@@ -62,6 +62,11 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
 
   *Boss telegraphs now glow per action and the HUD item list tallies every stack.*
 
+- **动态阴影 · Dynamic Shadows**
+  玩家与怪物依据飞行 / 贴地状态渲染不同阴影轮廓，悬浮高度与压迫感一眼可辨。
+
+  *Dynamic contact shadows differentiate grounded vs. flying units at a glance.*
+
 - **小地图与事件可视化 · Readable Flow**
   小地图颜色区分：当前房间 / Boss / 道具房 / 商店；另有 **Boss 血条、开场介绍与拾取横幅**。  
   *Minimap color-codes key rooms; boss bars and pickup banners spotlight beats.*
@@ -77,10 +82,11 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
 
 ## 战斗循环 · Combat Loop
 
-- **移动**：带加速/减速惯性，上限速度可被道具突破。  
-- **射击**：独立冷却；实时重算伤害、半径、穿透、追踪。  
-- **炸弹**：击退、连锁与震屏；可摧毁障碍或引出隐藏掉落。  
-*Movement uses acceleration/drift; tears recalc stats; bombs shove/chain/shake and reveal secrets.*
+- **移动**：带加速/减速惯性，上限速度可被道具突破。
+- **射击**：独立冷却；实时重算伤害、半径、穿透、追踪。
+- **炸弹**：击退、连锁与震屏；可摧毁障碍或引出隐藏掉落。
+- **阴影反馈**：飞行单位的阴影更小更淡，跃起 Boss 的阴影会随高度收缩。
+*Movement uses acceleration/drift; tears recalc stats; bombs shove/chain/shake and reveal secrets. Shadow feedback shrinks airborne foes and scales boss leaps.*
 
 ---
 
@@ -181,21 +187,21 @@ Contextual overlays at start, pause, and game over; hit **“我要出发！”*
 
 ## 怪物图鉴 · Monster Bestiary
 
-| 敌人 · Enemy | 行为 · Behavior（简述） |
-|:--|:--|
-| 追击者 · *Chaser* | 直线猛冲；受击短暂后退。*Charges straight; recoils on hit.* |
-| 轨道蛆 · *Orbiter* | 绕行锚点缓慢逼近。*Orbits a drifting anchor.* |
-| 气囊怪 · *Gasbag* | 近身点燃自爆，弹出小飞虫。*Explodes into Tiny Flies.* |
-| 分裂体 · *Splitter* | 死亡分裂再集结。*Splits into smaller clones.* |
-| 易爆蛞蝓 · *Volatile* | 触发引线，蓄满即爆。*Fuse → wide blast.* |
-| 小飞虫 · *Tiny Fly* | 贴脸骚扰，弹飞再冲刺。*Buzz, bounce, re-engage.* |
-| 老飞虫 · *Elder Fly* | 保持距离绕行并读条射击。*Circles, telegraphed volleys.* |
-| 哨卫 · *Sentry* | 原地锁定，三向弹幕。*Locks on, triple burst.* |
-| 冲刺鬼 · *Dashling* | 预兆→高速冲刺→疲劳循环。*Telegraph → lunge → recover.* |
-| 潜伏者 · *Burrower* | 潜地追踪，出土直刺。*Burrow and erupt lunge.* |
-| 火花灵 · *Spark* | 小半径轨道，环形电弧弹。*Radial spark bursts.* |
-| 育母虫 · *Brood* | 中距离孵化小飞虫。*Spawns minions in radius.* |
-| 蜘蛛跃者 · *Spider Leaper* | 读条弹跳落地冲击，狂暴加速。*Telegraphed acrobatics.* |
+| 敌人 · Enemy | 类型 · Type | 行为 · Behavior（简述） |
+|:--|:--:|:--|
+| 追击者 · *Chaser* | 地面 · Ground | 直线猛冲；受击短暂后退。*Charges straight; recoils on hit.* |
+| 轨道蛆 · *Orbiter* | 飞行 · Flying | 绕行锚点缓慢逼近。*Orbits a drifting anchor.* |
+| 气囊怪 · *Gasbag* | 地面 · Ground | 近身点燃自爆，弹出小飞虫。*Explodes into Tiny Flies.* |
+| 分裂体 · *Splitter* | 地面 · Ground | 死亡分裂再集结。*Splits into smaller clones.* |
+| 易爆蛞蝓 · *Volatile* | 地面 · Ground | 触发引线，蓄满即爆。*Fuse → wide blast.* |
+| 小飞虫 · *Tiny Fly* | 飞行 · Flying | 贴脸骚扰，弹飞再冲刺。*Buzz, bounce, re-engage.* |
+| 老飞虫 · *Elder Fly* | 飞行 · Flying | 保持距离绕行并读条射击。*Circles, telegraphed volleys.* |
+| 哨卫 · *Sentry* | 地面 · Ground | 原地锁定，三向弹幕。*Locks on, triple burst.* |
+| 冲刺鬼 · *Dashling* | 地面 · Ground | 预兆→高速冲刺→疲劳循环。*Telegraph → lunge → recover.* |
+| 潜伏者 · *Burrower* | 地面 · Ground | 潜地追踪，出土直刺。*Burrow and erupt lunge.* |
+| 火花灵 · *Spark* | 飞行 · Flying | 小半径轨道，环形电弧弹。*Radial spark bursts.* |
+| 育母虫 · *Brood* | 地面 · Ground | 中距离孵化小飞虫。*Spawns minions in radius.* |
+| 蜘蛛跃者 · *Spider Leaper* | 地面 · Ground | 读条弹跳落地冲击，狂暴加速。*Telegraphed acrobatics.* |
 
 ---
 

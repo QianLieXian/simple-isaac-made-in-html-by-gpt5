@@ -8915,6 +8915,12 @@
         ctx.restore();
       }
     }
+    getShadowConfig(){
+      if(this.state==='burrow'){
+        return {visible:false};
+      }
+      return null;
+    }
     damage(d){
       if(this.state==='burrow') return false;
       this.hp -= d;
@@ -9249,13 +9255,6 @@
     }
     draw(){
       const altitude = this.getAltitude();
-      ctx.save();
-      ctx.globalAlpha = 0.35 + 0.25*altitude;
-      ctx.fillStyle = '#0006';
-      ctx.beginPath();
-      ctx.ellipse(this.x, this.y + this.r*0.9, this.r*(1-altitude*0.35), this.r*0.6*(1-altitude*0.45), 0, 0, Math.PI*2);
-      ctx.fill();
-      ctx.restore();
       const telegraphing = this.state==='telegraph';
       const base = telegraphing ? '#fed7aa' : '#cbd5f5';
       const edge = telegraphing ? '#f97316' : '#8b5cf6';
@@ -9268,6 +9267,19 @@
       ctx.arc(this.r*0.35, -this.r*0.1, this.r*0.18, 0, Math.PI*2);
       ctx.fill();
       ctx.restore();
+    }
+    getShadowConfig(){
+      const altitude = clamp(this.getAltitude?.() ?? 0, 0, 1.2);
+      return {
+        x: this.x,
+        y: this.y,
+        radius: this.r,
+        altitude,
+        flying: altitude>0.05,
+        alpha: 0.35 + 0.25*altitude,
+        stretch: 0.6,
+        scale: 1 - altitude*0.35,
+      };
     }
   }
 
@@ -9666,13 +9678,6 @@
     draw(){
       const telegraph = this.state==='telegraph-jump' || this.state==='telegraph-wave';
       const enraged = this.enraged;
-      ctx.save();
-      ctx.globalAlpha = 0.4 + 0.3*this.altitude;
-      ctx.fillStyle = '#0007';
-      ctx.beginPath();
-      ctx.ellipse(this.x, this.y + this.r*0.9, this.r*(1 - this.altitude*0.4), this.r*0.6*(1 - this.altitude*0.45), 0, 0, Math.PI*2);
-      ctx.fill();
-      ctx.restore();
       let base = this.hitFlash>0 ? '#ffe6ef' : (enraged ? '#f87171' : '#ffcad6');
       let edge = enraged ? '#ef4444' : '#f472b6';
       if(telegraph){
@@ -10000,6 +10005,19 @@
         ctx.stroke();
         ctx.restore();
       }
+    }
+    getShadowConfig(){
+      const altitude = clamp(Number(this.altitude) || 0, 0, 1.2);
+      return {
+        x: this.x,
+        y: this.y,
+        radius: this.r,
+        altitude,
+        flying: altitude>0.05,
+        alpha: 0.4 + 0.3*altitude,
+        stretch: 0.6,
+        scale: 1 - altitude*0.4,
+      };
     }
   }
 
@@ -10590,15 +10608,6 @@
       return false;
     }
     draw(){
-      ctx.save();
-      const shadowAlpha = 0.35 + 0.3*this.altitude;
-      ctx.globalAlpha = shadowAlpha;
-      ctx.fillStyle = '#0008';
-      ctx.beginPath();
-      ctx.ellipse(this.x, this.y + this.r*0.9, this.r*(1 - this.altitude*0.3), this.r*0.55*(1 - this.altitude*0.35), 0, 0, Math.PI*2);
-      ctx.fill();
-      ctx.restore();
-
       let baseColor = this.hitFlash>0 ? '#fee2e2' : (this.enraged ? '#fed7aa' : '#fecaca');
       let edgeColor = this.enraged ? '#f97316' : '#fb7185';
       if(this.state==='windup' && this.telegraphType){
@@ -10651,6 +10660,19 @@
         ctx.stroke();
         ctx.restore();
       }
+    }
+    getShadowConfig(){
+      const altitude = clamp(Number(this.altitude) || 0, 0, 1.2);
+      return {
+        x: this.x,
+        y: this.y,
+        radius: this.r,
+        altitude,
+        flying: altitude>0.05,
+        alpha: 0.35 + 0.3*altitude,
+        stretch: 0.55,
+        scale: 1 - altitude*0.3,
+      };
     }
   }
 
@@ -10885,6 +10907,108 @@
       ctx.fill();
       ctx.restore();
     }
+  }
+
+  function getShadowConfigForEntity(entity){
+    if(!entity || entity.shadow === false || entity.noShadow === true) return null;
+    let cfg = undefined;
+    if(typeof entity.getShadowConfig === 'function'){
+      cfg = entity.getShadowConfig();
+      if(cfg === false || (cfg && cfg.visible === false)){
+        return null;
+      }
+    }
+    cfg = cfg ? {...cfg} : {};
+    const x = Number.isFinite(cfg.x) ? cfg.x : Number(entity.shadowX ?? entity.x);
+    const y = Number.isFinite(cfg.y) ? cfg.y : Number(entity.shadowY ?? entity.y);
+    const radius = Number.isFinite(cfg.radius) ? cfg.radius : Number(entity.shadowRadius ?? entity.r ?? 12);
+    if(!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(radius) || radius<=0){
+      return null;
+    }
+    const flying = cfg.flying ?? !!entity.flying;
+    let altitude = cfg.altitude;
+    if(!Number.isFinite(altitude)){
+      if(typeof entity.getShadowAltitude === 'function'){
+        altitude = Number(entity.getShadowAltitude());
+      }
+      if(!Number.isFinite(altitude) && typeof entity.getAltitude === 'function'){
+        altitude = Number(entity.getAltitude());
+      }
+      if(!Number.isFinite(altitude) && Number.isFinite(entity.altitude)){
+        altitude = Number(entity.altitude);
+      }
+      if(!Number.isFinite(altitude) && Number.isFinite(entity.shadowAltitude)){
+        altitude = Number(entity.shadowAltitude);
+      }
+    }
+    if(!Number.isFinite(altitude)){ altitude = 0; }
+    altitude = clamp(altitude, 0, 1.6);
+    if(flying && altitude<=0){
+      const hover = Number.isFinite(cfg.hover) ? cfg.hover : Number(entity.shadowHover ?? 0.32);
+      if(Number.isFinite(hover) && hover>0){
+        altitude = clamp(hover, 0, 1.2);
+      }
+    }
+    const hasCustomAlpha = Number.isFinite(cfg.alpha) || Number.isFinite(entity.shadowAlpha);
+    const baseAlpha = Number.isFinite(cfg.alpha) ? cfg.alpha
+      : Number.isFinite(entity.shadowAlpha) ? entity.shadowAlpha
+      : (flying ? 0.3 : 0.45);
+    const stretch = Number.isFinite(cfg.stretch) ? cfg.stretch
+      : Number.isFinite(entity.shadowStretch) ? entity.shadowStretch
+      : (flying ? 0.55 : 0.48);
+    const scaleBase = Number.isFinite(cfg.scale) ? cfg.scale
+      : Number.isFinite(entity.shadowScale) ? entity.shadowScale
+      : (1 - altitude * (flying ? 0.55 : 0.38));
+    const scale = clamp(scaleBase, flying ? 0.45 : 0.6, flying ? 1.05 : 1.15);
+    let offsetY;
+    if(Number.isFinite(cfg.offsetY)){
+      offsetY = cfg.offsetY;
+    } else if(Number.isFinite(entity.shadowOffsetY)){
+      offsetY = entity.shadowOffsetY;
+    } else {
+      const factor = Number.isFinite(cfg.offsetFactor) ? cfg.offsetFactor
+        : Number.isFinite(entity.shadowOffsetFactor) ? entity.shadowOffsetFactor
+        : (flying ? 0.75 : 0.9);
+      offsetY = radius * clamp(factor, 0.2, 1.4);
+    }
+    const color = cfg.color || entity.shadowColor || '#000000';
+    const alpha = hasCustomAlpha
+      ? clamp(baseAlpha, 0.05, 0.8)
+      : clamp(baseAlpha - altitude * (flying ? 0.08 : 0.22), 0.05, 0.7);
+    return {
+      x,
+      y,
+      radius,
+      altitude,
+      flying,
+      alpha,
+      stretch: clamp(stretch, 0.15, 1.4),
+      scale,
+      offsetY,
+      color,
+    };
+  }
+
+  function drawShadowFromConfig(cfg){
+    if(!cfg) return;
+    const x = cfg.x;
+    const y = cfg.y;
+    const radius = cfg.radius;
+    if(!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(radius) || radius<=0) return;
+    ctx.save();
+    ctx.globalAlpha = clamp(cfg.alpha ?? 0.4, 0.01, 0.8);
+    ctx.fillStyle = cfg.color || '#000000';
+    ctx.beginPath();
+    ctx.ellipse(x, y + (cfg.offsetY ?? radius*0.85), radius * (cfg.scale ?? 1), radius * (cfg.stretch ?? 0.5) * (cfg.scale ?? 1), 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawEntityShadow(entity){
+    if(!entity) return;
+    const cfg = getShadowConfigForEntity(entity);
+    if(!cfg) return;
+    drawShadowFromConfig(cfg);
   }
 
   function drawBlob(x,y,r,base,edge){
@@ -13314,6 +13438,7 @@
     for(const bomb of dungeon.current.bombs){ bomb.draw(); }
 
     for(const e of dungeon.current.enemies){
+      drawEntityShadow(e);
       e.draw();
       if(e.damageFlashTimer>0){
         const ratio = clamp(e.damageFlashTimer / ENEMY_DAMAGE_FLASH_DURATION, 0, 1);
@@ -14445,6 +14570,7 @@
         edgeColor = mixHexColor(edgeColor, '#38bdf8', strength);
       }
     }
+    drawEntityShadow(player);
     ctx.save();
     if(player.ifr>0){
       const phase = Math.floor((performance.now()/70)) % 2;
