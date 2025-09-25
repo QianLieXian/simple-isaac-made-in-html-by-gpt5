@@ -265,7 +265,7 @@
     },
     roomTransition: {
       duration: 0.42,
-      lockDuration: 0.5,
+      lockDuration: 0.3,
     },
     lifeTrade: {
       spawnChance: 0.25,
@@ -12588,8 +12588,10 @@
     if(!room) return null;
     const cfg = CONFIG.portal || {};
     const center = typeof room.center === 'function' ? room.center() : {x: CONFIG.roomW/2, y: CONFIG.roomH/2};
-    const offsetX = Number.isFinite(cfg.exchangeOffsetX) ? cfg.exchangeOffsetX : -180;
-    const offsetY = Number.isFinite(cfg.exchangeOffsetY) ? cfg.exchangeOffsetY : -140;
+    const anchorX = Number.isFinite(cfg.exchangeAnchorX) ? cfg.exchangeAnchorX : 90;
+    const anchorY = Number.isFinite(cfg.exchangeAnchorY) ? cfg.exchangeAnchorY : 120;
+    const offsetX = Number.isFinite(cfg.exchangeOffsetX) ? cfg.exchangeOffsetX : (anchorX - center.x);
+    const offsetY = Number.isFinite(cfg.exchangeOffsetY) ? cfg.exchangeOffsetY : (anchorY - center.y);
     const portal = {
       type: 'exchange',
       x: clamp(center.x + offsetX, 90, CONFIG.roomW-90),
@@ -12947,10 +12949,13 @@
     return Number.isFinite(value) ? Math.max(0.12, value) : 0.42;
   }
 
-  function getRoomEntryLockDuration(){
+  function getRoomEntryLockDuration(targetRoom){
+    if(targetRoom && (targetRoom.cleared || targetRoom.isSafeRoom)){
+      return 0;
+    }
     const cfg = CONFIG.roomTransition || {};
     const value = Number(cfg.lockDuration);
-    return Number.isFinite(value) ? Math.max(0, value) : 0.5;
+    return Number.isFinite(value) ? Math.max(0, value) : 0.3;
   }
 
   function setRoomEntryLock(duration){
@@ -12977,9 +12982,21 @@
     } else {
       runtime.roomTransition = null;
     }
-    const lockValue = options.lock ?? getRoomEntryLockDuration();
+    const hasCustomLock = options.lock;
+    let lockValue;
+    if(hasCustomLock === undefined){
+      lockValue = getRoomEntryLockDuration(options.room);
+    } else {
+      lockValue = Math.max(0, Number(hasCustomLock) || 0);
+    }
     if(lockValue>0){
       setRoomEntryLock(lockValue);
+    } else {
+      runtime.roomEntryLock = 0;
+      if(player){
+        player.entryLockTimer = 0;
+        player.entryLockActive = false;
+      }
     }
     if(options.playSound !== false){
       const rawVolume = Number.isFinite(options.soundVolume) ? options.soundVolume : 0.45;
@@ -13065,7 +13082,7 @@
         : [];
 
     if(options.transition !== false){
-      const transitionOptions = { direction };
+      const transitionOptions = { direction, room };
       if(Number.isFinite(options.transitionDuration)){
         transitionOptions.duration = options.transitionDuration;
       }
@@ -13079,8 +13096,22 @@
         transitionOptions.soundVolume = options.transitionVolume;
       }
       startRoomEntryTransition(direction, transitionOptions);
-    } else if(Number.isFinite(options.lockDuration) && options.lockDuration>0){
-      setRoomEntryLock(options.lockDuration);
+    } else {
+      let lockValue;
+      if(Number.isFinite(options.lockDuration)){
+        lockValue = Math.max(0, options.lockDuration);
+      } else {
+        lockValue = getRoomEntryLockDuration(room);
+      }
+      if(lockValue>0){
+        setRoomEntryLock(lockValue);
+      } else {
+        runtime.roomEntryLock = 0;
+        if(player){
+          player.entryLockTimer = 0;
+          player.entryLockActive = false;
+        }
+      }
     }
 
     if(options.spawnEffects !== false && spawnList.length){
@@ -13886,6 +13917,11 @@
     for(const p of dungeon.current.pickups){ drawPickup(p); }
 
     if(dungeon.current.portal){ drawPortal(dungeon.current.portal); }
+    if(Array.isArray(dungeon.current.extraPortals)){
+      for(const extraPortal of dungeon.current.extraPortals){
+        drawPortal(extraPortal);
+      }
+    }
 
     for(const bomb of dungeon.current.bombs){ bomb.draw(); }
 
