@@ -505,6 +505,15 @@
             return (tone*0.7 + click*0.4) * env;
           });
           break;
+        case 'lightsaberSwing':
+          buffer = buildBuffer(0.32, (t)=>{
+            const env = Math.pow(1 - t, 1.5);
+            const fundamental = Math.sin((360 + t*840) * Math.PI * 2 * t);
+            const shimmer = Math.sin((fundamental>0?1:-1) * (880 + t*540) * Math.PI * 2 * t) * 0.55;
+            const hum = Math.sin(90 * Math.PI * 2 * t) * 0.25;
+            return (fundamental*0.65 + shimmer*0.5 + hum) * env;
+          });
+          break;
         case 'playerHurt':
           buffer = buildBuffer(0.48, (t)=>{
             const env = Math.exp(-t*4.2);
@@ -852,6 +861,18 @@
     if(Math.abs(diff) <= maxStep) return target;
     return current + Math.sign(diff || 1) * maxStep;
   }
+  function lerp(a, b, t){
+    return a + (b - a) * clamp(t, 0, 1);
+  }
+  function angleLerp(a, b, t){
+    const diff = normalizeAngle(b - a);
+    return a + diff * clamp(t, 0, 1);
+  }
+  function easeOutCubic(t){
+    const p = clamp(t, 0, 1);
+    const inv = 1 - p;
+    return 1 - inv * inv * inv;
+  }
   const WEIGHT_PRESETS = {
     item: 10,
     shop: 10,
@@ -942,13 +963,29 @@
       slug:'compressed-peach',
       name:'压缩桃子',
       weight: WEIGHT_PRESETS.item * 0.6,
-      description:'被动：泪弹压缩成定距弹。飞行约 4 个身位后分裂为 3 枚穿透弹，随后顺时针旋转往返，持续时间等同当前射程。',
+      description:'被动：泪弹压缩成定距弹。飞行约当前射程的 1.5 倍后分裂为 3 枚穿透弹，随后顺时针旋转往返，持续时间固定 5 秒。',
       apply(player){
         if(!player) return;
         if(typeof player.incrementItemStack === 'function'){ player.incrementItemStack('compressed-peach'); }
         if(typeof player.enableCompressedPeach === 'function'){ player.enableCompressedPeach(); }
         else {
           player.compressedPeachStacks = Math.max(1, (player.compressedPeachStacks||0) + 1);
+        }
+      }
+    },
+    {
+      slug:'lightsaber',
+      name:'光剑',
+      weight: WEIGHT_PRESETS.item * 0.32,
+      description:'被动：射击改为挥舞光剑。进行左至右的近战斩击，伤害为当前攻击力的 7.5 倍，挥舞速度受弹速影响，可通过连按取消后摇。',
+      lifeTradeCost:{type:'flat', amount:2},
+      apply(player){
+        if(!player) return;
+        player.lightsaberStacks = (Number(player.lightsaberStacks) || 0) + 1;
+        if(typeof player.enableLightsaberMode === 'function'){
+          player.enableLightsaberMode();
+        } else {
+          player.attackMode = 'lightsaber';
         }
       }
     },
@@ -1271,6 +1308,7 @@
   const ITEM_REF_WINGED_SOCKS = ITEM_POOL.find(item=>item.slug==='winged-socks');
   const ITEM_REF_WIND_SPRINT_MEDAL = ITEM_POOL.find(item=>item.slug==='wind-sprint-medal');
   const ITEM_REF_LIGHTSTEP_TONIC = ITEM_POOL.find(item=>item.slug==='lightstep-tonic');
+  const ITEM_REF_LIGHTSABER = ITEM_POOL.find(item=>item.slug==='lightsaber');
   const HOLY_HEART_ITEM = {
     slug:'holy-heart',
     name:'神圣之心',
@@ -3908,6 +3946,16 @@
       }
     }
   }
+  function updateLightsaberSwings(dt, enemies){
+    const swings = runtime.lightsaberSwings;
+    if(!Array.isArray(swings) || !swings.length) return;
+    for(let i=swings.length-1;i>=0;i--){
+      const swing = swings[i];
+      if(!swing){ swings.splice(i,1); continue; }
+      swing.update(dt, enemies);
+      if(!swing.alive){ swings.splice(i,1); }
+    }
+  }
   function keepBombInBounds(bomb){
     const margin = bomb.r + 24;
     const marginY = bomb.r + 24;
@@ -4046,6 +4094,8 @@
       this.holyHeartState = null;
       this.compressedPeachStacks = 0;
       this.compressedPeachState = null;
+      this.lightsaberStacks = 0;
+      this.lightsaber = null;
       if(typeof this.resetFollowerTrail === 'function'){
         this.resetFollowerTrail();
       }
@@ -4264,6 +4314,12 @@
       this.lastVelocity.y = lvy;
       const shotState = this.getShotInput();
       const shotPressed = !entryLocked && !!(shotState && shotState.pressed);
+      if(this.attackMode !== 'lightsaber' && this.lightsaber && this.lightsaber.swing){
+        if(typeof this.lightsaber.swing.forceFinish === 'function'){
+          this.lightsaber.swing.forceFinish();
+        }
+        this.lightsaber.swing = null;
+      }
       if(!entryLocked){
         if(this.attackMode === 'bomb-progenitor'){
           this.handleBombProgenitorAttack(dt, shotState);
@@ -4271,6 +4327,8 @@
           this.handleBombElderAttack(dt, shotState, lvx, lvy, maxSpeed);
         } else if(this.attackMode === 'brimstone'){
           this.handleBrimstoneAttack(dt, shotState?.x || shotX, shotState?.y || shotY, lvx, lvy, maxSpeed);
+        } else if(this.attackMode === 'lightsaber'){
+          this.handleLightsaberAttack(dt, shotState);
         } else if(this.hasHotChocolate && this.hasHotChocolate()){
           this.handleHotChocolateAttack(dt, shotState?.x || shotX, shotState?.y || shotY, lvx, lvy, maxSpeed);
         } else {
@@ -4289,6 +4347,13 @@
           this.brimstoneCharging = false;
           this.brimstoneCharge = 0;
           this.brimstoneCharged = false;
+        }
+        if(this.attackMode === 'lightsaber' && this.lightsaber){
+          if(this.lightsaber.swing && typeof this.lightsaber.swing.forceFinish === 'function'){
+            this.lightsaber.swing.forceFinish();
+          }
+          this.lightsaber.swing = null;
+          this.lightsaber.recoveryTimer = Math.max(this.lightsaber.recoveryTimer || 0, 0.1);
         }
         if(this.hasHotChocolate && this.hasHotChocolate()){
           const state = this.ensureHotChocolateState();
@@ -4464,13 +4529,17 @@
       const stacks = Math.max(1, Number(this.compressedPeachStacks) || 0);
       const bodyRadius = this.r || CONFIG.player.radius || 18;
       const unit = bodyRadius * 2;
+      const playerRange = computePlayerRange(this);
+      const baseRange = Math.max(unit * 3.2, playerRange * 1.5);
+      const stackMultiplier = 1 + Math.min(0.35, (stacks-1) * 0.08);
       this.compressedPeachState.stack = stacks;
-      this.compressedPeachState.travelDistance = unit * (4 + (stacks-1)*0.25);
-      this.compressedPeachState.fragmentTravelDistance = unit * (2 + (stacks-1)*0.2);
-      this.compressedPeachState.orbitRadius = unit * (0.95 + (stacks-1)*0.15);
+      this.compressedPeachState.travelDistance = baseRange * stackMultiplier;
+      this.compressedPeachState.fragmentTravelDistance = Math.max(unit * 2.4, playerRange * (0.75 + (stacks-1)*0.05));
+      this.compressedPeachState.orbitRadius = Math.max(unit * 1.1, playerRange * 0.2 + (stacks-1) * bodyRadius * 0.4);
       this.compressedPeachState.orbitAmplitude = 12 + (stacks-1)*3.2;
       this.compressedPeachState.orbitSpeed = Math.PI * (0.75 + (stacks-1)*0.08);
       this.compressedPeachState.orbitOscSpeed = Math.PI * (1.1 + (stacks-1)*0.12);
+      this.compressedPeachState.orbitDuration = 5;
       return this.compressedPeachState;
     }
     enableCompressedPeach(){
@@ -4488,7 +4557,8 @@
         const travelDistance = Math.max(40, Number(state.travelDistance) || 40);
         const seedDamage = Math.max(0.05, Number(shot.damage) * state.seedDamageScale);
         const fragmentDamage = Math.max(0.05, Number(shot.damage) * state.fragmentDamageScale);
-        const seedLife = totalLife;
+        const travelTime = travelDistance / speed;
+        const seedLife = Math.max(travelTime + 0.12, totalLife);
         const seedOptions = {
           color: shot.options?.color || state.color,
           trailColor: shot.options?.trailColor || state.trailColor,
@@ -4496,9 +4566,8 @@
         };
         const fragmentSpeed = Math.max(40, speed * state.fragmentSpeedScale);
         const fragmentTravel = Math.max(30, Number(state.fragmentTravelDistance) || 30);
-        const travelTime = travelDistance / speed;
-        const remainingLife = Math.max(0.2, seedLife - travelTime);
-        const fragmentLife = Math.max(fragmentTravel / fragmentSpeed + 0.15, remainingLife);
+        const orbitDuration = Math.max(0.2, Number(state.orbitDuration) || 5);
+        const fragmentLife = Math.max(fragmentTravel / fragmentSpeed + orbitDuration, fragmentTravel / fragmentSpeed + 0.25);
         const fragmentConfig = {
           player: this,
           fragmentSpeed,
@@ -4533,6 +4602,128 @@
         resultShots.push(seed);
       }
       return resultShots.length;
+    }
+    ensureLightsaberState(){
+      if(!this.lightsaber || typeof this.lightsaber !== 'object'){
+        this.lightsaber = {
+          swing: null,
+          recoveryTimer: 0,
+          autoRepeatDelay: 0,
+          lastAimX: 0,
+          lastAimY: -1,
+        };
+      }
+      const state = this.lightsaber;
+      const baseRange = computePlayerRange(this);
+      const referenceRange = computePlayerRange({tearSpeed: CONFIG.player.tearSpeed, tearLife: CONFIG.player.tearLife});
+      const rangeRatio = referenceRange>0 ? clamp(baseRange / referenceRange, 0.35, 4) : 1;
+      const bodyRadius = this.r || CONFIG.player.radius || 12;
+      const baseLength = bodyRadius * 6;
+      const extraLength = rangeRatio>1 ? (rangeRatio - 1) * 0.08 : (rangeRatio - 1) * 0.04;
+      state.length = Math.max(bodyRadius * 4.5, baseLength * (1 + extraLength));
+      state.width = Math.max(6, bodyRadius * 1.2);
+      const referenceSpeed = CONFIG.player.tearSpeed || 230;
+      const tearSpeed = Math.max(60, this.tearSpeed || referenceSpeed);
+      const speedRatio = clamp(tearSpeed / referenceSpeed, 0.35, 3.2);
+      const baseDuration = 0.42;
+      state.swingDuration = clamp(baseDuration / speedRatio, 0.18, 0.52);
+      state.fadeDuration = Math.max(0.06, state.swingDuration * 0.25);
+      state.recoveryDuration = Math.max(0.12, state.swingDuration * 0.45);
+      state.autoRepeatWindow = Math.max(0.08, state.swingDuration * 0.3);
+      state.arcSpan = Math.PI * 0.95;
+      state.arcBias = 0.45;
+      state.baseOffset = bodyRadius * 0.45;
+      state.verticalOffset = bodyRadius * 0.1;
+      if(!Number.isFinite(state.lastAimX) || !Number.isFinite(state.lastAimY)){
+        state.lastAimX = 0;
+        state.lastAimY = -1;
+      }
+      return state;
+    }
+    enableLightsaberMode(){
+      this.attackMode = 'lightsaber';
+      const state = this.ensureLightsaberState();
+      state.recoveryTimer = 0;
+      state.autoRepeatDelay = 0;
+      if(state.swing && typeof state.swing.forceFinish === 'function'){
+        state.swing.forceFinish();
+      }
+      state.swing = null;
+      return state;
+    }
+    startLightsaberSwing(state, options={}){
+      if(!state) state = this.ensureLightsaberState();
+      const runtimeState = runtime;
+      if(state.swing && typeof state.swing.forceFinish === 'function'){
+        if(options.force || options.restart){
+          state.swing.forceFinish();
+          state.swing = null;
+        } else {
+          return state.swing;
+        }
+      }
+      const aimX = Number.isFinite(state.lastAimX) ? state.lastAimX : 0;
+      const aimY = Number.isFinite(state.lastAimY) ? state.lastAimY : -1;
+      const len = Math.hypot(aimX, aimY) || 1;
+      const dirX = aimX / len;
+      const dirY = aimY / len;
+      state.lastAimX = dirX;
+      state.lastAimY = dirY;
+      const aimAngle = Math.atan2(dirY, dirX);
+      const span = Math.max(Math.PI * 0.6, state.arcSpan || Math.PI * 0.95);
+      const bias = clamp(state.arcBias ?? 0.45, 0.1, 0.9);
+      const startAngle = normalizeAngle(aimAngle + span * (1 - bias));
+      const endAngle = normalizeAngle(aimAngle - span * bias);
+      const damageValue = Math.max(0.05, this.damage * 7.5);
+      const swing = new LightsaberSwing({
+        owner: this,
+        startAngle,
+        endAngle,
+        aimAngle,
+        length: state.length,
+        width: state.width,
+        duration: state.swingDuration,
+        fadeDuration: state.fadeDuration,
+        recoveryDuration: state.recoveryDuration,
+        damage: damageValue,
+        baseOffset: state.baseOffset,
+        verticalOffset: state.verticalOffset,
+      });
+      state.swing = swing;
+      state.recoveryTimer = 0;
+      state.autoRepeatDelay = Math.max(state.autoRepeatWindow || 0.08, state.swingDuration * 0.25);
+      if(runtimeState){
+        if(!Array.isArray(runtimeState.lightsaberSwings)) runtimeState.lightsaberSwings = [];
+        runtimeState.lightsaberSwings.push(swing);
+      }
+      audio.play('lightsaberSwing', {volume: clamp(0.58 + Math.min(0.3, damageValue * 0.02), 0, 1)});
+      if(typeof this.dispatchFollowerShot === 'function'){
+        this.dispatchFollowerShot('melee', {damage: damageValue, angle: aimAngle});
+      }
+      return swing;
+    }
+    handleLightsaberAttack(dt, shotState){
+      const state = this.ensureLightsaberState();
+      const pressed = !!(shotState && shotState.pressed);
+      const justPressed = !!(shotState && shotState.justPressed);
+      const dirX = Number.isFinite(shotState?.dirX) ? shotState.dirX : state.lastAimX;
+      const dirY = Number.isFinite(shotState?.dirY) ? shotState.dirY : state.lastAimY;
+      if(Number.isFinite(dirX) && Number.isFinite(dirY)){
+        const len = Math.hypot(dirX, dirY) || 1;
+        state.lastAimX = dirX / len;
+        state.lastAimY = dirY / len;
+      }
+      state.recoveryTimer = Math.max(0, (state.recoveryTimer || 0) - dt);
+      state.autoRepeatDelay = Math.max(0, (state.autoRepeatDelay || 0) - dt);
+      if(state.swing && typeof state.swing.isActive === 'function' && !state.swing.isActive()){
+        state.swing = null;
+      }
+      if(justPressed){
+        this.startLightsaberSwing(state, {force:true});
+      } else if(pressed && !state.swing && state.recoveryTimer<=0 && state.autoRepeatDelay<=0){
+        this.startLightsaberSwing(state);
+      }
+      this.fireCd = 0;
     }
     ensureBombElderState(){
       if(!this.bombElder || typeof this.bombElder !== 'object'){
@@ -6279,6 +6470,14 @@
         }
         state.reticle = null;
       }
+      if(this.lightsaber){
+        this.lightsaber.recoveryTimer = 0;
+        this.lightsaber.autoRepeatDelay = 0;
+        if(this.lightsaber.swing && typeof this.lightsaber.swing.forceFinish === 'function'){
+          this.lightsaber.swing.forceFinish();
+        }
+        this.lightsaber.swing = null;
+      }
     }
     setActiveItem(item){
       if(!item){
@@ -7289,6 +7488,176 @@
       ctx.beginPath();
       ctx.arc(this.x, this.y, this.r*0.58, 0, Math.PI*2);
       ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  class LightsaberSwing{
+    constructor(options={}){
+      this.owner = options.owner || null;
+      this.startAngle = Number.isFinite(options.startAngle) ? options.startAngle : 0;
+      this.endAngle = Number.isFinite(options.endAngle) ? options.endAngle : 0;
+      this.currentAngle = this.startAngle;
+      this.prevAngle = this.startAngle;
+      this.aimAngle = Number.isFinite(options.aimAngle) ? options.aimAngle : 0;
+      this.duration = Math.max(0.05, Number(options.duration) || 0.35);
+      this.fadeDuration = Math.max(0.02, Number(options.fadeDuration) || this.duration * 0.3);
+      this.recoveryDuration = Math.max(0.08, Number(options.recoveryDuration) || this.duration * 0.45);
+      this.elapsed = 0;
+      this.state = 'swing';
+      this.fadeTimer = 0;
+      this.alpha = 1;
+      this.length = Math.max(30, Number(options.length) || 90);
+      this.width = Math.max(4, Number(options.width) || 12);
+      this.baseOffset = Number.isFinite(options.baseOffset) ? options.baseOffset : 0;
+      this.verticalOffset = Number.isFinite(options.verticalOffset) ? options.verticalOffset : 0;
+      this.damage = Math.max(0.05, Number(options.damage) || 7.5);
+      this.hitEnemies = new WeakSet();
+      this.sparkCooldown = 0;
+      this.alive = true;
+    }
+    isActive(){
+      return this.state === 'swing' && this.alive;
+    }
+    forceFinish(){
+      if(this.state === 'fade'){
+        this.fadeTimer = Math.min(this.fadeTimer, 0.04);
+        return;
+      }
+      this.state = 'fade';
+      this.fadeTimer = Math.max(0.04, this.fadeDuration * 0.4);
+      this.alpha = 1;
+    }
+    getPivot(){
+      const owner = this.owner;
+      if(!owner){ return {x:0, y:0}; }
+      const forwardX = Math.cos(this.aimAngle);
+      const forwardY = Math.sin(this.aimAngle);
+      const baseX = owner.x + forwardX * this.baseOffset;
+      const baseY = owner.y + forwardY * this.baseOffset + this.verticalOffset;
+      return {x: baseX, y: baseY};
+    }
+    update(dt, enemies){
+      const owner = this.owner;
+      if(!owner){ this.alive = false; return; }
+      if(this.state === 'swing'){
+        this.elapsed += Math.max(0, dt);
+        const raw = this.duration>0 ? clamp(this.elapsed / this.duration, 0, 1) : 1;
+        const eased = easeOutCubic(raw);
+        this.prevAngle = this.currentAngle;
+        this.currentAngle = angleLerp(this.startAngle, this.endAngle, eased);
+        this.alpha = 1;
+        if(Array.isArray(enemies) && enemies.length){
+          this.applyDamage(enemies, this.prevAngle, this.currentAngle);
+        }
+        if(raw >= 1 - 1e-4){
+          this.state = 'fade';
+          this.fadeTimer = this.fadeDuration;
+          if(owner && owner.lightsaber){
+            owner.lightsaber.recoveryTimer = Math.max(owner.lightsaber.recoveryTimer || 0, this.recoveryDuration);
+            if(owner.lightsaber.swing === this){ owner.lightsaber.swing = null; }
+          }
+        }
+      } else if(this.state === 'fade'){
+        this.fadeTimer -= Math.max(0, dt);
+        this.alpha = this.fadeDuration>0 ? clamp(this.fadeTimer / this.fadeDuration, 0, 1) : 0;
+        if(this.fadeTimer <= 0){ this.alive = false; }
+      }
+      if(this.sparkCooldown>0){
+        this.sparkCooldown = Math.max(0, this.sparkCooldown - dt);
+      }
+    }
+    applyDamage(enemies, prevAngle, currentAngle){
+      const room = dungeon?.current;
+      if(!room) return;
+      const base = this.getPivot();
+      const thickness = this.width * 0.5;
+      const angleDiff = normalizeAngle(currentAngle - prevAngle);
+      const steps = Math.max(2, Math.ceil(Math.abs(angleDiff) / (Math.PI / 18)));
+      for(const enemy of enemies){
+        if(!enemy || enemy.dead) continue;
+        if(this.hitEnemies && this.hitEnemies.has(enemy)) continue;
+        const threshold = (enemy.r || 12) + thickness;
+        let hit=false;
+        for(let i=0;i<=steps;i++){
+          const t = steps===0 ? 1 : i/steps;
+          const angle = angleLerp(prevAngle, currentAngle, t);
+          const tipX = base.x + Math.cos(angle) * this.length;
+          const tipY = base.y + Math.sin(angle) * this.length;
+          const dist = pointSegmentDistance(enemy.x, enemy.y, base.x, base.y, tipX, tipY);
+          if(dist <= threshold){ hit=true; break; }
+        }
+        if(!hit) continue;
+        this.hitEnemies.add(enemy);
+        const damageValue = this.damage;
+        const killed = enemy.damage ? enemy.damage(damageValue) : false;
+        const dirX = Math.cos(currentAngle);
+        const dirY = Math.sin(currentAngle);
+        applyEnemyKnockback(enemy, dirX, dirY, {power: 240 + damageValue*12, duration:0.24, slowFactor:0.6, slowDuration:0.35, maxSpeed:360});
+        if(killed){
+          handleEnemyDeath(enemy, room);
+        } else {
+          enemy.damageFlashTimer = Math.max(enemy.damageFlashTimer || 0, 0.2);
+        }
+        this.spawnImpactSpark(enemy, dirX, dirY);
+      }
+    }
+    spawnImpactSpark(enemy, dirX, dirY){
+      if(this.sparkCooldown>0) return;
+      this.sparkCooldown = 0.05;
+      const radius = enemy?.r || 12;
+      const x = (enemy?.x ?? 0) - dirX * radius * 0.3;
+      const y = (enemy?.y ?? 0) - dirY * radius * 0.3;
+      spawnBulletDisperse(x, y, {
+        color:'#93c5fd',
+        accent:'#bfdbfe',
+        count:9,
+        speed:160,
+        glowStrength:0.7,
+      });
+    }
+    draw(){
+      if(this.alpha <= 0 || !this.owner) return;
+      const base = this.getPivot();
+      const tipX = base.x + Math.cos(this.currentAngle) * this.length;
+      const tipY = base.y + Math.sin(this.currentAngle) * this.length;
+      const width = Math.max(4, this.width);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha *= this.alpha;
+      const gradient = ctx.createLinearGradient(base.x, base.y, tipX, tipY);
+      gradient.addColorStop(0, colorWithAlpha('#93c5fd', 0.45));
+      gradient.addColorStop(0.6, colorWithAlpha('#60a5fa', 0.9));
+      gradient.addColorStop(1, colorWithAlpha('#1d4ed8', 0.88));
+      ctx.strokeStyle = gradient;
+      ctx.lineWidth = width;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(base.x, base.y);
+      ctx.lineTo(tipX, tipY);
+      ctx.stroke();
+      ctx.strokeStyle = colorWithAlpha('#f8fafc', 0.92);
+      ctx.lineWidth = Math.max(2.6, width * 0.45);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha *= Math.min(0.8, this.alpha * 0.85);
+      const startGlow = ctx.createRadialGradient(base.x, base.y, 0, base.x, base.y, width);
+      startGlow.addColorStop(0, colorWithAlpha('#bfdbfe', 0.55));
+      startGlow.addColorStop(1, colorWithAlpha('#bfdbfe', 0));
+      ctx.fillStyle = startGlow;
+      ctx.beginPath();
+      ctx.arc(base.x, base.y, width, 0, Math.PI*2);
+      ctx.fill();
+      const endGlow = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, width*1.15);
+      endGlow.addColorStop(0, colorWithAlpha('#eff6ff', 0.7));
+      endGlow.addColorStop(1, colorWithAlpha('#1d4ed8', 0));
+      ctx.fillStyle = endGlow;
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, width*1.15, 0, Math.PI*2);
+      ctx.fill();
       ctx.restore();
     }
   }
@@ -12821,6 +13190,13 @@
       drawCurvedBeam(samples, geom, width, palette, {seed: beam.visualSeed});
     }
   }
+  function drawLightsaberSwings(){
+    if(!runtime.lightsaberSwings || !runtime.lightsaberSwings.length) return;
+    for(const swing of runtime.lightsaberSwings){
+      if(!swing || typeof swing.draw !== 'function') continue;
+      swing.draw(ctx);
+    }
+  }
 
   function drawBurstEffect(effect){
     const ttl = effect.ttl || 0.0001;
@@ -13245,6 +13621,7 @@
     if(!Array.isArray(exchange.pickups)) exchange.pickups = [];
     if(!Array.isArray(exchange.extraPortals)) exchange.extraPortals = [];
     runtime.bullets.length = 0;
+    runtime.lightsaberSwings.length = 0;
     runtime.enemyProjectiles.length = 0;
     runtime.pendingEnemySpawns.length = 0;
     player.handleRoomChange(exchange);
@@ -13295,6 +13672,7 @@
     player.lastDisplacement.x = 0; player.lastDisplacement.y = 0;
     if(player.lastVelocity){ player.lastVelocity.x = 0; player.lastVelocity.y = 0; }
     runtime.bullets.length = 0;
+    runtime.lightsaberSwings.length = 0;
     runtime.enemyProjectiles.length = 0;
     runtime.pendingEnemySpawns.length = 0;
     handleRoomEntry(targetRoom, 'center', {spawnEffects:false});
@@ -13441,6 +13819,7 @@
     enemyProjectiles: [],
     pendingEnemySpawns: [],
     beams: [],
+    lightsaberSwings: [],
     bossIntroTimer: 0,
     bossIntroText: '',
     itemPickupTimer: 0,
@@ -13729,6 +14108,7 @@
     state = STATE.PLAY;
     lastTime = performance.now();
     runtime.bullets.length = 0;
+    runtime.lightsaberSwings.length = 0;
     runtime.enemyProjectiles.length = 0;
     runtime.pendingEnemySpawns.length = 0;
     runtime.beams = [];
@@ -13791,6 +14171,7 @@
     player.ifr = 0;
     if(typeof player.interruptBrimstoneBeam === 'function'){ player.interruptBrimstoneBeam(); }
     runtime.bullets.length = 0;
+    runtime.lightsaberSwings.length = 0;
     runtime.enemyProjectiles.length = 0;
     runtime.pendingEnemySpawns.length = 0;
     runtime.beams = [];
@@ -13850,6 +14231,7 @@
     player.ifr = 0;
     if(typeof player.interruptBrimstoneBeam === 'function'){ player.interruptBrimstoneBeam(); }
     runtime.bullets.length = 0;
+    runtime.lightsaberSwings.length = 0;
     runtime.enemyProjectiles.length = 0;
     runtime.pendingEnemySpawns.length = 0;
     runtime.beams = [];
@@ -13952,6 +14334,7 @@
     player.snapFollowersToPlayer(dir);
 
     runtime.bullets.length = 0;
+    runtime.lightsaberSwings.length = 0;
     runtime.enemyProjectiles.length = 0;
     runtime.pendingEnemySpawns.length = 0;
     runtime.beams = [];
@@ -14256,6 +14639,7 @@
       }
     }
     updateBeams(dt);
+    updateLightsaberSwings(entryLocked ? 0 : dt, enemies);
 
     // 敌方弹幕
     const enemyProjectileDt = entryLocked ? 0 : worldDt;
@@ -14489,6 +14873,7 @@
 
     drawFollowers();
     drawPlayer();
+    drawLightsaberSwings();
     ctx.restore();
 
     if(runtime.timeStopTimer>0 || runtime.timeStopFlash>0){
@@ -15582,6 +15967,12 @@
         baseColor = mixHexColor('#e1e7ff', '#fca5a5', ratio);
         edgeColor = mixHexColor('#a78bfa', '#ef4444', ratio);
       }
+    } else if(player.attackMode === 'lightsaber'){
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      const wave = (Math.sin(now / 160) + 1) / 2;
+      const strength = 0.25 + wave * 0.25;
+      baseColor = mixHexColor(baseColor, '#bfdbfe', strength);
+      edgeColor = mixHexColor(edgeColor, '#60a5fa', 0.35 + strength * 0.4);
     }
     if(dashInvulnActive){
       const bodyMix = dashActive ? 0.85 : (0.45 + 0.4 * dashInvulnRatio);
