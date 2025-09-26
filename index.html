@@ -882,6 +882,42 @@
       apply(player){ player.speed += 35; }
     },
     {
+      slug:'winged-socks',
+      name:'凌云袜套',
+      weight: WEIGHT_PRESETS.item,
+      description:'被动：移动速度 +45，射速 +0.2 次/秒，最大移动速度阈值略微提高。',
+      apply(player){
+        if(!player) return;
+        player.speed += 45;
+        adjustFireRate(player,0.2);
+        player.maxSpeedScale = Math.max(player.maxSpeedScale || 1.1, 1.3);
+      }
+    },
+    {
+      slug:'wind-sprint-medal',
+      name:'疾风勋章',
+      weight: WEIGHT_PRESETS.item,
+      description:'被动：移动速度 +40，加速与减速时间缩短 12%。',
+      apply(player){
+        if(!player) return;
+        player.speed += 40;
+        if(Number.isFinite(player.accelTime)){ player.accelTime = Math.max(0.32, player.accelTime * 0.88); }
+        if(Number.isFinite(player.decelTime)){ player.decelTime = Math.max(0.36, player.decelTime * 0.88); }
+      }
+    },
+    {
+      slug:'lightstep-tonic',
+      name:'轻步药剂',
+      weight: WEIGHT_PRESETS.item,
+      description:'被动：移动速度 +30，子弹速度 x1.05，射程 x1.1。',
+      apply(player){
+        if(!player) return;
+        player.speed += 30;
+        player.tearSpeed *= 1.05;
+        player.tearLife *= 1.1;
+      }
+    },
+    {
       slug:'pepper-steak',
       name:'胡椒牛排',
       weight: WEIGHT_PRESETS.item,
@@ -901,6 +937,20 @@
       weight: WEIGHT_PRESETS.item,
       description:'射程 x1.5，泪滴可穿透障碍',
       apply(player){ player.tearLife*=1.5; player.canPierceObstacles = true; }
+    },
+    {
+      slug:'compressed-peach',
+      name:'压缩桃子',
+      weight: WEIGHT_PRESETS.item * 0.6,
+      description:'被动：泪弹压缩成定距弹。飞行约 4 个身位后分裂为 3 枚穿透弹，随后顺时针旋转往返，持续时间等同当前射程。',
+      apply(player){
+        if(!player) return;
+        if(typeof player.incrementItemStack === 'function'){ player.incrementItemStack('compressed-peach'); }
+        if(typeof player.enableCompressedPeach === 'function'){ player.enableCompressedPeach(); }
+        else {
+          player.compressedPeachStacks = Math.max(1, (player.compressedPeachStacks||0) + 1);
+        }
+      }
     },
     {
       slug:'betrayal-hound',
@@ -1217,6 +1267,10 @@
   const ITEM_REF_MAGIC_BULLET = ITEM_POOL.find(item=>item.slug==='magic-bullet');
   const ITEM_REF_HOT_CHOCOLATE = ITEM_POOL.find(item=>item.slug==='hot-chocolate');
   const ITEM_REF_POCKET_WATCH = ITEM_POOL.find(item=>item.slug==='pocket-watch');
+  const ITEM_REF_COMPRESSED_PEACH = ITEM_POOL.find(item=>item.slug==='compressed-peach');
+  const ITEM_REF_WINGED_SOCKS = ITEM_POOL.find(item=>item.slug==='winged-socks');
+  const ITEM_REF_WIND_SPRINT_MEDAL = ITEM_POOL.find(item=>item.slug==='wind-sprint-medal');
+  const ITEM_REF_LIGHTSTEP_TONIC = ITEM_POOL.find(item=>item.slug==='lightstep-tonic');
   const HOLY_HEART_ITEM = {
     slug:'holy-heart',
     name:'神圣之心',
@@ -1335,6 +1389,34 @@
       weight: WEIGHT_PRESETS.shop,
       description: ITEM_REF_BOMB_GRANDPA?.description || '免疫炸弹伤害，受到爆炸时反而恢复生命。',
       apply(player){ ITEM_REF_BOMB_GRANDPA?.apply?.(player); }
+    },
+    {
+      slug:'winged-socks',
+      name: ITEM_REF_WINGED_SOCKS?.name || '凌云袜套',
+      weight: WEIGHT_PRESETS.shop,
+      description: ITEM_REF_WINGED_SOCKS?.description || '移动速度 +45，射速小幅提升。',
+      apply(player){ ITEM_REF_WINGED_SOCKS?.apply?.(player); }
+    },
+    {
+      slug:'wind-sprint-medal',
+      name: ITEM_REF_WIND_SPRINT_MEDAL?.name || '疾风勋章',
+      weight: WEIGHT_PRESETS.shop,
+      description: ITEM_REF_WIND_SPRINT_MEDAL?.description || '移动速度 +40，加减速时间缩短。',
+      apply(player){ ITEM_REF_WIND_SPRINT_MEDAL?.apply?.(player); }
+    },
+    {
+      slug:'lightstep-tonic',
+      name: ITEM_REF_LIGHTSTEP_TONIC?.name || '轻步药剂',
+      weight: WEIGHT_PRESETS.shop,
+      description: ITEM_REF_LIGHTSTEP_TONIC?.description || '移动速度提升并延长射程。',
+      apply(player){ ITEM_REF_LIGHTSTEP_TONIC?.apply?.(player); }
+    },
+    {
+      slug:'compressed-peach',
+      name: ITEM_REF_COMPRESSED_PEACH?.name || '压缩桃子',
+      weight: WEIGHT_PRESETS.shop * 0.6,
+      description: ITEM_REF_COMPRESSED_PEACH?.description || '泪弹压缩，短程分裂为旋转穿透弹。',
+      apply(player){ ITEM_REF_COMPRESSED_PEACH?.apply?.(player); }
     }
   ];
   const BOSS_RARE_ITEM_POOL = [
@@ -1347,6 +1429,61 @@
       weight: WEIGHT_PRESETS.boss,
       description:'血量上限 +1',
       apply(player){ if(typeof player.adjustMaxHp==='function'){ player.adjustMaxHp(1); } else { player.maxHp+=1; player.hp=Math.min(player.maxHp, player.hp+1); } }
+    },
+    {
+      slug:'vital-broth',
+      name:'活力浓汤',
+      weight: WEIGHT_PRESETS.boss,
+      description:'被动：血量上限 +2，立即恢复 1 点红心，移速 +10。',
+      apply(player){
+        if(!player) return;
+        if(typeof player.adjustMaxHp === 'function'){ player.adjustMaxHp(2); }
+        else {
+          const prevMax = player.maxHp || 0;
+          player.maxHp = Math.min(player.maxHpCap || 20, Math.max(1, prevMax + 2));
+          if(player.hp > player.maxHp){ player.hp = player.maxHp; }
+        }
+        if(player.hp!=null){ player.hp = Math.min(player.maxHp || player.hp, (player.hp||0) + 1); }
+        player.speed += 10;
+        player.recalculateDamage?.();
+      }
+    },
+    {
+      slug:'guardian-core',
+      name:'守护核心',
+      weight: WEIGHT_PRESETS.boss,
+      description:'被动：血量上限 +1，移动速度 +20，无敌帧时长 x1.5，减速更快回到静止。',
+      apply(player){
+        if(!player) return;
+        if(typeof player.adjustMaxHp === 'function'){ player.adjustMaxHp(1); }
+        else {
+          player.maxHp = Math.min(player.maxHpCap || 20, Math.max(1, (player.maxHp||0) + 1));
+          player.hp = Math.min(player.maxHp, (player.hp||0) + 1);
+        }
+        player.speed += 20;
+        player.ifrBoostMultiplier = Math.max(0.1, (player.ifrBoostMultiplier || 1) * 1.5);
+        if(Number.isFinite(player.decelTime)){ player.decelTime = Math.max(0.32, player.decelTime * 0.85); }
+        player.recalculateDamage?.();
+      }
+    },
+    {
+      slug:'ember-heart',
+      name:'余烬心核',
+      weight: WEIGHT_PRESETS.boss,
+      description:'被动：血量上限 +1，伤害 x1.08 并额外 +0.6，子弹速度稍降。',
+      apply(player){
+        if(!player) return;
+        if(typeof player.adjustMaxHp === 'function'){ player.adjustMaxHp(1); }
+        else {
+          player.maxHp = Math.min(player.maxHpCap || 20, Math.max(1, (player.maxHp||0) + 1));
+          player.hp = Math.min(player.maxHp, (player.hp||0) + 1);
+        }
+        player.damageMultiplier *= 1.08;
+        if(typeof player.addDamage === 'function'){ player.addDamage(0.6); }
+        else { player.baseDamage = +(player.baseDamage + 0.6).toFixed(2); }
+        player.tearSpeed *= 0.95;
+        player.recalculateDamage?.();
+      }
     },
     {
       slug:'ending-note',
@@ -3907,6 +4044,8 @@
       this.entryLockTimer = 0;
       this.eyePattern = null;
       this.holyHeartState = null;
+      this.compressedPeachStacks = 0;
+      this.compressedPeachState = null;
       if(typeof this.resetFollowerTrail === 'function'){
         this.resetFollowerTrail();
       }
@@ -4290,14 +4429,110 @@
           options: shotOptions,
         });
       }
-      for(const shot of shots){
-        runtime.bullets.push(new Bullet(shot.originX, shot.originY, shot.vx, shot.vy, shot.life, shot.damage, shot.options));
-        this.dispatchFollowerShot?.('tear', shot);
+      let firedCount = 0;
+      if(this.hasCompressedPeach && this.hasCompressedPeach()){
+        firedCount = this.spawnCompressedPeachProjectiles?.(shots) || 0;
+      } else {
+        for(const shot of shots){
+          runtime.bullets.push(new Bullet(shot.originX, shot.originY, shot.vx, shot.vy, shot.life, shot.damage, shot.options));
+          this.dispatchFollowerShot?.('tear', shot);
+        }
+        firedCount = shots.length;
       }
-      if(shots.length>0){
-        const volume = Math.min(0.75, 0.42 + shots.length*0.04);
+      if(firedCount>0){
+        const volume = Math.min(0.75, 0.42 + firedCount*0.04);
         audio.play('playerShoot', {volume});
       }
+    }
+    hasCompressedPeach(){
+      return Number.isFinite(this.compressedPeachStacks) && this.compressedPeachStacks>0;
+    }
+    ensureCompressedPeachState(){
+      if(!this.compressedPeachState){
+        this.compressedPeachState = {
+          color:'#f9a8d4',
+          trailColor:'#f472b6',
+          seedDamageScale:0.82,
+          fragmentDamageScale:0.68,
+          fragmentSpeedScale:0.88,
+          spreadAngles:[-0.28, 0, 0.28],
+          orbitSpeed:Math.PI*0.8,
+          orbitOscSpeed:Math.PI*1.2,
+          orbitAmplitude:16,
+        };
+      }
+      const stacks = Math.max(1, Number(this.compressedPeachStacks) || 0);
+      const bodyRadius = this.r || CONFIG.player.radius || 18;
+      const unit = bodyRadius * 2;
+      this.compressedPeachState.stack = stacks;
+      this.compressedPeachState.travelDistance = unit * (4 + (stacks-1)*0.25);
+      this.compressedPeachState.fragmentTravelDistance = unit * (2 + (stacks-1)*0.2);
+      this.compressedPeachState.orbitRadius = unit * (0.95 + (stacks-1)*0.15);
+      this.compressedPeachState.orbitAmplitude = 12 + (stacks-1)*3.2;
+      this.compressedPeachState.orbitSpeed = Math.PI * (0.75 + (stacks-1)*0.08);
+      this.compressedPeachState.orbitOscSpeed = Math.PI * (1.1 + (stacks-1)*0.12);
+      return this.compressedPeachState;
+    }
+    enableCompressedPeach(){
+      this.compressedPeachStacks = (Number(this.compressedPeachStacks) || 0) + 1;
+      return this.ensureCompressedPeachState();
+    }
+    spawnCompressedPeachProjectiles(shots){
+      if(!Array.isArray(shots) || !shots.length) return 0;
+      const state = this.ensureCompressedPeachState();
+      const resultShots = [];
+      for(const shot of shots){
+        if(!shot) continue;
+        const speed = Math.max(40, Math.hypot(shot.vx, shot.vy) || 0);
+        const totalLife = Math.max(0.2, Number(shot.life) || this.tearLife || 0.8);
+        const travelDistance = Math.max(40, Number(state.travelDistance) || 40);
+        const seedDamage = Math.max(0.05, Number(shot.damage) * state.seedDamageScale);
+        const fragmentDamage = Math.max(0.05, Number(shot.damage) * state.fragmentDamageScale);
+        const seedLife = totalLife;
+        const seedOptions = {
+          color: shot.options?.color || state.color,
+          trailColor: shot.options?.trailColor || state.trailColor,
+          holyAura: shot.options?.holyAura || null,
+        };
+        const fragmentSpeed = Math.max(40, speed * state.fragmentSpeedScale);
+        const fragmentTravel = Math.max(30, Number(state.fragmentTravelDistance) || 30);
+        const travelTime = travelDistance / speed;
+        const remainingLife = Math.max(0.2, seedLife - travelTime);
+        const fragmentLife = Math.max(fragmentTravel / fragmentSpeed + 0.15, remainingLife);
+        const fragmentConfig = {
+          player: this,
+          fragmentSpeed,
+          damage: fragmentDamage,
+          travelBeforeOrbit: fragmentTravel,
+          orbitRadius: Math.max(24, state.orbitRadius || 24),
+          orbitAmplitude: Math.max(6, state.orbitAmplitude || 6),
+          orbitSpeed: Math.max(0.2, state.orbitSpeed || Math.PI*0.75),
+          oscillationSpeed: Math.max(0.2, state.orbitOscSpeed || Math.PI),
+          spreadAngles: Array.isArray(state.spreadAngles) && state.spreadAngles.length ? state.spreadAngles : [0],
+          life: fragmentLife,
+          color: seedOptions.color,
+          trailColor: seedOptions.trailColor,
+          holyAura: seedOptions.holyAura,
+        };
+        const seed = new CompressedPeachSeed({
+          player: this,
+          x: shot.originX,
+          y: shot.originY,
+          vx: shot.vx,
+          vy: shot.vy,
+          damage: seedDamage,
+          life: seedLife,
+          travelDistance,
+          fragmentConfig,
+          color: seedOptions.color,
+          trailColor: seedOptions.trailColor,
+          holyAura: seedOptions.holyAura,
+        });
+        runtime.bullets.push(seed);
+        this.dispatchFollowerShot?.('tear', shot);
+        resultShots.push(seed);
+      }
+      return resultShots.length;
     }
     ensureBombElderState(){
       if(!this.bombElder || typeof this.bombElder !== 'object'){
@@ -6905,6 +7140,303 @@
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  class CompressedPeachSeed{
+    constructor({player,x,y,vx,vy,damage,life,travelDistance,fragmentConfig,color,trailColor,holyAura}){
+      this.player = player || null;
+      this.x = Number.isFinite(x) ? x : 0;
+      this.y = Number.isFinite(y) ? y : 0;
+      this.prevX = this.x;
+      this.prevY = this.y;
+      this.vx = Number.isFinite(vx) ? vx : 0;
+      this.vy = Number.isFinite(vy) ? vy : 0;
+      this.damage = Math.max(0.05, Number(damage) || 1);
+      this.r = calcTearRadius(this.damage);
+      this.life = Math.max(0.1, Number(life) || 0.8);
+      this.remainingLife = this.life;
+      this.travelDistance = Math.max(20, Number(travelDistance) || 80);
+      this.traveled = 0;
+      this.alive = true;
+      this.pierceObstacles = true;
+      this.pierceEnemies = true;
+      this.hitEnemies = new WeakSet();
+      this.color = typeof color === 'string' ? color : '#f9a8d4';
+      this.trailColor = typeof trailColor === 'string' ? trailColor : '#f472b6';
+      this.fragmentConfig = fragmentConfig || null;
+      if(holyAura){
+        const aura = {...holyAura};
+        aura.player = aura.player || this.player;
+        aura.timer = Math.max(0.01, Number(aura.timer) || Number(aura.interval) || 0.1);
+        aura.pulse = aura.pulse || 0;
+        this.holyAura = aura;
+      } else {
+        this.holyAura = null;
+      }
+    }
+    hasHitEnemy(enemy){
+      if(!this.pierceEnemies || !enemy) return false;
+      return this.hitEnemies?.has(enemy) || false;
+    }
+    markEnemyHit(enemy){
+      if(!this.pierceEnemies || !enemy) return;
+      this.hitEnemies?.add?.(enemy);
+    }
+    update(dt){
+      if(!this.alive) return;
+      this.prevX = this.x;
+      this.prevY = this.y;
+      const dx = this.vx * dt;
+      const dy = this.vy * dt;
+      this.x += dx;
+      this.y += dy;
+      const step = Math.hypot(dx, dy);
+      this.traveled += step;
+      this.remainingLife = Math.max(0, this.remainingLife - dt);
+      if(this.holyAura){
+        this.updateHolyAura(dt);
+      }
+      if(this.traveled >= this.travelDistance){
+        this.split();
+        return;
+      }
+      if(this.remainingLife <= 0){
+        this.destroy();
+      }
+    }
+    split(){
+      if(!this.alive) return;
+      const config = this.fragmentConfig;
+      if(config && runtime?.bullets){
+        const angles = Array.isArray(config.spreadAngles) && config.spreadAngles.length ? config.spreadAngles : [0];
+        const baseAngle = Math.atan2(this.vy, this.vx);
+        const remainLife = Math.max(0.12, config.life || this.remainingLife || 0.3);
+        for(const offset of angles){
+          const angle = baseAngle + offset;
+          const speed = Math.max(40, Number(config.fragmentSpeed) || 80);
+          const vx = Math.cos(angle) * speed;
+          const vy = Math.sin(angle) * speed;
+          const frag = new CompressedPeachFragment({
+            player: config.player || this.player,
+            x: this.x,
+            y: this.y,
+            vx,
+            vy,
+            damage: config.damage,
+            life: remainLife,
+            travelBeforeOrbit: config.travelBeforeOrbit,
+            orbitRadius: config.orbitRadius,
+            orbitAmplitude: config.orbitAmplitude,
+            orbitSpeed: config.orbitSpeed,
+            oscillationSpeed: config.oscillationSpeed,
+            color: config.color,
+            trailColor: config.trailColor,
+            holyAura: config.holyAura,
+          });
+          runtime.bullets.push(frag);
+        }
+        spawnBulletDisperse(this.x, this.y, {
+          color:this.color,
+          accent:this.trailColor,
+          radius:this.r*0.9,
+          count:10,
+          speed:140,
+          glowStrength:0.65,
+        });
+      }
+      this.destroy({silent:true});
+    }
+    destroy(options={}){
+      if(!this.alive) return;
+      this.alive = false;
+      if(options.silent) return;
+      spawnBulletDisperse(this.x, this.y, {
+        color:this.color,
+        accent:this.trailColor,
+        radius:this.r,
+        count:8,
+        speed:110,
+        glowStrength:0.55,
+      });
+    }
+    draw(){
+      if(!this.alive) return;
+      const baseColor = this.color || '#f9a8d4';
+      const highlight = shadeColor(baseColor, 0.2);
+      const shadow = shadeColor(baseColor, -0.35);
+      ctx.save();
+      if(this.holyAura){
+        this.drawHolyAura();
+      }
+      const gradient = ctx.createRadialGradient(
+        this.x - this.r*0.25,
+        this.y - this.r*0.32,
+        Math.max(0.6, this.r*0.15),
+        this.x,
+        this.y,
+        this.r
+      );
+      gradient.addColorStop(0, colorWithAlpha(highlight, 0.95));
+      gradient.addColorStop(0.5, colorWithAlpha(baseColor, 0.82));
+      gradient.addColorStop(1, colorWithAlpha(shadow, 0.38));
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r, 0, Math.PI*2);
+      ctx.fill();
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = colorWithAlpha(this.trailColor || baseColor, 0.9);
+      ctx.lineWidth = Math.max(1.2, this.r * 0.34);
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r*0.58, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  class CompressedPeachFragment{
+    constructor({player,x,y,vx,vy,damage,life,travelBeforeOrbit,orbitRadius,orbitAmplitude,orbitSpeed,oscillationSpeed,color,trailColor,holyAura}){
+      this.player = player || null;
+      this.x = Number.isFinite(x) ? x : 0;
+      this.y = Number.isFinite(y) ? y : 0;
+      this.prevX = this.x;
+      this.prevY = this.y;
+      this.vx = Number.isFinite(vx) ? vx : 0;
+      this.vy = Number.isFinite(vy) ? vy : 0;
+      this.damage = Math.max(0.05, Number(damage) || 1);
+      this.r = calcTearRadius(this.damage) * 0.9;
+      this.life = Math.max(0.15, Number(life) || 0.6);
+      this.remainingLife = this.life;
+      this.travelBeforeOrbit = Math.max(16, Number(travelBeforeOrbit) || 60);
+      this.traveled = 0;
+      this.phase = 0;
+      this.anchorX = this.x;
+      this.anchorY = this.y;
+      this.orbitRadius = Math.max(20, Number(orbitRadius) || 48);
+      this.orbitAmplitude = Math.max(4, Number(orbitAmplitude) || 14);
+      this.orbitSpeed = Math.max(0.2, Number(orbitSpeed) || Math.PI*0.8);
+      this.oscillationSpeed = Math.max(0.2, Number(oscillationSpeed) || Math.PI);
+      this.oscTimer = 0;
+      this.pierceObstacles = true;
+      this.pierceEnemies = true;
+      this.hitEnemies = new WeakSet();
+      this.alive = true;
+      this.color = typeof color === 'string' ? color : '#fda4af';
+      this.trailColor = typeof trailColor === 'string' ? trailColor : '#fb7185';
+      if(holyAura){
+        const aura = {...holyAura};
+        aura.player = aura.player || this.player;
+        aura.timer = Math.max(0.01, Number(aura.timer) || Number(aura.interval) || 0.1);
+        aura.pulse = aura.pulse || 0;
+        this.holyAura = aura;
+      } else {
+        this.holyAura = null;
+      }
+    }
+    hasHitEnemy(enemy){
+      if(!this.pierceEnemies || !enemy) return false;
+      return this.hitEnemies?.has(enemy) || false;
+    }
+    markEnemyHit(enemy){
+      if(!this.pierceEnemies || !enemy) return;
+      this.hitEnemies?.add?.(enemy);
+    }
+    update(dt){
+      if(!this.alive) return;
+      this.prevX = this.x;
+      this.prevY = this.y;
+      this.remainingLife = Math.max(0, this.remainingLife - dt);
+      if(this.remainingLife <= 0){
+        this.destroy();
+        return;
+      }
+      if(this.phase === 0){
+        const dx = this.vx * dt;
+        const dy = this.vy * dt;
+        this.x += dx;
+        this.y += dy;
+        this.traveled += Math.hypot(dx, dy);
+        if(this.traveled >= this.travelBeforeOrbit){
+          this.phase = 1;
+          this.anchorX = this.x;
+          this.anchorY = this.y;
+          this.oscTimer = 0;
+          this.orbitAngle = Math.atan2(this.vy, this.vx);
+        }
+      }
+      if(this.phase === 1){
+        this.oscTimer += dt;
+        this.orbitAngle -= this.orbitSpeed * dt;
+        const radius = this.orbitRadius + Math.sin(this.oscTimer * this.oscillationSpeed) * this.orbitAmplitude;
+        this.x = this.anchorX + Math.cos(this.orbitAngle) * radius;
+        this.y = this.anchorY + Math.sin(this.orbitAngle) * radius;
+      }
+      if(this.holyAura){
+        this.updateHolyAura(dt);
+      }
+      if(dt>0){
+        this.vx = (this.x - this.prevX) / dt;
+        this.vy = (this.y - this.prevY) / dt;
+      }
+      if(this.phase === 1){
+        const margin = 12;
+        if(this.x < -margin || this.x > CONFIG.roomW + margin || this.y < -margin || this.y > CONFIG.roomH + margin){
+          this.destroy();
+        }
+      }
+    }
+    destroy(){
+      if(!this.alive) return;
+      this.alive = false;
+      spawnBulletDisperse(this.x, this.y, {
+        color:this.color,
+        accent:this.trailColor,
+        radius:this.r*0.85,
+        count:6,
+        speed:100,
+        glowStrength:0.5,
+      });
+    }
+    draw(){
+      if(!this.alive) return;
+      const baseColor = this.color || '#fda4af';
+      const highlight = shadeColor(baseColor, 0.22);
+      const shadow = shadeColor(baseColor, -0.4);
+      ctx.save();
+      if(this.holyAura){
+        this.drawHolyAura();
+      }
+      const gradient = ctx.createRadialGradient(
+        this.x - this.r*0.3,
+        this.y - this.r*0.35,
+        Math.max(0.5, this.r*0.18),
+        this.x,
+        this.y,
+        this.r
+      );
+      gradient.addColorStop(0, colorWithAlpha(highlight, 0.98));
+      gradient.addColorStop(0.6, colorWithAlpha(baseColor, 0.82));
+      gradient.addColorStop(1, colorWithAlpha(shadow, 0.35));
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r, 0, Math.PI*2);
+      ctx.fill();
+      const tailAlpha = this.phase === 1 ? 0.7 : 0.4;
+      ctx.globalAlpha = tailAlpha;
+      ctx.strokeStyle = colorWithAlpha(this.trailColor || baseColor, tailAlpha);
+      ctx.lineWidth = Math.max(1.1, this.r * 0.42);
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y);
+      ctx.lineTo(this.x - this.vx * 0.03, this.y - this.vy * 0.03);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  if(Bullet?.prototype){
+    CompressedPeachSeed.prototype.updateHolyAura = Bullet.prototype.updateHolyAura;
+    CompressedPeachSeed.prototype.drawHolyAura = Bullet.prototype.drawHolyAura;
+    CompressedPeachFragment.prototype.updateHolyAura = Bullet.prototype.updateHolyAura;
+    CompressedPeachFragment.prototype.drawHolyAura = Bullet.prototype.drawHolyAura;
   }
 
   class Bomb{
