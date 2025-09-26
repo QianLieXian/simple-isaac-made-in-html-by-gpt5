@@ -963,7 +963,7 @@
       slug:'compressed-peach',
       name:'压缩桃子',
       weight: WEIGHT_PRESETS.item * 0.6,
-      description:'被动：泪弹压缩成定距弹。飞行约当前射程的 1.5 倍后分裂为 3 枚穿透弹，随后顺时针旋转往返，持续时间固定 5 秒。',
+      description:'被动：泪弹压缩成定距弹。飞行约当前射程的 1.5 倍后分裂为 3 枚穿透弹，随后顺时针旋转往返，持续时间固定 5 秒；若泪滴具备追踪或蓄力特性会额外继承并在旋转后脱轨追击。',
       apply(player){
         if(!player) return;
         if(typeof player.incrementItemStack === 'function'){ player.incrementItemStack('compressed-peach'); }
@@ -1453,7 +1453,7 @@
       slug:'compressed-peach',
       name: ITEM_REF_COMPRESSED_PEACH?.name || '压缩桃子',
       weight: WEIGHT_PRESETS.shop * 0.6,
-      description: ITEM_REF_COMPRESSED_PEACH?.description || '泪弹压缩，短程分裂为旋转穿透弹。',
+      description: ITEM_REF_COMPRESSED_PEACH?.description || '泪弹压缩，短程分裂为旋转穿透弹，追踪属性可继承。',
       apply(player){ ITEM_REF_COMPRESSED_PEACH?.apply?.(player); }
     }
   ];
@@ -4524,6 +4524,18 @@
           orbitSpeed:Math.PI*0.8,
           orbitOscSpeed:Math.PI*1.2,
           orbitAmplitude:16,
+          orbitDuration:5,
+          fragmentHoming:false,
+          fragmentHomingStrength:0,
+          fragmentHomingSpeed:0,
+          fragmentHomingRange:0,
+          fragmentHomingDelay:0.45,
+          fragmentOrbitBreakTime:Infinity,
+          seedHoming:false,
+          seedHomingStrength:0,
+          seedHomingSpeed:0,
+          seedHomingRange:0,
+          seedHomingDelay:0.12,
         };
       }
       const stacks = Math.max(1, Number(this.compressedPeachStacks) || 0);
@@ -4539,7 +4551,11 @@
       this.compressedPeachState.orbitAmplitude = 12 + (stacks-1)*3.2;
       this.compressedPeachState.orbitSpeed = Math.PI * (0.75 + (stacks-1)*0.08);
       this.compressedPeachState.orbitOscSpeed = Math.PI * (1.1 + (stacks-1)*0.12);
-      this.compressedPeachState.orbitDuration = 5;
+      this.compressedPeachState.orbitDuration = Math.max(3.5, 5 + (stacks-1)*0.25);
+      const synergy = this.collectSynergyOptions('compressed-peach', {...this.compressedPeachState}, {stacks, state:this.compressedPeachState});
+      if(synergy && typeof synergy === 'object'){
+        Object.assign(this.compressedPeachState, synergy);
+      }
       return this.compressedPeachState;
     }
     enableCompressedPeach(){
@@ -4564,10 +4580,45 @@
           trailColor: shot.options?.trailColor || state.trailColor,
           holyAura: shot.options?.holyAura || null,
         };
+        const shotHasHoming = !!(shot.options?.homing);
+        const baseHomingStrength = Number.isFinite(shot.options?.homingStrength)
+          ? shot.options.homingStrength
+          : (Number(this.homingStrength) || 0);
+        if(shotHasHoming || state.seedHoming){
+          const strengthCandidates = [];
+          if(Number.isFinite(state.seedHomingStrength)) strengthCandidates.push(state.seedHomingStrength);
+          if(Number.isFinite(baseHomingStrength)) strengthCandidates.push(baseHomingStrength);
+          if(Number.isFinite(this.homingStrength)) strengthCandidates.push(this.homingStrength);
+          strengthCandidates.push(6);
+          const seedStrength = Math.max(...strengthCandidates);
+          seedOptions.homing = true;
+          seedOptions.homingStrength = seedStrength;
+          const speedOverride = Number(state.seedHomingSpeed);
+          const baseSeedSpeed = Number.isFinite(speedOverride) && speedOverride>0 ? speedOverride : speed;
+          seedOptions.homingSpeed = Math.max(baseSeedSpeed, speed);
+          const seedRange = Number(state.seedHomingRange);
+          if(Number.isFinite(seedRange) && seedRange>0){
+            seedOptions.homingRange = seedRange;
+          } else if(Number.isFinite(shot.options?.homingRange)){
+            seedOptions.homingRange = shot.options.homingRange;
+          }
+          const seedDelayBase = state.seedHoming ? Number(state.seedHomingDelay) : NaN;
+          const fallbackDelay = shotHasHoming ? 0.08 : 0;
+          const seedDelay = Number.isFinite(seedDelayBase) ? Math.max(0, seedDelayBase) : fallbackDelay;
+          if(seedDelay>0){
+            seedOptions.homingDelay = seedDelay;
+          }
+        }
         const fragmentSpeed = Math.max(40, speed * state.fragmentSpeedScale);
         const fragmentTravel = Math.max(30, Number(state.fragmentTravelDistance) || 30);
         const orbitDuration = Math.max(0.2, Number(state.orbitDuration) || 5);
         const fragmentLife = Math.max(fragmentTravel / fragmentSpeed + orbitDuration, fragmentTravel / fragmentSpeed + 0.25);
+        const fragmentHoming = shotHasHoming || state.fragmentHoming;
+        const fragmentStrengthCandidates = [];
+        if(Number.isFinite(state.fragmentHomingStrength)) fragmentStrengthCandidates.push(state.fragmentHomingStrength);
+        if(Number.isFinite(baseHomingStrength)) fragmentStrengthCandidates.push(baseHomingStrength);
+        if(Number.isFinite(this.homingStrength)) fragmentStrengthCandidates.push(this.homingStrength);
+        if(fragmentHoming) fragmentStrengthCandidates.push(7.5);
         const fragmentConfig = {
           player: this,
           fragmentSpeed,
@@ -4583,6 +4634,34 @@
           trailColor: seedOptions.trailColor,
           holyAura: seedOptions.holyAura,
         };
+        if(fragmentHoming && fragmentStrengthCandidates.length){
+          fragmentConfig.homing = true;
+          fragmentConfig.homingStrength = Math.max(...fragmentStrengthCandidates);
+          const fragmentSpeedOverride = Number(state.fragmentHomingSpeed);
+          if(Number.isFinite(fragmentSpeedOverride) && fragmentSpeedOverride>0){
+            fragmentConfig.homingSpeed = Math.max(fragmentSpeedOverride, fragmentSpeed);
+          } else {
+            fragmentConfig.homingSpeed = fragmentSpeed;
+          }
+          const fragmentRange = Number(state.fragmentHomingRange);
+          if(Number.isFinite(fragmentRange) && fragmentRange>0){
+            fragmentConfig.homingRange = fragmentRange;
+          } else if(Number.isFinite(shot.options?.homingRange)){
+            fragmentConfig.homingRange = shot.options.homingRange;
+          }
+          const fragmentDelayBase = state.fragmentHoming ? Number(state.fragmentHomingDelay) : NaN;
+          const fragmentDelay = Number.isFinite(fragmentDelayBase) ? Math.max(0, fragmentDelayBase) : (shotHasHoming ? 0.32 : 0);
+          if(fragmentDelay>0){
+            fragmentConfig.homingDelay = fragmentDelay;
+          }
+          const orbitBreak = Number(state.fragmentOrbitBreakTime);
+          if(Number.isFinite(orbitBreak) && orbitBreak>0 && orbitBreak!==Infinity){
+            fragmentConfig.orbitBreakTime = orbitBreak;
+          } else if(shotHasHoming){
+            const duration = Math.max(0.5, orbitDuration);
+            fragmentConfig.orbitBreakTime = Math.min(duration * 0.85, 2.6);
+          }
+        }
         const seed = new CompressedPeachSeed({
           player: this,
           x: shot.originX,
@@ -4596,6 +4675,11 @@
           color: seedOptions.color,
           trailColor: seedOptions.trailColor,
           holyAura: seedOptions.holyAura,
+          homing: seedOptions.homing,
+          homingStrength: seedOptions.homingStrength,
+          homingSpeed: seedOptions.homingSpeed,
+          homingRange: seedOptions.homingRange,
+          homingDelay: seedOptions.homingDelay,
         });
         runtime.bullets.push(seed);
         this.dispatchFollowerShot?.('tear', shot);
@@ -5892,6 +5976,56 @@
     collectSynergyOptions(aspect, base={}, context={}){
       const result = {...base};
       switch(aspect){
+        case 'compressed-peach': {
+          const stacks = Math.max(1, Number(context?.stacks) || Number(this.compressedPeachStacks) || 1);
+          const stateRef = context?.state || {};
+          const hasHoming = !!this.homingTears;
+          const hasHotChoco = this.hasHotChocolate && this.hasHotChocolate();
+          const baseTearSpeed = Math.max(120, Number(this.tearSpeed) || Number(CONFIG.player?.tearSpeed) || 220);
+          result.stack = stacks;
+          if(hasHotChoco){
+            const hotAngles = [-0.36, -0.14, 0.14, 0.36];
+            if(!Array.isArray(result.spreadAngles) || result.spreadAngles.length < hotAngles.length){
+              result.spreadAngles = hotAngles;
+            }
+            const speedScale = Number.isFinite(result.fragmentSpeedScale) ? result.fragmentSpeedScale : Number(stateRef.fragmentSpeedScale) || 0.88;
+            result.fragmentSpeedScale = Math.max(speedScale, speedScale * 1.05);
+            const seedScale = Number.isFinite(result.seedDamageScale) ? result.seedDamageScale : Number(stateRef.seedDamageScale) || 0.82;
+            result.seedDamageScale = Math.max(seedScale, seedScale);
+            const fragScale = Number.isFinite(result.fragmentDamageScale) ? result.fragmentDamageScale : Number(stateRef.fragmentDamageScale) || 0.68;
+            result.fragmentDamageScale = Math.max(fragScale, fragScale * 1.02);
+          }
+          if(hasHoming){
+            const baseStrength = Math.max(this.homingStrength || 0, 8);
+            const rangeBonus = 520 + (stacks-1) * 80;
+            result.seedHoming = true;
+            result.seedHomingStrength = Math.max(Number(result.seedHomingStrength) || 0, baseStrength * (0.85 + (stacks-1)*0.05));
+            result.seedHomingSpeed = Math.max(Number(result.seedHomingSpeed) || 0, baseTearSpeed * (0.85 + (stacks-1)*0.04));
+            result.seedHomingRange = Math.max(Number(result.seedHomingRange) || 0, rangeBonus);
+            result.seedHomingDelay = Math.min(Number(result.seedHomingDelay) || 0.12, 0.16);
+            result.fragmentHoming = true;
+            result.fragmentHomingStrength = Math.max(Number(result.fragmentHomingStrength) || 0, baseStrength * (1 + (stacks-1)*0.08));
+            result.fragmentHomingSpeed = Math.max(Number(result.fragmentHomingSpeed) || 0, baseTearSpeed * (0.95 + (stacks-1)*0.05));
+            result.fragmentHomingRange = Math.max(Number(result.fragmentHomingRange) || 0, rangeBonus + 40);
+            const delayBase = 0.34 - Math.min(0.12, (stacks-1) * 0.04);
+            result.fragmentHomingDelay = Math.min(Number(result.fragmentHomingDelay) || 0.38, Math.max(0.12, delayBase));
+            const orbitDuration = Number(stateRef.orbitDuration) || 5;
+            const breakLimit = Math.min(orbitDuration * 0.85, 2.4 + (stacks-1)*0.28);
+            const currentBreak = Number(result.fragmentOrbitBreakTime);
+            if(!Number.isFinite(currentBreak) || currentBreak<=0 || currentBreak>breakLimit){
+              result.fragmentOrbitBreakTime = breakLimit;
+            }
+          }
+          if(this.hasItem && this.hasItem('magic-bullet')){
+            result.seedHomingDelay = Math.min(Number(result.seedHomingDelay) || 0.12, 0.06);
+            result.fragmentHomingDelay = Math.min(Number(result.fragmentHomingDelay) || 0.28, 0.18);
+            const strengthBoost = Math.max(this.homingStrength || 0, 10);
+            result.seedHomingStrength = Math.max(Number(result.seedHomingStrength) || 0, strengthBoost);
+            result.fragmentHomingStrength = Math.max(Number(result.fragmentHomingStrength) || 0, strengthBoost * (1.15 + (stacks-1)*0.05));
+            result.fragmentHomingRange = Math.max(Number(result.fragmentHomingRange) || 0, 640 + (stacks-1) * 90);
+          }
+          break;
+        }
         case 'impact-dash-trail': {
           const hasBrimstone = this.attackMode === 'brimstone';
           const hasHoming = !!this.homingTears;
@@ -7342,7 +7476,8 @@
   }
 
   class CompressedPeachSeed{
-    constructor({player,x,y,vx,vy,damage,life,travelDistance,fragmentConfig,color,trailColor,holyAura}){
+    constructor({player,x,y,vx,vy,damage,life,travelDistance,fragmentConfig,color,trailColor,holyAura}={}){
+      const opts = arguments[0] || {};
       this.player = player || null;
       this.x = Number.isFinite(x) ? x : 0;
       this.y = Number.isFinite(y) ? y : 0;
@@ -7363,6 +7498,18 @@
       this.color = typeof color === 'string' ? color : '#f9a8d4';
       this.trailColor = typeof trailColor === 'string' ? trailColor : '#f472b6';
       this.fragmentConfig = fragmentConfig || null;
+      this.homing = false;
+      this.homingStrength = 0;
+      this.homingSpeed = Math.hypot(this.vx, this.vy) || 0;
+      this.homingRange = 0;
+      this.homingDelay = 0;
+      this.homingTarget = null;
+      this.homingAcquireTimer = 0;
+      if(typeof opts.homing !== 'undefined'){ this.homing = !!opts.homing; }
+      if(Number.isFinite(opts.homingStrength)) this.homingStrength = Math.max(0, opts.homingStrength);
+      if(Number.isFinite(opts.homingSpeed)){ this.homingSpeed = Math.max(0, opts.homingSpeed); }
+      if(Number.isFinite(opts.homingRange)) this.homingRange = Math.max(0, opts.homingRange);
+      if(Number.isFinite(opts.homingDelay)) this.homingDelay = Math.max(0, opts.homingDelay);
       if(holyAura){
         const aura = {...holyAura};
         aura.player = aura.player || this.player;
@@ -7385,6 +7532,14 @@
       if(!this.alive) return;
       this.prevX = this.x;
       this.prevY = this.y;
+      if(this.homing){
+        if(this.homingDelay>0){
+          this.homingDelay = Math.max(0, this.homingDelay - dt);
+        }
+        if(this.homingDelay<=0){
+          this.applyHoming(dt);
+        }
+      }
       const dx = this.vx * dt;
       const dy = this.vy * dt;
       this.x += dx;
@@ -7402,6 +7557,63 @@
       if(this.remainingLife <= 0){
         this.destroy();
       }
+    }
+    applyHoming(dt){
+      if(!this.homing) return;
+      this.homingAcquireTimer = Math.max(0, (this.homingAcquireTimer || 0) - dt);
+      const rangeLimit = this.homingRange>0 ? this.homingRange : Infinity;
+      let target = this.homingTarget;
+      if(target){
+        const distance = dist(this, target);
+        const radius = target?.r || 0;
+        if(!Number.isFinite(distance) || target.dead || distance > rangeLimit + radius){
+          target = null;
+        }
+      }
+      if(!target && this.homingAcquireTimer<=0){
+        target = this.acquireHomingTarget(rangeLimit);
+        this.homingTarget = target;
+        this.homingAcquireTimer = 0.12;
+      }
+      if(!target) return;
+      const baseSpeed = this.homingSpeed>0 ? this.homingSpeed : Math.hypot(this.vx, this.vy) || 0;
+      const desiredSpeed = Math.max(40, baseSpeed);
+      const currentSpeed = Math.hypot(this.vx, this.vy) || 0;
+      const effectiveSpeed = currentSpeed>1e-5 ? currentSpeed : desiredSpeed;
+      const toX = target.x - this.x;
+      const toY = target.y - this.y;
+      const len = Math.hypot(toX, toY) || 1;
+      const nx = toX / len;
+      const ny = toY / len;
+      const curX = effectiveSpeed>0 ? this.vx / effectiveSpeed : nx;
+      const curY = effectiveSpeed>0 ? this.vy / effectiveSpeed : ny;
+      const strength = this.homingStrength>0 ? this.homingStrength : Math.max(this.player?.homingStrength || 0, 8);
+      const turn = clamp(strength * dt, 0, 1);
+      const mixX = curX*(1-turn) + nx*turn;
+      const mixY = curY*(1-turn) + ny*turn;
+      const mixLen = Math.hypot(mixX, mixY) || 1;
+      const finalSpeed = Math.max(desiredSpeed, effectiveSpeed);
+      this.vx = (mixX/mixLen) * finalSpeed;
+      this.vy = (mixY/mixLen) * finalSpeed;
+    }
+    acquireHomingTarget(rangeLimit){
+      const room = dungeon?.current;
+      if(!room || !Array.isArray(room.enemies)) return null;
+      let best = Infinity;
+      let target = null;
+      const limitSq = Number.isFinite(rangeLimit) && rangeLimit < Infinity ? rangeLimit * rangeLimit : Infinity;
+      for(const enemy of room.enemies){
+        if(!enemy || enemy.dead) continue;
+        const dx = enemy.x - this.x;
+        const dy = enemy.y - this.y;
+        const distSq = dx*dx + dy*dy;
+        if(limitSq < Infinity && distSq > limitSq) continue;
+        if(distSq < best){
+          best = distSq;
+          target = enemy;
+        }
+      }
+      return target;
     }
     split(){
       if(!this.alive) return;
@@ -7431,6 +7643,12 @@
             color: config.color,
             trailColor: config.trailColor,
             holyAura: config.holyAura,
+            homing: config.homing,
+            homingStrength: config.homingStrength,
+            homingSpeed: config.homingSpeed,
+            homingRange: config.homingRange,
+            homingDelay: config.homingDelay,
+            orbitBreakTime: config.orbitBreakTime,
           });
           runtime.bullets.push(frag);
         }
@@ -7663,7 +7881,8 @@
   }
 
   class CompressedPeachFragment{
-    constructor({player,x,y,vx,vy,damage,life,travelBeforeOrbit,orbitRadius,orbitAmplitude,orbitSpeed,oscillationSpeed,color,trailColor,holyAura}){
+    constructor({player,x,y,vx,vy,damage,life,travelBeforeOrbit,orbitRadius,orbitAmplitude,orbitSpeed,oscillationSpeed,color,trailColor,holyAura,homing,homingStrength,homingSpeed,homingRange,homingDelay,orbitBreakTime}={}){
+      const opts = arguments[0] || {};
       this.player = player || null;
       this.x = Number.isFinite(x) ? x : 0;
       this.y = Number.isFinite(y) ? y : 0;
@@ -7691,6 +7910,17 @@
       this.alive = true;
       this.color = typeof color === 'string' ? color : '#fda4af';
       this.trailColor = typeof trailColor === 'string' ? trailColor : '#fb7185';
+      this.homing = !!homing;
+      this.homingStrength = Math.max(0, Number.isFinite(homingStrength) ? homingStrength : (Number(opts?.homingStrength) || 0));
+      this.homingSpeed = Math.max(0, Number.isFinite(homingSpeed) ? homingSpeed : (Math.hypot(this.vx, this.vy) || 0));
+      this.homingRange = Math.max(0, Number.isFinite(homingRange) ? homingRange : 0);
+      this.homingDelay = Math.max(0, Number.isFinite(homingDelay) ? homingDelay : 0);
+      this.homingTarget = null;
+      this.homingAcquireTimer = 0;
+      this.orbitBreakTime = Number.isFinite(orbitBreakTime) ? Math.max(0, orbitBreakTime) : Infinity;
+      this.orbitElapsed = 0;
+      this.homingActivated = false;
+      this.manualVelocity = null;
       if(holyAura){
         const aura = {...holyAura};
         aura.player = aura.player || this.player;
@@ -7719,6 +7949,7 @@
         return;
       }
       if(this.phase === 0){
+        this.updateHoming(dt);
         const dx = this.vx * dt;
         const dy = this.vy * dt;
         this.x += dx;
@@ -7730,28 +7961,141 @@
           this.anchorY = this.y;
           this.oscTimer = 0;
           this.orbitAngle = Math.atan2(this.vy, this.vx);
+          this.orbitElapsed = 0;
         }
-      }
-      if(this.phase === 1){
+      } else if(this.phase === 1){
+        if(this.homing){
+          this.homingDelay = Math.max(0, this.homingDelay - dt);
+        }
         this.oscTimer += dt;
+        this.orbitElapsed += dt;
         this.orbitAngle -= this.orbitSpeed * dt;
         const radius = this.orbitRadius + Math.sin(this.oscTimer * this.oscillationSpeed) * this.orbitAmplitude;
         this.x = this.anchorX + Math.cos(this.orbitAngle) * radius;
         this.y = this.anchorY + Math.sin(this.orbitAngle) * radius;
+        if(this.homing && this.homingDelay<=0 && Number.isFinite(this.orbitBreakTime) && this.orbitBreakTime!==Infinity && this.orbitElapsed >= this.orbitBreakTime){
+          this.enterHomingPhase();
+        }
+      }
+      if(this.phase === 2){
+        this.updateHoming(dt);
+        const dx = this.vx * dt;
+        const dy = this.vy * dt;
+        this.x += dx;
+        this.y += dy;
       }
       if(this.holyAura){
         this.updateHolyAura(dt);
       }
       if(dt>0){
-        this.vx = (this.x - this.prevX) / dt;
-        this.vy = (this.y - this.prevY) / dt;
+        const calcVx = (this.x - this.prevX) / dt;
+        const calcVy = (this.y - this.prevY) / dt;
+        if(this.manualVelocity){
+          this.vx = this.manualVelocity.x;
+          this.vy = this.manualVelocity.y;
+          this.manualVelocity = null;
+        } else {
+          this.vx = calcVx;
+          this.vy = calcVy;
+        }
       }
-      if(this.phase === 1){
+      if(this.phase >= 1){
         const margin = 12;
         if(this.x < -margin || this.x > CONFIG.roomW + margin || this.y < -margin || this.y > CONFIG.roomH + margin){
           this.destroy();
         }
       }
+    }
+    updateHoming(dt){
+      if(!this.homing) return;
+      if(this.homingDelay>0){
+        this.homingDelay = Math.max(0, this.homingDelay - dt);
+        if(this.homingDelay>0) return;
+      }
+      if(this.phase === 1 && !this.homingActivated) return;
+      this.homingAcquireTimer = Math.max(0, (this.homingAcquireTimer || 0) - dt);
+      const rangeLimit = this.homingRange>0 ? this.homingRange : Infinity;
+      let target = this.homingTarget;
+      if(target){
+        const distance = dist(this, target);
+        const radius = target?.r || 0;
+        if(!Number.isFinite(distance) || target.dead || distance > rangeLimit + radius){
+          target = null;
+        }
+      }
+      if(!target && this.homingAcquireTimer<=0){
+        target = this.pickHomingTarget(rangeLimit);
+        this.homingTarget = target;
+        this.homingAcquireTimer = 0.12;
+      }
+      if(!target) return;
+      const baseSpeed = this.homingSpeed>0 ? this.homingSpeed : Math.hypot(this.vx, this.vy) || 0;
+      const desiredSpeed = Math.max(40, baseSpeed);
+      const currentSpeed = Math.hypot(this.vx, this.vy) || 0;
+      const effectiveSpeed = currentSpeed>1e-5 ? currentSpeed : desiredSpeed;
+      const toX = target.x - this.x;
+      const toY = target.y - this.y;
+      const len = Math.hypot(toX, toY) || 1;
+      const nx = toX / len;
+      const ny = toY / len;
+      const curX = effectiveSpeed>0 ? this.vx / effectiveSpeed : nx;
+      const curY = effectiveSpeed>0 ? this.vy / effectiveSpeed : ny;
+      const baseStrength = this.homingStrength>0 ? this.homingStrength : Math.max(this.player?.homingStrength || 0, 8);
+      const turn = clamp(baseStrength * dt, 0, 1);
+      const mixX = curX*(1-turn) + nx*turn;
+      const mixY = curY*(1-turn) + ny*turn;
+      const mixLen = Math.hypot(mixX, mixY) || 1;
+      const finalSpeed = Math.max(desiredSpeed, effectiveSpeed);
+      this.vx = (mixX/mixLen) * finalSpeed;
+      this.vy = (mixY/mixLen) * finalSpeed;
+    }
+    pickHomingTarget(rangeLimit){
+      const room = dungeon?.current;
+      if(!room || !Array.isArray(room.enemies)) return null;
+      let best = Infinity;
+      let target = null;
+      const limitSq = Number.isFinite(rangeLimit) && rangeLimit < Infinity ? rangeLimit * rangeLimit : Infinity;
+      for(const enemy of room.enemies){
+        if(!enemy || enemy.dead) continue;
+        const dx = enemy.x - this.x;
+        const dy = enemy.y - this.y;
+        const distSq = dx*dx + dy*dy;
+        if(limitSq < Infinity && distSq > limitSq) continue;
+        if(distSq < best){
+          best = distSq;
+          target = enemy;
+        }
+      }
+      return target;
+    }
+    enterHomingPhase(){
+      if(this.phase === 2){
+        this.homingActivated = true;
+        return;
+      }
+      this.phase = 2;
+      this.homingActivated = true;
+      const baseSpeed = this.homingSpeed>0 ? this.homingSpeed : Math.hypot(this.vx, this.vy) || 0;
+      const desiredSpeed = Math.max(40, baseSpeed);
+      let dirX = this.vx;
+      let dirY = this.vy;
+      const len = Math.hypot(dirX, dirY);
+      if(!(len>1e-5)){
+        const angle = Number.isFinite(this.orbitAngle) ? this.orbitAngle : 0;
+        dirX = Math.cos(angle);
+        dirY = Math.sin(angle);
+      } else {
+        dirX /= len;
+        dirY /= len;
+      }
+      this.vx = dirX * desiredSpeed;
+      this.vy = dirY * desiredSpeed;
+      this.manualVelocity = {x:this.vx, y:this.vy};
+      if(this.homingDelay>0){
+        this.homingDelay = Math.max(0, this.homingDelay - Math.max(0, this.orbitElapsed || 0));
+        if(this.homingDelay < 0.02){ this.homingDelay = 0; }
+      }
+      this.homingAcquireTimer = Math.min(this.homingAcquireTimer || 0, 0.05);
     }
     destroy(){
       if(!this.alive) return;
