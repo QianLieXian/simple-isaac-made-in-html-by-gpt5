@@ -7802,8 +7802,8 @@
           const angle = angleLerp(prevAngle, currentAngle, t);
           const tipX = base.x + Math.cos(angle) * this.length;
           const tipY = base.y + Math.sin(angle) * this.length;
-          const dist = pointSegmentDistance(enemy.x, enemy.y, base.x, base.y, tipX, tipY);
-          if(dist <= threshold){ hit=true; break; }
+          const segmentSample = pointSegmentDistance(enemy.x, enemy.y, base.x, base.y, tipX, tipY);
+          if(segmentSample.distance <= threshold){ hit=true; break; }
         }
         if(!hit) continue;
         this.hitEnemies.add(enemy);
