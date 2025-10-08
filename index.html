@@ -221,6 +221,10 @@
       burrower: {idleSpeed: 70, surfaceMin: 1.6, surfaceMax: 2.9, burrowTime: 1.1, burrowSpeed: 160, emergeSpeed: 300, emergeDuration: 0.36},
       spark: {driftSpeed: 46, orbitSpeed: 1.7, rangeMin: 48, rangeMax: 86, fireInterval: 2.8, burst: 2, burstSpacing: 0.22, bolts: 6, projectileSpeed: 210, projectileLife: 1.6},
       brood: {speed: 68, preferredRange: 180, spawnInterval: 4.4, spawnMax: 3, minionSpread: 26},
+      mirrorMimic: {glideSpeed: 88, dashSpeed: 280, dashDuration: 0.32, windup: 0.55, recover: 0.5, attackInterval: 2.8, mirrorFactor: 1.05, jitter: 18, jitterSpeed: 2.6},
+      cutpurse: {speed: 96, lungeSpeed: 280, fleeSpeed: 160, windup: 0.45, recover: 0.62, cooldown: 2.6, stealAmount: 3, preferredRange: 150, triggerRange: 115, fleeDuration: 1.4},
+      warper: {driftSpeed: 72, warpInterval: 3.2, telegraph: 0.65, warpDistance: 118, strikeDuration: 0.28, strikeSpeed: 320, recover: 0.55},
+      crab: {speed: 72, strafeSpeed: 126, preferredRange: 210, fireInterval: 2.7, telegraph: 0.6, volley: 3, shells: 3, volleySpacing: 0.18, spread: 0.24, projectileSpeed: 210, projectileLife: 2.4, recover: 0.6},
     },
     drops: {
       heartPerEnemy: 0.2,
@@ -9966,6 +9970,10 @@
     burrower:13,
     spark:10,
     brood:14,
+    mirrormimic:13,
+    cutpurse:12,
+    warper:12,
+    crab:14,
   };
 
   const MAX_BOSS_SUMMONS = 5;
@@ -9987,11 +9995,15 @@
       weights.push({type:'volatile', w: 0.5 + Math.max(0, depth-1)*0.05});
       weights.push({type:'spark', w: 0.45 + Math.max(0, depth-1)*0.05});
       weights.push({type:'dashling', w: 0.5 + Math.max(0, depth-1)*0.05});
+      weights.push({type:'mirrormimic', w: 0.4 + Math.max(0, depth-1)*0.05});
+      weights.push({type:'cutpurse', w: 0.45 + Math.max(0, depth-1)*0.05});
+      weights.push({type:'crab', w: 0.4 + Math.max(0, depth-1)*0.05});
     }
     if(floorLevel >= 3){
       weights.push({type:'splitter', w: 0.45 + Math.max(0, depth-2)*0.06});
       weights.push({type:'burrower', w: 0.35 + Math.max(0, depth-2)*0.05});
       weights.push({type:'brood', w: 0.3 + Math.max(0, depth-2)*0.05});
+      weights.push({type:'warper', w: 0.4 + Math.max(0, depth-2)*0.06});
     }
     const total = weights.reduce((sum, entry)=>sum+entry.w,0);
     let r = rand()*total;
@@ -10019,6 +10031,10 @@
     else if(type==='burrower') enemy = new EnemyBurrower(pos.x,pos.y, Math.max(hp+1, 4));
     else if(type==='spark') enemy = new EnemySpark(pos.x,pos.y, Math.max(hp, 2));
     else if(type==='brood') enemy = new EnemyBrood(pos.x,pos.y, Math.max(hp+1, 4));
+    else if(type==='mirrormimic') enemy = new EnemyMirrorMimic(pos.x,pos.y, Math.max(hp+1, 4));
+    else if(type==='cutpurse') enemy = new EnemyCutpurse(pos.x,pos.y, Math.max(hp+1, 4));
+    else if(type==='warper') enemy = new EnemyWarper(pos.x,pos.y, Math.max(hp+1, 4));
+    else if(type==='crab') enemy = new EnemyCrab(pos.x,pos.y, Math.max(hp+1, 4));
     else enemy = new EnemyChaser(pos.x,pos.y,hp);
     return prepareEnemy(enemy);
   }
@@ -11053,6 +11069,847 @@
       this.knockVx = (vec.x/len)*150;
       this.knockVy = (vec.y/len)*150;
       if(this.state==='dash'){ this.state='recover'; this.timer = this.recoverDuration; }
+      return false;
+    }
+  }
+
+  class EnemyMirrorMimic{
+    constructor(x,y,hp){
+      const cfg = CONFIG.enemy.mirrorMimic || {};
+      this.x=x; this.y=y; this.r=13; this.hp=hp;
+      this.center = {x: CONFIG.roomW/2, y: CONFIG.roomH/2};
+      this.glideSpeed = cfg.glideSpeed ?? (CONFIG.enemy.speed * 0.85);
+      this.dashSpeed = cfg.dashSpeed ?? 280;
+      this.dashDuration = Math.max(0.18, cfg.dashDuration ?? 0.32);
+      this.windupDuration = Math.max(0.28, cfg.windup ?? 0.5);
+      this.recoverDuration = Math.max(0.32, cfg.recover ?? 0.5);
+      this.attackIntervalBase = Math.max(1.6, cfg.attackInterval ?? 2.8);
+      this.mirrorFactor = cfg.mirrorFactor ?? 1.05;
+      this.jitterRadius = cfg.jitter ?? 18;
+      this.jitterSpeed = cfg.jitterSpeed ?? 2.6;
+      this.state = 'mirror';
+      this.attackTimer = randRange(this.attackIntervalBase*0.6, this.attackIntervalBase*1.1);
+      this.windupTimer = 0;
+      this.windupTotal = this.windupDuration;
+      this.dashTimer = 0;
+      this.recoverTimer = 0;
+      this.dashDir = {x:1,y:0};
+      this.lockedTarget = null;
+      this.hitFlash = 0;
+      this.jitterPhase = rand()*Math.PI*2;
+      this.flying = true;
+      this.tint = '#38bdf8';
+      this.tintLight = '#a5f3fc';
+      initializeEnemyStats(this, {
+        speedFields:['glideSpeed','dashSpeed'],
+        extra:(enemy, scaling)=>{
+          enemy.attackIntervalBase = Math.max(1.2, enemy.attackIntervalBase / Math.max(0.7, scaling.aggression));
+          enemy.windupDuration = Math.max(0.26, enemy.windupDuration / Math.max(0.85, scaling.aggression));
+          enemy.recoverDuration = Math.max(0.32, enemy.recoverDuration / Math.max(0.85, scaling.aggression));
+        }
+      });
+      if(!Number.isFinite(this.aggression)){ this.aggression = this.scaling?.aggression ?? 1; }
+      this.knockDamping = 7.2;
+      ensureEnemyKnockState(this);
+    }
+    beginWindup(){
+      this.state='windup';
+      this.windupTimer = this.windupDuration;
+      this.windupTotal = this.windupDuration;
+      const target = player ? {x: player.x, y: player.y} : {x:this.x, y:this.y};
+      this.lockedTarget = target;
+      const dx = target.x - this.x;
+      const dy = target.y - this.y;
+      const len = Math.hypot(dx,dy) || 1;
+      this.dashDir.x = dx/len;
+      this.dashDir.y = dy/len;
+      spawnEnemySmoke(this.x, this.y, {radius:this.r*1.2, ttl:0.26, count:10});
+    }
+    enterRecover(){
+      this.state='recover';
+      this.recoverTimer = this.recoverDuration;
+    }
+    update(dt){
+      if(!player) return;
+      if(this.hitFlash>0){ this.hitFlash = Math.max(0, this.hitFlash - dt*3.4); }
+      const slowMul = this.hitSlowTimer>0 ? this.hitSlowFactor : 1;
+      this.jitterPhase = (this.jitterPhase || 0) + dt * this.jitterSpeed;
+      const knocked = resolveEnemyKnockback(this, dt);
+      if(knocked){
+        resolveEntityObstacles(this);
+        return;
+      }
+      const center = dungeon?.current?.center?.() || this.center;
+      this.center.x = center.x;
+      this.center.y = center.y;
+      const globalSpeed = getEnemyGlobalSpeedMultiplier();
+      if(this.state==='mirror'){
+        this.attackTimer -= dt * (this.aggression || 1);
+        const factor = this.mirrorFactor || 1;
+        const targetX = center.x + (center.x - player.x) * factor;
+        const targetY = center.y + (center.y - player.y) * factor;
+        const jitterX = Math.cos(this.jitterPhase) * (this.jitterRadius || 0);
+        const jitterY = Math.sin(this.jitterPhase*0.9) * (this.jitterRadius || 0) * 0.6;
+        const toX = (targetX + jitterX) - this.x;
+        const toY = (targetY + jitterY) - this.y;
+        const len = Math.hypot(toX,toY) || 1;
+        const move = this.glideSpeed * globalSpeed * slowMul;
+        this.x += (toX/len) * move * dt;
+        this.y += (toY/len) * move * dt;
+        if(this.attackTimer<=0){
+          this.beginWindup();
+        }
+      } else if(this.state==='windup'){
+        this.windupTimer -= dt * (this.aggression || 1);
+        const pull = this.glideSpeed * 0.32 * globalSpeed * slowMul;
+        this.x -= this.dashDir.x * pull * dt;
+        this.y -= this.dashDir.y * pull * dt;
+        if(this.windupTimer<=0){
+          this.state='dash';
+          this.dashTimer = this.dashDuration;
+          spawnEnemySmoke(this.x, this.y, {radius:this.r*1.5, ttl:0.32, count:14});
+        }
+      } else if(this.state==='dash'){
+        const speed = this.dashSpeed * globalSpeed * slowMul;
+        this.x += this.dashDir.x * speed * dt;
+        this.y += this.dashDir.y * speed * dt;
+        this.dashTimer -= dt;
+        if(dist(this, player) < this.r + player.r){
+          player.hurt(1);
+          applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:220, duration:0.2, slowFactor:0.7, slowDuration:0.32});
+          this.enterRecover();
+        }
+        if(this.dashTimer<=0){
+          this.enterRecover();
+        }
+      } else if(this.state==='recover'){
+        this.recoverTimer -= dt;
+        const retreat = this.glideSpeed * 0.52 * globalSpeed * slowMul;
+        this.x -= this.dashDir.x * retreat * dt;
+        this.y -= this.dashDir.y * retreat * dt;
+        if(this.recoverTimer<=0){
+          this.state='mirror';
+          this.attackTimer = randRange(this.attackIntervalBase*0.7, this.attackIntervalBase*1.25);
+        }
+      }
+      this.x = clamp(this.x, 36, CONFIG.roomW-36);
+      this.y = clamp(this.y, 44, CONFIG.roomH-44);
+      resolveEntityObstacles(this);
+      if(this.state!=='dash' && dist(this, player) < this.r + player.r){
+        player.hurt(1);
+        applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:200, duration:0.18, slowFactor:0.7, slowDuration:0.28});
+        this.enterRecover();
+      }
+    }
+    draw(){
+      const state = this.state;
+      const flashing = this.hitFlash>0;
+      let base = '#bae6fd';
+      let edge = '#38bdf8';
+      if(state==='windup'){ base = '#e0f2fe'; edge = '#60a5fa'; }
+      else if(state==='dash'){ base = '#c7d2fe'; edge = '#2563eb'; }
+      if(flashing){ base = '#fee2f2'; edge = '#f472b6'; }
+      drawBlob(this.x,this.y,this.r,base,edge);
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(-this.r*0.28, -this.r*0.18, this.r*0.16, 0, Math.PI*2);
+      ctx.arc(this.r*0.28, -this.r*0.18, this.r*0.16, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      if(state==='windup'){
+        const ratio = this.windupTotal>0 ? clamp(1 - this.windupTimer/this.windupTotal, 0, 1) : 1;
+        ctx.save();
+        ctx.globalAlpha = 0.35 + 0.35*Math.sin(performance.now()/90);
+        ctx.strokeStyle = '#60a5fa';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r + 10 + ratio*6, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      } else if(state==='dash'){
+        ctx.save();
+        ctx.globalAlpha = 0.25;
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(this.x - this.dashDir.x * this.r * 2.4, this.y - this.dashDir.y * this.r * 2.4);
+        ctx.stroke();
+        ctx.restore();
+      } else if(state==='mirror' && player){
+        const center = this.center;
+        const factor = this.mirrorFactor || 1;
+        const mx = center.x + (center.x - player.x) * factor;
+        const my = center.y + (center.y - player.y) * factor;
+        ctx.save();
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = colorWithAlpha('#38bdf8', 0.28);
+        ctx.beginPath();
+        ctx.arc(mx, my, this.r*0.9, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+    damage(d){
+      if(this.dead) return false;
+      this.hp -= d;
+      this.hitFlash = 0.22;
+      if(this.hp<=0){ this.dead=true; return true; }
+      applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:200, duration:0.2, slowFactor:0.72, slowDuration:0.32});
+      if(this.state==='dash'){ this.enterRecover(); }
+      return false;
+    }
+  }
+
+  class EnemyCutpurse{
+    constructor(x,y,hp){
+      const cfg = CONFIG.enemy.cutpurse || {};
+      this.x=x; this.y=y; this.r=12; this.hp=hp;
+      this.speed = cfg.speed ?? (CONFIG.enemy.speed * 1.05);
+      this.lungeSpeed = cfg.lungeSpeed ?? 280;
+      this.fleeSpeed = cfg.fleeSpeed ?? 160;
+      this.windupDuration = Math.max(0.26, cfg.windup ?? 0.45);
+      this.recoverDuration = Math.max(0.32, cfg.recover ?? 0.62);
+      this.fleeDuration = Math.max(0.6, cfg.fleeDuration ?? 1.4);
+      this.cooldownBase = Math.max(1.2, cfg.cooldown ?? 2.6);
+      this.stealAmount = Math.max(1, Math.floor(cfg.stealAmount ?? 3));
+      this.preferredRange = Math.max(80, cfg.preferredRange ?? 150);
+      this.triggerRange = Math.max(60, cfg.triggerRange ?? 115);
+      this.state='prowl';
+      this.cooldown = randRange(this.cooldownBase*0.6, this.cooldownBase*1.2);
+      this.windupTimer = 0;
+      this.lungeTimer = 0;
+      this.recoverTimer = 0;
+      this.escapeTimer = 0;
+      this.dashDir = {x:1,y:0};
+      this.escapeDir = {x:0,y:0};
+      this._stoleThisLunge = false;
+      this.stolen = 0;
+      this.hitFlash = 0;
+      this.strafeDir = rand()<0.5?-1:1;
+      this.strafeSwapTimer = randRange(1.3,2.2);
+      this.flying = false;
+      this.tint = '#facc15';
+      this.tintLight = '#fde68a';
+      initializeEnemyStats(this, {
+        speedFields:['speed','lungeSpeed','fleeSpeed'],
+        extra:(enemy, scaling)=>{
+          enemy.cooldownBase = Math.max(1.05, enemy.cooldownBase / Math.max(0.7, scaling.aggression));
+          enemy.windupDuration = Math.max(0.24, enemy.windupDuration / Math.max(0.85, scaling.aggression));
+          enemy.recoverDuration = Math.max(0.3, enemy.recoverDuration / Math.max(0.85, scaling.aggression));
+          enemy.fleeDuration = Math.max(0.55, enemy.fleeDuration / Math.max(0.9, scaling.aggression));
+        }
+      });
+      if(!Number.isFinite(this.aggression)){ this.aggression = this.scaling?.aggression ?? 1; }
+      this.knockDamping = 7.6;
+      ensureEnemyKnockState(this);
+    }
+    enterRecover(){
+      this.state='recover';
+      this.recoverTimer = this.recoverDuration;
+      this._stoleThisLunge = false;
+    }
+    enterEscape(){
+      if(!player){ this.enterRecover(); return; }
+      this.state='escape';
+      this.escapeTimer = this.fleeDuration;
+      const dx = this.x - player.x;
+      const dy = this.y - player.y;
+      const len = Math.hypot(dx,dy) || 1;
+      this.escapeDir.x = dx/len;
+      this.escapeDir.y = dy/len;
+      this.dashDir.x = this.escapeDir.x;
+      this.dashDir.y = this.escapeDir.y;
+    }
+    handleSteal(){
+      if(this._stoleThisLunge) return;
+      this._stoleThisLunge = true;
+      if(player){
+        player.hurt(1);
+        const before = Math.max(0, Math.floor(player.coins ?? 0));
+        const taken = Math.min(before, this.stealAmount);
+        if(taken>0){
+          player.coins = Math.max(0, before - taken);
+          player.recalculateDamage?.();
+          this.stolen = (this.stolen || 0) + taken;
+          if(runtime && runtime.itemPickupTimer<=0){
+            runtime.itemPickupName = '金币被盗！';
+            runtime.itemPickupDesc = `被偷走 ${taken} 枚金币`;
+            runtime.itemPickupTimer = 1.6;
+          }
+        }
+      }
+      applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:210, duration:0.22, slowFactor:0.68, slowDuration:0.3});
+      this.enterEscape();
+    }
+    update(dt){
+      if(!player) return;
+      if(this.hitFlash>0){ this.hitFlash = Math.max(0, this.hitFlash - dt*3.5); }
+      const slowMul = this.hitSlowTimer>0 ? this.hitSlowFactor : 1;
+      const knocked = resolveEnemyKnockback(this, dt);
+      const globalSpeed = getEnemyGlobalSpeedMultiplier();
+      if(knocked){
+        resolveEntityObstacles(this);
+        return;
+      }
+      const dx = player.x - this.x;
+      const dy = player.y - this.y;
+      const distLen = Math.hypot(dx,dy) || 1;
+      const nx = dx/distLen;
+      const ny = dy/distLen;
+      if(this.state==='prowl'){
+        this.cooldown -= dt * (this.aggression || 1);
+        this.strafeSwapTimer -= dt;
+        if(this.strafeSwapTimer<=0){
+          this.strafeDir *= -1;
+          this.strafeSwapTimer = randRange(1.2,2.2);
+        }
+        let moveX=0, moveY=0;
+        if(distLen > this.preferredRange + 25){
+          moveX = nx; moveY = ny;
+        } else if(distLen < this.preferredRange - 35){
+          moveX = -nx; moveY = -ny;
+        } else {
+          const lateralX = -ny;
+          const lateralY = nx;
+          moveX = lateralX * this.strafeDir;
+          moveY = lateralY * this.strafeDir;
+        }
+        const speed = this.speed * globalSpeed * slowMul;
+        this.x += moveX * speed * dt;
+        this.y += moveY * speed * dt;
+        if(this.cooldown<=0 && distLen <= this.triggerRange){
+          this.state='windup';
+          this.windupTimer = this.windupDuration;
+          this.dashDir.x = nx;
+          this.dashDir.y = ny;
+          this.cooldown = this.cooldownBase;
+        }
+      } else if(this.state==='windup'){
+        this.windupTimer -= dt * (this.aggression || 1);
+        const pull = this.speed * 0.35 * globalSpeed * slowMul;
+        this.x -= this.dashDir.x * pull * dt;
+        this.y -= this.dashDir.y * pull * dt;
+        if(this.windupTimer<=0){
+          this.state='lunge';
+          this.lungeTimer = Math.max(0.18, this.windupDuration*0.6);
+          this._stoleThisLunge = false;
+        }
+      } else if(this.state==='lunge'){
+        const speed = this.lungeSpeed * globalSpeed * slowMul;
+        this.x += this.dashDir.x * speed * dt;
+        this.y += this.dashDir.y * speed * dt;
+        this.lungeTimer -= dt;
+        if(dist(this, player) < this.r + player.r){
+          this.handleSteal();
+        }
+        if(this.lungeTimer<=0){
+          this.enterRecover();
+        }
+      } else if(this.state==='escape'){
+        this.escapeTimer -= dt;
+        const speed = this.fleeSpeed * globalSpeed * slowMul;
+        this.x += this.escapeDir.x * speed * dt;
+        this.y += this.escapeDir.y * speed * dt;
+        if(this.escapeTimer<=0){
+          this.enterRecover();
+        }
+      } else if(this.state==='recover'){
+        this.recoverTimer -= dt;
+        const retreat = this.speed * 0.55 * globalSpeed * slowMul;
+        this.x -= this.dashDir.x * retreat * dt;
+        this.y -= this.dashDir.y * retreat * dt;
+        if(this.recoverTimer<=0){
+          this.state='prowl';
+          this.cooldown = randRange(this.cooldownBase*0.6, this.cooldownBase*1.1);
+        }
+      }
+      this.x = clamp(this.x, 34, CONFIG.roomW-34);
+      this.y = clamp(this.y, 42, CONFIG.roomH-42);
+      resolveEntityObstacles(this);
+      if(this.state!=='lunge' && dist(this, player) < this.r + player.r){
+        player.hurt(1);
+        applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:210, duration:0.2, slowFactor:0.72, slowDuration:0.3});
+        this.enterEscape();
+      }
+    }
+    draw(){
+      const state = this.state;
+      const flashing = this.hitFlash>0;
+      let base = '#fde68a';
+      let edge = '#f59e0b';
+      if(state==='windup'){ base = '#fef9c3'; edge = '#f59e0b'; }
+      else if(state==='escape'){ base = '#facc15'; edge = '#d97706'; }
+      else if(state==='lunge'){ edge = '#fb923c'; }
+      if(flashing){ base = '#fee2e2'; edge = '#f97316'; }
+      drawBlob(this.x,this.y,this.r,base,edge);
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.fillStyle = '#1f2937';
+      ctx.beginPath();
+      ctx.arc(-this.r*0.24, -this.r*0.12, this.r*0.14, 0, Math.PI*2);
+      ctx.arc(this.r*0.24, -this.r*0.12, this.r*0.14, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#b45309';
+      ctx.fillRect(-this.r*0.4, this.r*0.2, this.r*0.8, this.r*0.35);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-this.r*0.26, this.r*0.28, this.r*0.52, this.r*0.2);
+      if(this.stolen>0){
+        ctx.fillStyle = '#f59e0b';
+        ctx.beginPath();
+        ctx.arc(this.r*0.42, this.r*0.05, this.r*0.22, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = '#fde68a';
+        ctx.font = `${Math.max(8, this.r*0.9)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('￥', this.r*0.42, this.r*0.06);
+      }
+      ctx.restore();
+      if(state==='windup'){
+        const ratio = this.windupDuration>0 ? clamp(1 - this.windupTimer/this.windupDuration, 0, 1) : 1;
+        ctx.save();
+        ctx.globalAlpha = 0.35 + 0.3*Math.sin(performance.now()/110);
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2.1;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r + 8 + ratio*5, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    damage(d){
+      if(this.dead) return false;
+      this.hp -= d;
+      this.hitFlash = 0.2;
+      if(this.hp<=0){ this.dead=true; return true; }
+      applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:180, duration:0.18, slowFactor:0.7, slowDuration:0.3});
+      if(this.state==='lunge'){ this.enterRecover(); }
+      return false;
+    }
+    onDeath(room){
+      if(!room || !this.stolen) return;
+      let remaining = this.stolen;
+      while(remaining>0){
+        const amount = Math.min(3, remaining);
+        const drop = makeResourcePickup('coin', this.x + randRange(-16,16), this.y + randRange(-16,16), amount);
+        room.pickups.push(drop);
+        remaining -= amount;
+      }
+    }
+  }
+
+  class EnemyWarper{
+    constructor(x,y,hp){
+      const cfg = CONFIG.enemy.warper || {};
+      this.x=x; this.y=y; this.r=12; this.hp=hp;
+      this.driftSpeed = cfg.driftSpeed ?? (CONFIG.enemy.speed * 0.8);
+      this.warpIntervalBase = Math.max(1.8, cfg.warpInterval ?? 3.2);
+      this.telegraphDuration = Math.max(0.3, cfg.telegraph ?? 0.65);
+      this.warpDistance = Math.max(80, cfg.warpDistance ?? 118);
+      this.strikeDuration = Math.max(0.18, cfg.strikeDuration ?? 0.28);
+      this.strikeSpeed = cfg.strikeSpeed ?? 320;
+      this.recoverDuration = Math.max(0.35, cfg.recover ?? 0.55);
+      this.preferredRange = Math.max(90, cfg.strikeRange ?? 140);
+      this.state='drift';
+      this.warpTimer = randRange(this.warpIntervalBase*0.6, this.warpIntervalBase*1.2);
+      this.telegraphTimer = 0;
+      this.telegraphTotal = this.telegraphDuration;
+      this.strikeTimer = 0;
+      this.recoverTimer = 0;
+      this.strikeDir = {x:1,y:0};
+      this.warpTarget = null;
+      this.lockedTarget = null;
+      this.hitFlash = 0;
+      this.bobPhase = rand()*Math.PI*2;
+      this.strafeDir = rand()<0.5?-1:1;
+      this.strafeSwapTimer = randRange(1.2,2.1);
+      this.flying = true;
+      this.tint = '#f472b6';
+      this.tintLight = '#fce7f3';
+      initializeEnemyStats(this, {
+        speedFields:['driftSpeed','strikeSpeed'],
+        extra:(enemy, scaling)=>{
+          enemy.warpIntervalBase = Math.max(1.4, enemy.warpIntervalBase / Math.max(0.72, scaling.aggression));
+          enemy.telegraphDuration = Math.max(0.28, enemy.telegraphDuration / Math.max(0.9, scaling.aggression));
+          enemy.recoverDuration = Math.max(0.32, enemy.recoverDuration / Math.max(0.85, scaling.aggression));
+        }
+      });
+      if(!Number.isFinite(this.aggression)){ this.aggression = this.scaling?.aggression ?? 1; }
+      this.knockDamping = 7.4;
+      ensureEnemyKnockState(this);
+    }
+    enterStrike(){
+      const target = this.lockedTarget || (player ? {x:player.x, y:player.y} : {x:this.x, y:this.y});
+      const dx = target.x - this.x;
+      const dy = target.y - this.y;
+      const len = Math.hypot(dx,dy) || 1;
+      this.strikeDir.x = dx/len;
+      this.strikeDir.y = dy/len;
+      this.state='strike';
+      this.strikeTimer = this.strikeDuration;
+    }
+    enterRecover(){
+      this.state='recover';
+      this.recoverTimer = this.recoverDuration;
+      this.warpTimer = randRange(this.warpIntervalBase*0.7, this.warpIntervalBase*1.25);
+      this.warpTarget = null;
+      this.lockedTarget = null;
+    }
+    update(dt){
+      if(!player) return;
+      if(this.hitFlash>0){ this.hitFlash = Math.max(0, this.hitFlash - dt*3.4); }
+      this.bobPhase = (this.bobPhase || 0) + dt*3.2;
+      const slowMul = this.hitSlowTimer>0 ? this.hitSlowFactor : 1;
+      const knocked = resolveEnemyKnockback(this, dt);
+      const globalSpeed = getEnemyGlobalSpeedMultiplier();
+      if(knocked){
+        resolveEntityObstacles(this);
+        return;
+      }
+      const dx = player.x - this.x;
+      const dy = player.y - this.y;
+      const distLen = Math.hypot(dx,dy) || 1;
+      const nx = dx/distLen;
+      const ny = dy/distLen;
+      if(this.state==='drift'){
+        this.warpTimer -= dt * (this.aggression || 1);
+        this.strafeSwapTimer -= dt;
+        if(this.strafeSwapTimer<=0){
+          this.strafeDir *= -1;
+          this.strafeSwapTimer = randRange(1.2,2.1);
+        }
+        let moveX = 0;
+        let moveY = 0;
+        if(distLen > this.preferredRange + 25){
+          moveX += nx; moveY += ny;
+        } else if(distLen < this.preferredRange - 25){
+          moveX -= nx; moveY -= ny;
+        }
+        const lateralX = -ny;
+        const lateralY = nx;
+        moveX += lateralX * this.strafeDir * 0.85;
+        moveY += lateralY * this.strafeDir * 0.85;
+        const len = Math.hypot(moveX, moveY) || 1;
+        const speed = this.driftSpeed * globalSpeed * slowMul;
+        this.x += (moveX/len) * speed * dt;
+        this.y += (moveY/len) * speed * dt;
+        if(this.warpTimer<=0){
+          this.state='telegraph';
+          this.telegraphTimer = this.telegraphDuration;
+          this.telegraphTotal = this.telegraphDuration;
+          this.lockedTarget = {x: player.x, y: player.y};
+          const angle = Math.atan2(player.y - this.y, player.x - this.x) + randRange(-0.9,0.9);
+          const distWarp = this.warpDistance;
+          const rawX = this.lockedTarget.x - Math.cos(angle) * distWarp;
+          const rawY = this.lockedTarget.y - Math.sin(angle) * distWarp;
+          this.warpTarget = {
+            x: clamp(rawX, 36, CONFIG.roomW-36),
+            y: clamp(rawY, 42, CONFIG.roomH-42)
+          };
+          spawnEnemySmoke(this.x, this.y, {radius:this.r*1.3, ttl:0.28, count:12});
+        }
+      } else if(this.state==='telegraph'){
+        this.telegraphTimer -= dt * (this.aggression || 1);
+        if(this.telegraphTimer<=0){
+          const oldX = this.x;
+          const oldY = this.y;
+          spawnEnemySmoke(oldX, oldY, {radius:this.r*1.6, ttl:0.36, count:14});
+          if(this.warpTarget){
+            this.x = this.warpTarget.x;
+            this.y = this.warpTarget.y;
+          }
+          spawnEnemySmoke(this.x, this.y, {radius:this.r*1.8, ttl:0.36, count:16});
+          this.enterStrike();
+        }
+      } else if(this.state==='strike'){
+        const speed = this.strikeSpeed * globalSpeed * slowMul;
+        this.x += this.strikeDir.x * speed * dt;
+        this.y += this.strikeDir.y * speed * dt;
+        this.strikeTimer -= dt;
+        if(dist(this, player) < this.r + player.r){
+          player.hurt(1);
+          applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:220, duration:0.2, slowFactor:0.7, slowDuration:0.3});
+          this.enterRecover();
+        }
+        if(this.strikeTimer<=0){
+          this.enterRecover();
+        }
+      } else if(this.state==='recover'){
+        this.recoverTimer -= dt;
+        const retreat = this.driftSpeed * 0.6 * globalSpeed * slowMul;
+        this.x -= this.strikeDir.x * retreat * dt;
+        this.y -= this.strikeDir.y * retreat * dt;
+        if(this.recoverTimer<=0){
+          this.state='drift';
+        }
+      }
+      this.x = clamp(this.x, 34, CONFIG.roomW-34);
+      this.y = clamp(this.y, 42, CONFIG.roomH-42);
+      resolveEntityObstacles(this);
+      if(this.state!=='strike' && dist(this, player) < this.r + player.r){
+        player.hurt(1);
+        applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:200, duration:0.18, slowFactor:0.7, slowDuration:0.28});
+        this.enterRecover();
+      }
+    }
+    draw(){
+      const state = this.state;
+      const flashing = this.hitFlash>0;
+      let base = '#fce7f3';
+      let edge = '#f472b6';
+      if(state==='telegraph'){ base = '#fdf2ff'; edge = '#e879f9'; }
+      else if(state==='strike'){ base = '#fbcfe8'; edge = '#db2777'; }
+      if(flashing){ base = '#fee2f2'; edge = '#f43f5e'; }
+      drawBlob(this.x,this.y,this.r,base,edge);
+      ctx.save();
+      const bob = Math.sin(this.bobPhase) * 1.2;
+      ctx.translate(this.x, this.y - bob);
+      ctx.fillStyle = '#1f2937';
+      ctx.beginPath();
+      ctx.arc(-this.r*0.25, -this.r*0.12, this.r*0.14, 0, Math.PI*2);
+      ctx.arc(this.r*0.25, -this.r*0.12, this.r*0.14, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#f9a8d4';
+      ctx.fillRect(-this.r*0.42, this.r*0.15, this.r*0.84, this.r*0.28);
+      ctx.restore();
+      if(state==='telegraph' && this.warpTarget){
+        const ratio = this.telegraphTotal>0 ? clamp(1 - this.telegraphTimer/this.telegraphTotal, 0, 1) : 1;
+        ctx.save();
+        ctx.globalAlpha = 0.3 + 0.4*Math.sin(performance.now()/100);
+        ctx.strokeStyle = '#e879f9';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(this.warpTarget.x, this.warpTarget.y, this.r + 12 + ratio*6, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      } else if(state==='strike'){
+        ctx.save();
+        ctx.globalAlpha = 0.25;
+        ctx.strokeStyle = '#db2777';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(this.x - this.strikeDir.x * this.r * 2.8, this.y - this.strikeDir.y * this.r * 2.8);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    damage(d){
+      if(this.dead) return false;
+      this.hp -= d;
+      this.hitFlash = 0.22;
+      if(this.hp<=0){ this.dead=true; return true; }
+      applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:190, duration:0.18, slowFactor:0.7, slowDuration:0.3});
+      if(this.state==='telegraph'){ this.enterStrike(); }
+      return false;
+    }
+  }
+
+  class EnemyCrab{
+    constructor(x,y,hp){
+      const cfg = CONFIG.enemy.crab || {};
+      this.x=x; this.y=y; this.r=13; this.hp=hp;
+      this.speed = cfg.speed ?? (CONFIG.enemy.speed * 0.8);
+      this.strafeSpeed = cfg.strafeSpeed ?? 126;
+      this.preferredRange = cfg.preferredRange ?? 210;
+      this.fireInterval = Math.max(1.6, cfg.fireInterval ?? 2.7);
+      this.telegraphDuration = Math.max(0.35, cfg.telegraph ?? 0.6);
+      this.volleyCount = Math.max(1, Math.round(cfg.volley ?? 3));
+      this.shellCount = Math.max(1, Math.round(cfg.shells ?? 3));
+      this.volleySpacing = Math.max(0.08, cfg.volleySpacing ?? 0.18);
+      this.spread = cfg.spread ?? 0.24;
+      this.projectileSpeed = cfg.projectileSpeed ?? 210;
+      this.projectileLife = cfg.projectileLife ?? 2.4;
+      this.recoverDuration = Math.max(0.35, cfg.recover ?? 0.6);
+      this.state='patrol';
+      this.attackTimer = randRange(this.fireInterval*0.6, this.fireInterval*1.2);
+      this.telegraphTimer = 0;
+      this.burstCooldown = 0;
+      this.shotIndex = 0;
+      this.recoverTimer = 0;
+      this.hitFlash = 0;
+      this.shellPhase = rand()*Math.PI*2;
+      this.strafeDir = rand()<0.5?-1:1;
+      this.strafeSwapTimer = randRange(1.3,2.3);
+      this.flying = false;
+      this.tint = '#fca5a5';
+      this.tintLight = '#fecaca';
+      initializeEnemyStats(this, {
+        speedFields:['speed','strafeSpeed'],
+        extra:(enemy, scaling)=>{
+          enemy.fireInterval = Math.max(1.5, enemy.fireInterval / Math.max(0.85, scaling.aggression));
+          enemy.telegraphDuration = Math.max(0.3, enemy.telegraphDuration / Math.max(0.85, scaling.aggression));
+          enemy.recoverDuration = Math.max(0.3, enemy.recoverDuration / Math.max(0.85, scaling.aggression));
+        }
+      });
+      if(!Number.isFinite(this.aggression)){ this.aggression = this.scaling?.aggression ?? 1; }
+      this.knockDamping = 7.8;
+      ensureEnemyKnockState(this);
+    }
+    enterRecover(){
+      this.state='recover';
+      this.recoverTimer = this.recoverDuration;
+    }
+    fireVolley(){
+      if(!player || !runtime) return;
+      const angle = Math.atan2(player.y - this.y, player.x - this.x);
+      for(let i=0;i<this.shellCount;i++){
+        const offset = (i - (this.shellCount-1)/2) * this.spread;
+        const a = angle + offset;
+        const vx = Math.cos(a) * this.projectileSpeed;
+        const vy = Math.sin(a) * this.projectileSpeed;
+        runtime.enemyProjectiles.push(new EnemyProjectile(
+          this.x + Math.cos(a) * this.r*0.8,
+          this.y + Math.sin(a) * this.r*0.8,
+          vx,
+          vy,
+          this.projectileLife,
+          'needle'
+        ));
+      }
+      spawnCircularEffect(this.x, this.y, this.r + 18, {
+        duration:0.25,
+        innerColor: colorWithAlpha('#fecaca', 0.32),
+        midColor: colorWithAlpha('#fb7185', 0.32),
+        outerColor: colorWithAlpha('#f43f5e', 0)
+      });
+    }
+    update(dt){
+      if(!player) return;
+      if(this.hitFlash>0){ this.hitFlash = Math.max(0, this.hitFlash - dt*3.2); }
+      this.shellPhase = (this.shellPhase || 0) + dt*4.2;
+      const slowMul = this.hitSlowTimer>0 ? this.hitSlowFactor : 1;
+      const knocked = resolveEnemyKnockback(this, dt);
+      const globalSpeed = getEnemyGlobalSpeedMultiplier();
+      if(knocked){
+        resolveEntityObstacles(this);
+        return;
+      }
+      const dx = player.x - this.x;
+      const dy = player.y - this.y;
+      const distLen = Math.hypot(dx,dy) || 1;
+      const nx = dx/distLen;
+      const ny = dy/distLen;
+      if(this.state==='patrol'){
+        this.attackTimer -= dt * (this.aggression || 1);
+        this.strafeSwapTimer -= dt;
+        if(this.strafeSwapTimer<=0){
+          this.strafeDir *= -1;
+          this.strafeSwapTimer = randRange(1.2,2.3);
+        }
+        let moveX = 0;
+        let moveY = 0;
+        const lateralX = -ny;
+        const lateralY = nx;
+        moveX += lateralX * this.strafeDir;
+        moveY += lateralY * this.strafeDir;
+        if(distLen > this.preferredRange + 40){
+          moveX += nx * 0.7;
+          moveY += ny * 0.7;
+        } else if(distLen < this.preferredRange - 40){
+          moveX -= nx * 0.8;
+          moveY -= ny * 0.8;
+        }
+        const len = Math.hypot(moveX, moveY) || 1;
+        const speed = this.speed * globalSpeed * slowMul;
+        this.x += (moveX/len) * speed * dt;
+        this.y += (moveY/len) * speed * dt;
+        if(this.attackTimer<=0){
+          this.state='telegraph';
+          this.telegraphTimer = this.telegraphDuration;
+        }
+      } else if(this.state==='telegraph'){
+        this.telegraphTimer -= dt * (this.aggression || 1);
+        if(this.telegraphTimer<=0){
+          this.state='burst';
+          this.shotIndex = 0;
+          this.burstCooldown = 0;
+        }
+      } else if(this.state==='burst'){
+        this.burstCooldown -= dt;
+        if(this.burstCooldown<=0){
+          this.fireVolley();
+          this.shotIndex++;
+          if(this.shotIndex < this.volleyCount){
+            this.burstCooldown = this.volleySpacing / Math.max(0.6, this.aggression || 1);
+          } else {
+            this.enterRecover();
+          }
+        }
+      } else if(this.state==='recover'){
+        this.recoverTimer -= dt;
+        const retreat = this.speed * 0.55 * globalSpeed * slowMul;
+        this.x -= nx * retreat * dt;
+        this.y -= ny * retreat * dt;
+        if(this.recoverTimer<=0){
+          this.state='patrol';
+          this.attackTimer = randRange(this.fireInterval*0.7, this.fireInterval*1.2);
+        }
+      }
+      this.x = clamp(this.x, 38, CONFIG.roomW-38);
+      this.y = clamp(this.y, 46, CONFIG.roomH-46);
+      resolveEntityObstacles(this);
+      if(dist(this, player) < this.r + player.r){
+        player.hurt(1);
+        applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:210, duration:0.2, slowFactor:0.72, slowDuration:0.28});
+      }
+    }
+    draw(){
+      const state = this.state;
+      const flashing = this.hitFlash>0;
+      let base = '#fecaca';
+      let edge = '#fb7185';
+      if(state==='telegraph'){ base = '#ffe4e6'; edge = '#f973a6'; }
+      else if(state==='burst'){ edge = '#f43f5e'; }
+      if(flashing){ base = '#fee2e2'; edge = '#f87171'; }
+      drawBlob(this.x,this.y,this.r,base,edge);
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      const clawLift = state==='telegraph' ? this.r*0.35 : this.r*0.18;
+      ctx.fillStyle = '#7f1d1d';
+      ctx.fillRect(-this.r*0.85, this.r*0.2, this.r*0.3, this.r*0.5);
+      ctx.fillRect(this.r*0.55, this.r*0.2, this.r*0.3, this.r*0.5);
+      ctx.fillStyle = '#fee2e2';
+      ctx.beginPath();
+      ctx.moveTo(-this.r*0.7, this.r*0.2);
+      ctx.lineTo(-this.r*1.1, -clawLift);
+      ctx.lineTo(-this.r*0.5, this.r*0.05);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(this.r*0.7, this.r*0.2);
+      ctx.lineTo(this.r*1.1, -clawLift);
+      ctx.lineTo(this.r*0.5, this.r*0.05);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#1f2937';
+      ctx.beginPath();
+      ctx.arc(-this.r*0.3, -this.r*0.05, this.r*0.16, 0, Math.PI*2);
+      ctx.arc(this.r*0.3, -this.r*0.05, this.r*0.16, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      if(state==='telegraph'){
+        const ratio = this.telegraphDuration>0 ? clamp(1 - this.telegraphTimer/this.telegraphDuration, 0, 1) : 1;
+        ctx.save();
+        ctx.globalAlpha = 0.4 + 0.25*Math.sin(performance.now()/80);
+        ctx.strokeStyle = '#f973a6';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r + 14 + ratio*6, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    damage(d){
+      if(this.dead) return false;
+      this.hp -= d;
+      this.hitFlash = 0.2;
+      if(this.hp<=0){ this.dead=true; return true; }
+      applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:190, duration:0.18, slowFactor:0.7, slowDuration:0.3});
+      if(this.state==='burst'){ this.enterRecover(); }
       return false;
     }
   }
