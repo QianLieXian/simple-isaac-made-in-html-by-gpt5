@@ -515,12 +515,14 @@
           });
           break;
         case 'playerHurt':
-          buffer = buildBuffer(0.48, (t)=>{
-            const env = Math.exp(-t*4.2);
-            const growl = Math.sin((90 + Math.sin(t*6)*18) * Math.PI * 2 * t) * 0.6;
-            const rasp = Math.sin(520 * Math.PI * 2 * t) * Math.sin(80 * Math.PI * 2 * t) * 0.4;
-            const tone = Math.sin((180 - t*120) * Math.PI * 2 * t) * 0.5;
-            return (growl + rasp + tone) * env;
+          buffer = buildBuffer(0.6, (t)=>{
+            const bodyEnv = Math.exp(-t*4.6);
+            const thump = Math.sin((68 + Math.sin(t*9)*28) * Math.PI * 2 * t) * 0.65;
+            const rasp = Math.sin((640 - t*420) * Math.PI * 2 * t) * Math.exp(-t*6.4) * 0.45;
+            const snapEnv = Math.pow(Math.max(0, 1 - t*1.5), 2.1);
+            const snap = Math.sin(Math.pow(t*1800 + 80, 1.05)) * snapEnv * 0.55;
+            const sub = Math.sin(44 * Math.PI * 2 * t) * Math.exp(-t*3.8) * 0.5;
+            return (thump + rasp + snap + sub) * bodyEnv;
           });
           break;
         case 'dashReady':
@@ -4073,13 +4075,18 @@
       this.shotInput = {
         x: 0,
         y: 0,
+        rawX: 0,
+        rawY: 0,
         dirX: 0,
         dirY: -1,
         lastDirX: 0,
         lastDirY: -1,
+        magnitude: 0,
         pressed: false,
         justPressed: false,
         justReleased: false,
+        justChangedDir: false,
+        holdTime: 0,
       };
       this.setBonuses = {};
       this.followers = [];
@@ -4271,6 +4278,8 @@
         this.shotInput.pressed = false;
         this.shotInput.justPressed = false;
         this.shotInput.justReleased = false;
+        this.shotInput.justChangedDir = false;
+        this.shotInput.holdTime = 0;
       }
       const preResolveX = this.x;
       const preResolveY = this.y;
@@ -4313,7 +4322,15 @@
       this.lastVelocity.x = lvx;
       this.lastVelocity.y = lvy;
       const shotState = this.getShotInput();
+      if(shotState){
+        if(!entryLocked && shotState.pressed){
+          shotState.holdTime = (shotState.holdTime || 0) + dt;
+        } else if(!shotState.pressed || entryLocked){
+          shotState.holdTime = 0;
+        }
+      }
       const shotPressed = !entryLocked && !!(shotState && shotState.pressed);
+      const hasHotChoco = typeof this.hasHotChocolate === 'function' && this.hasHotChocolate();
       if(this.attackMode !== 'lightsaber' && this.lightsaber && this.lightsaber.swing){
         if(typeof this.lightsaber.swing.forceFinish === 'function'){
           this.lightsaber.swing.forceFinish();
@@ -4326,11 +4343,11 @@
         } else if(this.attackMode === 'bomb-elder'){
           this.handleBombElderAttack(dt, shotState, lvx, lvy, maxSpeed);
         } else if(this.attackMode === 'brimstone'){
-          this.handleBrimstoneAttack(dt, shotState?.x || shotX, shotState?.y || shotY, lvx, lvy, maxSpeed);
+          this.handleBrimstoneAttack(dt, shotState, lvx, lvy, maxSpeed);
         } else if(this.attackMode === 'lightsaber'){
           this.handleLightsaberAttack(dt, shotState);
-        } else if(this.hasHotChocolate && this.hasHotChocolate()){
-          this.handleHotChocolateAttack(dt, shotState?.x || shotX, shotState?.y || shotY, lvx, lvy, maxSpeed);
+        } else if(hasHotChoco){
+          this.handleHotChocolateAttack(dt, shotState, lvx, lvy, maxSpeed);
         } else {
           if(shotPressed && this.fireCd<=0){
             const dirX = shotState.dirX;
@@ -5126,13 +5143,18 @@
         this.shotInput = {
           x: 0,
           y: 0,
+          rawX: 0,
+          rawY: 0,
           dirX: 0,
           dirY: -1,
           lastDirX: 0,
           lastDirY: -1,
+          magnitude: 0,
           pressed: false,
           justPressed: false,
           justReleased: false,
+          justChangedDir: false,
+          holdTime: 0,
         };
       }
       if(!Number.isFinite(this.shotInput.dirX) || !Number.isFinite(this.shotInput.dirY)){
@@ -5148,25 +5170,40 @@
     updateShotInputState(rawX, rawY){
       const state = this.getShotInput();
       const prevPressed = !!state.pressed;
+      const prevDirX = Number.isFinite(state.dirX) ? state.dirX : 0;
+      const prevDirY = Number.isFinite(state.dirY) ? state.dirY : -1;
       const pressed = !!(rawX || rawY);
       state.justPressed = pressed && !prevPressed;
       state.justReleased = !pressed && prevPressed;
       state.x = rawX;
       state.y = rawY;
+      state.rawX = rawX;
+      state.rawY = rawY;
+      let magnitude = 0;
+      let dirX = prevDirX;
+      let dirY = prevDirY;
       if(pressed){
-        const len = Math.hypot(rawX, rawY) || 1;
-        const nx = rawX / len;
-        const ny = rawY / len;
-        state.dirX = nx;
-        state.dirY = ny;
-        state.lastDirX = nx;
-        state.lastDirY = ny;
+        magnitude = Math.hypot(rawX, rawY) || 0;
+        const len = magnitude > 1e-6 ? magnitude : 1;
+        dirX = rawX / len;
+        dirY = rawY / len;
+        state.lastDirX = dirX;
+        state.lastDirY = dirY;
       } else {
-        const lastX = Number.isFinite(state.lastDirX) ? state.lastDirX : 0;
-        const lastY = Number.isFinite(state.lastDirY) ? state.lastDirY : -1;
+        const lastX = Number.isFinite(state.lastDirX) ? state.lastDirX : prevDirX;
+        const lastY = Number.isFinite(state.lastDirY) ? state.lastDirY : prevDirY;
         const len = Math.hypot(lastX, lastY) || 1;
-        state.dirX = lastX / len;
-        state.dirY = lastY / len;
+        dirX = lastX / len;
+        dirY = lastY / len;
+      }
+      state.dirX = dirX;
+      state.dirY = dirY;
+      state.magnitude = pressed ? magnitude : 0;
+      const deltaX = Math.abs(dirX - prevDirX);
+      const deltaY = Math.abs(dirY - prevDirY);
+      state.justChangedDir = pressed && ((deltaX > 1e-4 || deltaY > 1e-4) || state.justPressed);
+      if(!pressed){
+        state.justChangedDir = false;
       }
       state.pressed = pressed;
       return state;
@@ -5444,20 +5481,20 @@
       const interval = Number.isFinite(this.fireInterval) && this.fireInterval>0 ? this.fireInterval : (CONFIG.player.fireCd || 360);
       return Math.max(1/240, interval / 1000);
     }
-    handleHotChocolateAttack(dt, shotX, shotY, lvx, lvy, maxSpeed){
+    handleHotChocolateAttack(dt, shotState, lvx, lvy, maxSpeed){
       const state = this.ensureHotChocolateState();
-      const shotPressed = !!(shotX || shotY);
+      const shotPressed = !!(shotState && shotState.pressed);
       if(shotPressed){
-        const len = Math.hypot(shotX, shotY) || 1;
-        const dirX = shotX / len;
-        const dirY = shotY / len;
-        const prevDir = state.dir || {x:0,y:-1};
-        const changed = state.charging && (Math.abs(dirX - prevDir.x) > 1e-4 || Math.abs(dirY - prevDir.y) > 1e-4);
-        if(changed && state.chargeTime>0){
-          this.fireHotChocolateShot(state, lvx, lvy, maxSpeed);
+        const dirX = Number.isFinite(shotState.dirX) ? shotState.dirX : 0;
+        const dirY = Number.isFinite(shotState.dirY) ? shotState.dirY : 0;
+        if(!state.dir){
+          state.dir = {x:0, y:-1};
         }
         state.dir.x = dirX;
         state.dir.y = dirY;
+        if(!state.charging){
+          state.chargeTime = 0;
+        }
         state.charging = true;
         const bonus = Number.isFinite(state.chargeSpeedBonus) ? Math.max(0.05, state.chargeSpeedBonus) : 1;
         state.chargeTime += dt * bonus;
@@ -6374,8 +6411,8 @@
         this.dispatchFollowerShot?.('brimstone-stop', {reason:'interrupt'});
       }
     }
-    handleBrimstoneAttack(dt, sx, sy, lvx, lvy, maxSpeed){
-      const pressed = !!(sx || sy);
+    handleBrimstoneAttack(dt, shotState, lvx, lvy, maxSpeed){
+      const pressed = !!(shotState && shotState.pressed);
       if(this.brimstoneBeam){
         this.brimstoneBeamTimer = Math.max(0, (this.brimstoneBeamTimer || 0) - dt);
         if(pressed){
@@ -6386,9 +6423,11 @@
         return;
       }
       if(pressed){
-        const len = Math.hypot(sx, sy) || 1;
-        this.brimstoneAim.x = sx / len;
-        this.brimstoneAim.y = sy / len;
+        const dirX = Number.isFinite(shotState.dirX) ? shotState.dirX : 0;
+        const dirY = Number.isFinite(shotState.dirY) ? shotState.dirY : 0;
+        const len = Math.hypot(dirX, dirY) || 1;
+        this.brimstoneAim.x = dirX / len;
+        this.brimstoneAim.y = dirY / len;
         if(!this.brimstoneCharging){
           this.brimstoneCharging = true;
           this.brimstoneCharge = 0;
@@ -16273,6 +16312,97 @@
     }
     ctx.restore();
   }
+  function drawAimIndicator(player){
+    if(!player) return;
+    const shotState = typeof player.getShotInput === 'function' ? player.getShotInput() : player.shotInput;
+    if(!shotState) return;
+    const dirX = Number.isFinite(shotState.dirX) ? shotState.dirX : 0;
+    const dirY = Number.isFinite(shotState.dirY) ? shotState.dirY : 0;
+    const len = Math.hypot(dirX, dirY);
+    if(!(len>1e-5)) return;
+    const pressed = !!shotState.pressed;
+    const radius = player.r || CONFIG.player.radius || 12;
+    const baseLength = radius * (pressed ? 1.45 : 1.28);
+    const headLength = radius * (pressed ? 0.95 : 0.78);
+    const totalLength = baseLength + headLength;
+    const shaftHalf = radius * (pressed ? 0.34 : 0.3);
+    const headHalf = radius * (pressed ? 0.6 : 0.52);
+    const tailOffset = -radius * 0.38;
+    const hasHotChoco = typeof player.hasHotChocolate === 'function' && player.hasHotChocolate();
+    let fill = '#38bdf8';
+    let stroke = '#0f172a';
+    let highlight = '#e0f2fe';
+    switch(player.attackMode){
+      case 'brimstone':
+        fill = pressed ? '#f97316' : mixHexColor('#f97316', '#fca5a5', 0.55);
+        stroke = '#7f1d1d';
+        highlight = '#fee2e2';
+        break;
+      case 'lightsaber':
+        fill = pressed ? '#60a5fa' : mixHexColor('#60a5fa', '#bfdbfe', 0.5);
+        stroke = '#1d4ed8';
+        highlight = '#dbeafe';
+        break;
+      case 'bomb-progenitor':
+      case 'bomb-elder':
+        fill = pressed ? '#fb7185' : mixHexColor('#fb7185', '#fbcfe8', 0.55);
+        stroke = '#9d174d';
+        highlight = '#fde2e9';
+        break;
+      default:
+        if(hasHotChoco){
+          fill = pressed ? '#facc15' : mixHexColor('#facc15', '#fde68a', 0.58);
+          stroke = '#78350f';
+          highlight = '#fef3c7';
+        } else {
+          fill = pressed ? '#38bdf8' : mixHexColor('#38bdf8', '#cbd5f5', 0.6);
+          stroke = '#0f172a';
+          highlight = '#e0f2fe';
+        }
+        break;
+    }
+    const alpha = pressed ? 0.95 : 0.58;
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(Math.atan2(dirY, dirX));
+    ctx.globalAlpha *= alpha;
+    const gradient = ctx.createLinearGradient(tailOffset, 0, tailOffset + totalLength, 0);
+    gradient.addColorStop(0, colorWithAlpha(fill, pressed ? 0.85 : 0.55));
+    gradient.addColorStop(0.55, colorWithAlpha(fill, 0.95));
+    gradient.addColorStop(1, colorWithAlpha(highlight, pressed ? 0.85 : 0.7));
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(tailOffset, -shaftHalf);
+    ctx.lineTo(tailOffset + baseLength, -shaftHalf);
+    ctx.lineTo(tailOffset + baseLength, -headHalf);
+    ctx.lineTo(tailOffset + totalLength, 0);
+    ctx.lineTo(tailOffset + baseLength, headHalf);
+    ctx.lineTo(tailOffset + baseLength, shaftHalf);
+    ctx.lineTo(tailOffset, shaftHalf);
+    ctx.closePath();
+    ctx.fill();
+    ctx.lineWidth = Math.max(1.2, radius * 0.14);
+    ctx.strokeStyle = colorWithAlpha(stroke, pressed ? 0.85 : 0.62);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.strokeStyle = colorWithAlpha(highlight, pressed ? 0.85 : 0.58);
+    ctx.lineWidth = Math.max(0.85, radius * 0.08);
+    ctx.moveTo(tailOffset + radius * 0.24, 0);
+    ctx.lineTo(tailOffset + baseLength + Math.max(radius * 0.22, headLength * 0.35), 0);
+    ctx.stroke();
+    if(shotState.justChangedDir){
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha *= pressed ? 0.85 : 0.65;
+      ctx.fillStyle = colorWithAlpha(highlight, 0.9);
+      const flareRadius = Math.max(radius * 0.3, 4);
+      ctx.beginPath();
+      ctx.arc(tailOffset + baseLength, 0, flareRadius, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
   function drawPlayer(){
     // 身体
     let baseColor = '#e1e7ff';
@@ -16431,6 +16561,7 @@
       ctx.fill();
       ctx.restore();
     }
+    drawAimIndicator(player);
     ctx.restore();
   }
   function drawMiniMap(){
