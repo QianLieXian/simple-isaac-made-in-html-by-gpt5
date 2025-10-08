@@ -870,6 +870,16 @@
     const diff = normalizeAngle(b - a);
     return a + diff * clamp(t, 0, 1);
   }
+  function quantizeDirectionToOctants(x, y){
+    const len = Math.hypot(x, y);
+    if(!(len>1e-5)){
+      return {x:0, y:-1, angle:-Math.PI/2};
+    }
+    const angle = Math.atan2(y, x);
+    const step = Math.PI / 4;
+    const snapped = Math.round(angle / step) * step;
+    return {x: Math.cos(snapped), y: Math.sin(snapped), angle: snapped};
+  }
   function easeOutCubic(t){
     const p = clamp(t, 0, 1);
     const inv = 1 - p;
@@ -988,6 +998,23 @@
           player.enableLightsaberMode();
         } else {
           player.attackMode = 'lightsaber';
+        }
+      }
+    },
+    {
+      slug:'short-sword',
+      name:'短剑',
+      weight: WEIGHT_PRESETS.item * 0.34,
+      description:'被动：泪滴改为手持短剑。短剑常驻在身前造成接触伤害，按住射击方向蓄力后可投掷，蓄力越久飞得越远。射速越快、伤害越高时，短剑略微增幅，并与追踪、硫磺火等道具产生联动。',
+      lifeTradeCost:{type:'flat', amount:1},
+      apply(player){
+        if(!player) return;
+        player.shortSwordStacks = (Number(player.shortSwordStacks) || 0) + 1;
+        if(typeof player.enableShortSwordMode === 'function'){
+          player.enableShortSwordMode();
+        } else {
+          player.attackMode = 'shortsword';
+          if(!player.shortSword) player.shortSword = {enabled:true};
         }
       }
     },
@@ -1311,6 +1338,7 @@
   const ITEM_REF_WIND_SPRINT_MEDAL = ITEM_POOL.find(item=>item.slug==='wind-sprint-medal');
   const ITEM_REF_LIGHTSTEP_TONIC = ITEM_POOL.find(item=>item.slug==='lightstep-tonic');
   const ITEM_REF_LIGHTSABER = ITEM_POOL.find(item=>item.slug==='lightsaber');
+  const ITEM_REF_SHORT_SWORD = ITEM_POOL.find(item=>item.slug==='short-sword');
   const HOLY_HEART_ITEM = {
     slug:'holy-heart',
     name:'神圣之心',
@@ -3958,6 +3986,16 @@
       if(!swing.alive){ swings.splice(i,1); }
     }
   }
+  function updateShortSwordProjectiles(dt, enemies){
+    const projectiles = runtime.shortSwordProjectiles;
+    if(!Array.isArray(projectiles) || !projectiles.length) return;
+    for(let i=projectiles.length-1;i>=0;i--){
+      const proj = projectiles[i];
+      if(!proj){ projectiles.splice(i,1); continue; }
+      proj.update(dt, enemies);
+      if(!proj.alive){ projectiles.splice(i,1); }
+    }
+  }
   function keepBombInBounds(bomb){
     const margin = bomb.r + 24;
     const marginY = bomb.r + 24;
@@ -4101,6 +4139,8 @@
       this.holyHeartState = null;
       this.compressedPeachStacks = 0;
       this.compressedPeachState = null;
+      this.shortSwordStacks = 0;
+      this.shortSword = null;
       this.lightsaberStacks = 0;
       this.lightsaber = null;
       if(typeof this.resetFollowerTrail === 'function'){
@@ -4344,6 +4384,8 @@
           this.handleBombElderAttack(dt, shotState, lvx, lvy, maxSpeed);
         } else if(this.attackMode === 'brimstone'){
           this.handleBrimstoneAttack(dt, shotState, lvx, lvy, maxSpeed);
+        } else if(this.attackMode === 'shortsword'){
+          this.handleShortSwordAttack(dt, shotState);
         } else if(this.attackMode === 'lightsaber'){
           this.handleLightsaberAttack(dt, shotState);
         } else if(hasHotChoco){
@@ -4364,6 +4406,16 @@
           this.brimstoneCharging = false;
           this.brimstoneCharge = 0;
           this.brimstoneCharged = false;
+        }
+        if(this.attackMode === 'shortsword'){
+          const swordState = this.ensureShortSwordState();
+          if(swordState){
+            swordState.chargeTime = 0;
+            swordState.holdOffset = 0;
+            if(swordState.projectile && typeof swordState.projectile.forceReturn === 'function'){
+              swordState.projectile.forceReturn();
+            }
+          }
         }
         if(this.attackMode === 'lightsaber' && this.lightsaber){
           if(this.lightsaber.swing && typeof this.lightsaber.swing.forceFinish === 'function'){
@@ -4703,6 +4755,388 @@
         resultShots.push(seed);
       }
       return resultShots.length;
+    }
+    ensureShortSwordState(){
+      if(!this.shortSword || typeof this.shortSword !== 'object'){
+        const bodyRadius = this.r || CONFIG.player.radius || 12;
+        this.shortSword = {
+          dirX: 0,
+          dirY: -1,
+          displayDirX: 0,
+          displayDirY: -1,
+          baseLength: 0,
+          baseWidth: 0,
+          length: 0,
+          width: 0,
+          bodyRadius,
+          diameter: bodyRadius * 2,
+          chargeTime: 0,
+          chargeMax: 4,
+          chargeRate: 1,
+          holdOffset: 0,
+          holdTarget: 0,
+          attached: true,
+          projectile: null,
+          changePulse: 0,
+          flash: 0,
+          contactPulse: 0,
+          geometry: null,
+          synergy: {},
+          speedRatio: 1,
+          sideOffset: 0,
+          transitionTimer: 0,
+          transitionDuration: 0.12,
+          transitionFromX: 0,
+          transitionFromY: -1,
+          transitionSlideDir: 0,
+          glintPhase: 0,
+        };
+      }
+      const state = this.shortSword;
+      const bodyRadius = this.r || CONFIG.player.radius || 12;
+      const diameter = bodyRadius * 2;
+      state.bodyRadius = bodyRadius;
+      state.diameter = diameter;
+      const baseDamage = Math.max(0.1, this.damage || this.baseDamage || 1);
+      const damageBonus = Math.min(0.45, Math.max(0, baseDamage - 3) * 0.04);
+      const baseLength = diameter * 2;
+      const baseWidth = Math.max(bodyRadius * 0.75, 9);
+      const tearSpeed = Math.max(120, Number(this.tearSpeed) || Number(CONFIG.player?.tearSpeed) || 220);
+      const referenceSpeed = Number(CONFIG.player?.tearSpeed) || 230;
+      const speedRatio = clamp(tearSpeed / referenceSpeed, 0.35, 3.2);
+      const synergy = this.collectSynergyOptions('shortsword', {
+        rangeMultiplier: 1,
+        speedMultiplier: 1,
+        damageMultiplier: 1,
+        chargeRateMultiplier: 1,
+      }, {state});
+      state.synergy = synergy;
+      const stacks = Math.max(1, Number(this.shortSwordStacks) || 1);
+      const lengthScale = 1 + damageBonus + Math.max(0, speedRatio - 1) * 0.08;
+      state.baseLength = baseLength * lengthScale;
+      state.baseWidth = baseWidth * (1 + Math.min(0.25, damageBonus * 0.5));
+      state.length = state.baseLength;
+      state.width = state.baseWidth;
+      const chargeCap = Math.min(4, Math.max(1.2, Number(synergy.maxCharge) || 4));
+      state.chargeMax = chargeCap;
+      const rateBase = Math.max(0.35, Number(synergy.chargeRateMultiplier) || 1);
+      state.chargeRate = rateBase * (1 + (stacks - 1) * 0.08);
+      state.speedRatio = speedRatio;
+      if(!Number.isFinite(state.dirX) || !Number.isFinite(state.dirY)){
+        state.dirX = 0;
+        state.dirY = -1;
+      }
+      if(!Number.isFinite(state.displayDirX) || !Number.isFinite(state.displayDirY)){
+        state.displayDirX = state.dirX;
+        state.displayDirY = state.dirY;
+      }
+      if(!Number.isFinite(state.sideOffset)) state.sideOffset = 0;
+      if(!Number.isFinite(state.transitionTimer)) state.transitionTimer = 0;
+      if(!Number.isFinite(state.transitionDuration) || state.transitionDuration<=0){
+        state.transitionDuration = 0.12;
+      }
+      if(!Number.isFinite(state.transitionFromX) || !Number.isFinite(state.transitionFromY)){
+        state.transitionFromX = state.displayDirX;
+        state.transitionFromY = state.displayDirY;
+      }
+      if(!Number.isFinite(state.transitionSlideDir)) state.transitionSlideDir = 0;
+      if(!Number.isFinite(state.glintPhase)) state.glintPhase = 0;
+      return state;
+    }
+    enableShortSwordMode(){
+      const state = this.ensureShortSwordState();
+      this.attackMode = 'shortsword';
+      state.attached = true;
+      state.projectile = null;
+      state.chargeTime = 0;
+      state.holdOffset = 0;
+      state.flash = Math.max(state.flash || 0, 0.45);
+      return state;
+    }
+    getShortSwordGeometry(state, override){
+      if(!state) state = this.ensureShortSwordState();
+      if(!state) return null;
+      const overrideDirX = Number.isFinite(override?.dirX) ? override.dirX : Number.isFinite(override?.x) ? override.x : null;
+      const overrideDirY = Number.isFinite(override?.dirY) ? override.dirY : Number.isFinite(override?.y) ? override.y : null;
+      const dirXRaw = Number.isFinite(overrideDirX) ? overrideDirX : (Number.isFinite(state.displayDirX) ? state.displayDirX : state.dirX);
+      const dirYRaw = Number.isFinite(overrideDirY) ? overrideDirY : (Number.isFinite(state.displayDirY) ? state.displayDirY : state.dirY);
+      const len = Math.hypot(dirXRaw, dirYRaw) || 1;
+      const nx = dirXRaw / len;
+      const ny = dirYRaw / len;
+      const normalX = -ny;
+      const normalY = nx;
+      const baseOffset = state.bodyRadius * 0.75 + (state.holdOffset || 0);
+      const sideOffset = Number.isFinite(state.sideOffset) ? state.sideOffset : 0;
+      const baseX = this.x + nx * (state.bodyRadius + baseOffset) + normalX * sideOffset;
+      const baseY = this.y + ny * (state.bodyRadius + baseOffset) + normalY * sideOffset;
+      const length = state.length || state.baseLength || state.bodyRadius * 2.4;
+      const tipX = baseX + nx * length;
+      const tipY = baseY + ny * length;
+      const width = state.width || state.baseWidth || state.bodyRadius;
+      return {baseX, baseY, tipX, tipY, dirX: nx, dirY: ny, normalX, normalY, width, length, sideOffset};
+    }
+    handleShortSwordAttack(dt, shotState){
+      const state = this.ensureShortSwordState();
+      if(!state) return;
+      const prevCharge = state.chargeTime || 0;
+      const pressed = !!(shotState && shotState.pressed);
+      const justReleased = !!(shotState && shotState.justReleased);
+      let aimX = Number.isFinite(shotState?.dirX) ? shotState.dirX : 0;
+      let aimY = Number.isFinite(shotState?.dirY) ? shotState.dirY : 0;
+      if(!(Math.hypot(aimX, aimY) > 1e-5)){
+        aimX = Number.isFinite(shotState?.lastDirX) ? shotState.lastDirX : state.dirX;
+        aimY = Number.isFinite(shotState?.lastDirY) ? shotState.lastDirY : state.dirY;
+      }
+      const quant = quantizeDirectionToOctants(aimX, aimY);
+      if(quant){
+        const prevDisplayX = Number.isFinite(state.displayDirX) ? state.displayDirX : state.dirX;
+        const prevDisplayY = Number.isFinite(state.displayDirY) ? state.displayDirY : state.dirY;
+        const previousAngle = Math.atan2(state.dirY, state.dirX);
+        const deltaAngle = Math.abs(normalizeAngle(previousAngle - quant.angle));
+        if(deltaAngle > 1e-3){
+          state.changePulse = Math.max(state.changePulse || 0, 0.4 + deltaAngle * 0.18);
+          const durationBase = clamp(0.08 + deltaAngle * 0.12, 0.08, 0.2);
+          state.transitionDuration = durationBase;
+          state.transitionTimer = durationBase;
+          state.transitionFromX = prevDisplayX;
+          state.transitionFromY = prevDisplayY;
+          const cross = prevDisplayX * quant.y - prevDisplayY * quant.x;
+          state.transitionSlideDir = Math.abs(cross) > 1e-4 ? Math.sign(cross) : 0;
+        }
+        state.dirX = quant.x;
+        state.dirY = quant.y;
+      }
+      let dispX;
+      let dispY;
+      if(state.transitionTimer>0){
+        const duration = Math.max(0.01, state.transitionDuration || 0.1);
+        state.transitionTimer = Math.max(0, state.transitionTimer - dt);
+        const progress = clamp(1 - state.transitionTimer / duration, 0, 1);
+        const eased = easeOutCubic(progress);
+        const fromX = Number.isFinite(state.transitionFromX) ? state.transitionFromX : state.dirX;
+        const fromY = Number.isFinite(state.transitionFromY) ? state.transitionFromY : state.dirY;
+        const mixX = lerp(fromX, state.dirX, eased);
+        const mixY = lerp(fromY, state.dirY, eased);
+        const mixLen = Math.hypot(mixX, mixY) || 1;
+        dispX = mixX / mixLen;
+        dispY = mixY / mixLen;
+        const slideSign = Number.isFinite(state.transitionSlideDir) ? state.transitionSlideDir : 0;
+        const slidePulse = Math.sin(Math.min(Math.PI, eased * Math.PI));
+        const slideAmount = slideSign * state.bodyRadius * 0.32 * slidePulse;
+        state.sideOffset = slideAmount;
+        if(state.transitionTimer<=0){
+          state.transitionTimer = 0;
+        }
+      } else {
+        const lerpFactor = clamp(dt * 14, 0, 1);
+        const curDisplayX = Number.isFinite(state.displayDirX) ? state.displayDirX : state.dirX;
+        const curDisplayY = Number.isFinite(state.displayDirY) ? state.displayDirY : state.dirY;
+        const mixX = lerp(curDisplayX, state.dirX, lerpFactor);
+        const mixY = lerp(curDisplayY, state.dirY, lerpFactor);
+        const mixLen = Math.hypot(mixX, mixY) || 1;
+        dispX = mixX / mixLen;
+        dispY = mixY / mixLen;
+        state.sideOffset = lerp(Number.isFinite(state.sideOffset) ? state.sideOffset : 0, 0, clamp(dt * 10, 0, 1));
+        state.transitionTimer = 0;
+      }
+      state.displayDirX = dispX;
+      state.displayDirY = dispY;
+      if(state.changePulse>0){ state.changePulse = Math.max(0, state.changePulse - dt * 1.8); }
+      if(state.flash>0){ state.flash = Math.max(0, state.flash - dt * 1.4); }
+      if(state.projectile && state.projectile.alive){
+        state.attached = false;
+        state.chargeTime = 0;
+        state.holdOffset = lerp(state.holdOffset || 0, 0, clamp(dt * 8, 0, 1));
+        state.geometry = null;
+        this.fireCd = 0;
+        return;
+      }
+      state.attached = true;
+      const maxCharge = Math.max(0.6, state.chargeMax || 4);
+      if(pressed){
+        state.chargeTime = Math.min(maxCharge, prevCharge + dt * (state.chargeRate || 1));
+      } else {
+        state.chargeTime = Math.max(0, prevCharge - dt * 1.2);
+      }
+      const chargeRatio = clamp((state.chargeTime || 0) / maxCharge, 0, 1);
+      const targetOffset = pressed ? (-state.bodyRadius * (0.28 + chargeRatio * 0.55)) : 0;
+      state.holdTarget = targetOffset;
+      state.holdOffset = lerp(state.holdOffset || 0, targetOffset, clamp(dt * 14, 0, 1));
+      state.length = state.baseLength * (1 + chargeRatio * 0.25);
+      state.width = state.baseWidth * (1 + chargeRatio * 0.12);
+      state.contactPulse = Math.max(0, (state.contactPulse || 0) - dt * 4);
+      const geometry = this.getShortSwordGeometry(state);
+      state.geometry = geometry;
+      state.glintPhase = (state.glintPhase || 0) + dt * (6 + chargeRatio * 4);
+      this.applyShortSwordContactDamage(state, dt, geometry);
+      if(justReleased && !state.projectile){
+        const releaseCharge = Math.max(prevCharge, Number(shotState?.holdTime) || 0);
+        if(releaseCharge >= 0.05){
+          this.throwShortSword(state, {
+            dirX: geometry.dirX,
+            dirY: geometry.dirY,
+            chargeTime: releaseCharge,
+            geometry,
+          });
+        }
+        state.chargeTime = 0;
+      }
+      this.fireCd = 0;
+    }
+    applyShortSwordContactDamage(state, dt, geometry){
+      if(!state || !state.attached || !geometry) return;
+      const room = dungeon?.current;
+      if(!room || !Array.isArray(room.enemies) || !room.enemies.length) return;
+      const baseX = geometry.baseX;
+      const baseY = geometry.baseY;
+      const tipX = geometry.tipX;
+      const tipY = geometry.tipY;
+      const halfWidth = (geometry.width || state.width || state.bodyRadius) * 0.5;
+      const dtFactor = clamp(dt * 60, 0.3, 1.35);
+      const damageMultiplier = Math.max(0.4, Number(state.synergy?.damageMultiplier) || 1);
+      const contactMultiplier = Math.max(0.4, Number(state.synergy?.contactDamageMultiplier) || 1);
+      const damageValue = Math.max(0.05, (this.damage || this.baseDamage || 1) * 2 * damageMultiplier * contactMultiplier * dtFactor);
+      for(const enemy of room.enemies){
+        if(!enemy || enemy.dead) continue;
+        const reach = (enemy.r || 12) + halfWidth;
+        const sample = pointSegmentDistance(enemy.x, enemy.y, baseX, baseY, tipX, tipY);
+        if(sample.distance > reach) continue;
+        const killed = enemy.damage ? enemy.damage(damageValue) : false;
+        applyEnemyKnockback(enemy, geometry.dirX, geometry.dirY, {power: 220 + damageValue * 18, duration:0.18, slowFactor:0.65, slowDuration:0.32, maxSpeed:320});
+        if(killed){
+          handleEnemyDeath(enemy, room);
+        } else {
+          enemy.damageFlashTimer = Math.max(enemy.damageFlashTimer || 0, 0.12);
+        }
+        const pulseBoost = contactMultiplier>1 ? (contactMultiplier - 1) * 0.35 : 0;
+        state.contactPulse = Math.max(state.contactPulse || 0, 0.55 + pulseBoost);
+      }
+    }
+    throwShortSword(state, options={}){
+      if(!state) state = this.ensureShortSwordState();
+      if(!state) return [];
+      const dirX = Number.isFinite(options.dirX) ? options.dirX : state.displayDirX;
+      const dirY = Number.isFinite(options.dirY) ? options.dirY : state.displayDirY;
+      const dirLen = Math.hypot(dirX, dirY) || 1;
+      const ndx = dirX / dirLen;
+      const ndy = dirY / dirLen;
+      const baseAngle = Math.atan2(ndy, ndx);
+      const chargeTime = Math.max(0, Number(options.chargeTime) || state.chargeTime || 0);
+      const maxCharge = Math.max(0.6, state.chargeMax || 4);
+      const chargeRatio = clamp(chargeTime / maxCharge, 0, 1);
+      const tearSpeed = Math.max(120, Number(this.tearSpeed) || Number(CONFIG.player?.tearSpeed) || 220);
+      const referenceSpeed = Number(CONFIG.player?.tearSpeed) || 230;
+      const speedRatio = clamp(tearSpeed / referenceSpeed, 0.35, 3.2);
+      const diameter = state.diameter || (this.r || CONFIG.player.radius || 12) * 2;
+      const synergy = state.synergy || {};
+      const rangeMultiplier = Math.max(0.25, Number(synergy.rangeMultiplier) || 1);
+      const speedMultiplier = Math.max(0.2, Number(synergy.speedMultiplier) || 1);
+      const damageMultiplier = Math.max(0.4, Number(synergy.damageMultiplier) || 1);
+      const returnSpeedMultiplier = Math.max(0.4, Number(synergy.returnSpeedMultiplier) || 1);
+      const throwDamageMultiplier = Math.max(0.4, Number(synergy.throwDamageMultiplier) || 1);
+      const rangeBase = diameter * (3.4 + speedRatio * 1.15);
+      const maxRangeLimit = diameter * 12;
+      let throwRange = rangeBase + (maxRangeLimit - rangeBase) * (0.35 + chargeRatio * 0.65);
+      throwRange = clamp(throwRange * rangeMultiplier, diameter * 2.4, maxRangeLimit);
+      const launchSpeed = Math.max(180, tearSpeed * (1.1 + chargeRatio * 0.75) * speedMultiplier);
+      const baseDamage = Math.max(0.05, this.damage || this.baseDamage || 1);
+      const distanceBonus = 2 + chargeRatio * 4.2;
+      const projectileDamage = baseDamage * distanceBonus * damageMultiplier * throwDamageMultiplier;
+      const baseGeometry = options.geometry && typeof options.geometry === 'object'
+        ? options.geometry
+        : this.getShortSwordGeometry(state, {dirX: ndx, dirY: ndy});
+      const optionOffsets = Array.isArray(options.offsets) && options.offsets.length ? options.offsets : null;
+      const synergyOffsets = Array.isArray(synergy.throwOffsets) && synergy.throwOffsets.length ? synergy.throwOffsets : null;
+      const offsetsRaw = optionOffsets || synergyOffsets || [0];
+      const offsets = [];
+      for(const raw of offsetsRaw){
+        const value = Number(raw);
+        if(!Number.isFinite(value)) continue;
+        offsets.push(value);
+      }
+      if(!offsets.length) offsets.push(0);
+      offsets.sort((a,b)=>a-b);
+      const filteredOffsets = [];
+      for(const value of offsets){
+        if(filteredOffsets.length && Math.abs(filteredOffsets[filteredOffsets.length-1] - value) < 1e-4) continue;
+        filteredOffsets.push(value);
+      }
+      let primaryAssigned = false;
+      const projectiles = [];
+      for(const offset of filteredOffsets){
+        const angle = baseAngle + offset;
+        const dirLocalX = Math.cos(angle);
+        const dirLocalY = Math.sin(angle);
+        const geometry = Math.abs(offset) < 1e-6 && baseGeometry
+          ? baseGeometry
+          : this.getShortSwordGeometry(state, {dirX: dirLocalX, dirY: dirLocalY});
+        const projectile = new ShortSwordProjectile({
+          owner: this,
+          x: geometry?.tipX ?? (this.x + dirLocalX * state.length),
+          y: geometry?.tipY ?? (this.y + dirLocalY * state.length),
+          baseX: geometry?.baseX ?? this.x,
+          baseY: geometry?.baseY ?? this.y,
+          dirX: dirLocalX,
+          dirY: dirLocalY,
+          length: state.length,
+          width: state.width,
+          maxDistance: throwRange,
+          speed: launchSpeed,
+          chargeRatio,
+          damage: projectileDamage,
+          baseDamage,
+          synergy,
+          rangeLimit: maxRangeLimit,
+          returnSpeedMultiplier,
+          trailColor: synergy.trailColor,
+        });
+        if(!primaryAssigned){
+          state.projectile = projectile;
+          primaryAssigned = true;
+        } else {
+          projectile.isAuxiliary = true;
+        }
+        projectiles.push(projectile);
+        runtime.shortSwordProjectiles.push(projectile);
+      }
+      if(primaryAssigned){
+        state.attached = false;
+        state.chargeTime = 0;
+        state.holdOffset = 0;
+        state.holdTarget = 0;
+        state.sideOffset = 0;
+        state.transitionTimer = 0;
+        state.geometry = null;
+        state.transitionSlideDir = 0;
+        state.displayDirX = ndx;
+        state.displayDirY = ndy;
+      }
+      this.fireCd = 0;
+      state.flash = Math.max(state.flash || 0, 0.6 + chargeRatio * 0.3);
+      if(projectiles.length){
+        audio.play('playerShoot', {volume: clamp(0.55 + chargeRatio * 0.2, 0, 1)});
+        if(typeof this.dispatchFollowerShot === 'function'){
+          this.dispatchFollowerShot('melee', {damage: projectileDamage, angle: baseAngle});
+        }
+      }
+      return projectiles;
+    }
+    forceShortSwordReturn(){
+      if(!this.shortSword) return;
+      const projectile = this.shortSword.projectile;
+      if(projectile && typeof projectile.forceReturn === 'function'){
+        projectile.forceReturn();
+      }
+    }
+    onShortSwordReturned(projectile){
+      const state = this.ensureShortSwordState();
+      if(!state) return;
+      if(state.projectile === projectile){
+        state.projectile = null;
+      }
+      state.attached = true;
+      state.flash = Math.max(state.flash || 0, 0.45);
+      state.geometry = null;
     }
     ensureLightsaberState(){
       if(!this.lightsaber || typeof this.lightsaber !== 'object'){
@@ -6132,16 +6566,84 @@
               palette.burstEnd = palette.burstEnd || '#dc2626';
               palette.burstEndAccent = palette.burstEndAccent || '#fecaca';
               palette.stroke = palette.stroke || '#991b1b';
-            }
-            result.colors = palette;
           }
-          break;
+          result.colors = palette;
         }
-        case 'brimstone-beam': {
-          const ratioRaw = Number(context?.chargeRatio);
-          const chargeRatio = Number.isFinite(ratioRaw) ? clamp(ratioRaw, 0, 1) : 1;
-          const hasHotChoco = this.hasHotChocolate && this.hasHotChocolate();
-          if(hasHotChoco){
+        break;
+      }
+      case 'shortsword': {
+        const stacks = Math.max(1, Number(this.shortSwordStacks) || 1);
+        result.rangeMultiplier = Math.max(Number(result.rangeMultiplier) || 0, 1 + (stacks - 1) * 0.05);
+        result.speedMultiplier = Math.max(Number(result.speedMultiplier) || 0, 1 + (stacks - 1) * 0.04);
+        result.damageMultiplier = Math.max(Number(result.damageMultiplier) || 0, 1 + (stacks - 1) * 0.06);
+        result.returnSpeedMultiplier = Math.max(Number(result.returnSpeedMultiplier) || 0, 1 + (stacks - 1) * 0.03);
+        result.throwDamageMultiplier = Math.max(Number(result.throwDamageMultiplier) || 0, 1 + (stacks - 1) * 0.04);
+        const hasHoming = !!this.homingTears;
+        const hasHotChoco = this.hasHotChocolate && this.hasHotChocolate();
+        const hasBrimstone = Number(this.brimstoneStacks) > 0;
+        const tearSpeed = Math.max(120, Number(this.tearSpeed) || Number(CONFIG.player?.tearSpeed) || 220);
+        const referenceSpeed = Number(CONFIG.player?.tearSpeed) || 220;
+        const speedRatio = clamp(tearSpeed / referenceSpeed, 0.35, 3.2);
+        const patternOffsets = typeof this.getEyePatternOffsets === 'function' ? this.getEyePatternOffsets() : [0];
+        if(Array.isArray(patternOffsets) && patternOffsets.length>1){
+          if(!Array.isArray(result.throwOffsets) || result.throwOffsets.length < patternOffsets.length){
+            result.throwOffsets = [...patternOffsets];
+          }
+        }
+        if(hasHotChoco){
+          result.chargeRateMultiplier = Math.max(Number(result.chargeRateMultiplier) || 0, 1.3);
+          result.damageMultiplier = Math.max(Number(result.damageMultiplier) || 0, 1.1 + (stacks - 1) * 0.04);
+          const hotStacks = Math.max(1, this.getItemStack ? this.getItemStack('hot-chocolate') : 1);
+          result.maxCharge = Math.max(Number(result.maxCharge) || 0, 4 + (hotStacks - 1) * 0.4);
+          result.throwDamageMultiplier = Math.max(Number(result.throwDamageMultiplier) || 0, 1.1 + (hotStacks - 1) * 0.08);
+          result.returnSpeedMultiplier = Math.max(Number(result.returnSpeedMultiplier) || 0, 1.08 + (hotStacks - 1) * 0.05);
+        }
+        if(hasBrimstone){
+          result.damageMultiplier = Math.max(Number(result.damageMultiplier) || 0, 1.25 + Math.max(0, this.brimstoneStacks - 1) * 0.1);
+          result.trailColor = result.trailColor || '#f97316';
+          result.glowColor = result.glowColor || '#fca5a5';
+          result.tipColor = result.tipColor || '#fee2e2';
+          result.edgeColor = result.edgeColor || '#991b1b';
+          const brimStacks = Math.max(1, Number(this.brimstoneStacks) || 1);
+          result.throwDamageMultiplier = Math.max(Number(result.throwDamageMultiplier) || 0, 1.18 + (brimStacks - 1) * 0.08);
+          result.projectileContactMultiplier = Math.max(Number(result.projectileContactMultiplier) || 0, 1.1 + (brimStacks - 1) * 0.05);
+        }
+        if(hasHoming){
+          result.homing = true;
+          result.homingStrength = Math.max(Number(result.homingStrength) || 0, Number(this.homingStrength) || 8);
+          result.homingRange = Math.max(Number(result.homingRange) || 0, 420 + (stacks - 1) * 80);
+          result.homingDelay = Math.min(Number(result.homingDelay) || 0.18, 0.24);
+        }
+        if(this.hasItem && this.hasItem('impact-chocolate')){
+          const impactStacks = Math.max(1, this.getItemStack ? this.getItemStack('impact-chocolate') : 1);
+          const contactScale = 1.25 + (impactStacks - 1) * 0.12;
+          const returnScale = 1.2 + (impactStacks - 1) * 0.08;
+          const projectileContact = 1.15 + (impactStacks - 1) * 0.08;
+          result.contactDamageMultiplier = Math.max(Number(result.contactDamageMultiplier) || 0, contactScale);
+          result.returnSpeedMultiplier = Math.max(Number(result.returnSpeedMultiplier) || 0, returnScale);
+          result.projectileContactMultiplier = Math.max(Number(result.projectileContactMultiplier) || 0, projectileContact);
+          result.trailColor = result.trailColor || '#fde68a';
+          result.glowColor = result.glowColor || '#fde68a';
+          result.tipColor = result.tipColor || '#fff7cc';
+          result.edgeColor = result.edgeColor || '#b45309';
+        }
+        if(this.hasItem && this.hasItem('soy-milk')){
+          result.chargeRateMultiplier = Math.max(Number(result.chargeRateMultiplier) || 0, 1.6);
+          result.damageMultiplier = Math.max(Number(result.damageMultiplier) || 0, 0.85);
+          result.throwDamageMultiplier = Math.max(Number(result.throwDamageMultiplier) || 0, 1.2);
+          result.returnSpeedMultiplier = Math.max(Number(result.returnSpeedMultiplier) || 0, 1.3);
+        }
+        if(speedRatio > 1){
+          result.rangeMultiplier = Math.max(Number(result.rangeMultiplier) || 0, 1 + (speedRatio - 1) * 0.15);
+          result.speedMultiplier = Math.max(Number(result.speedMultiplier) || 0, 1 + (speedRatio - 1) * 0.12);
+        }
+        break;
+      }
+      case 'brimstone-beam': {
+        const ratioRaw = Number(context?.chargeRatio);
+        const chargeRatio = Number.isFinite(ratioRaw) ? clamp(ratioRaw, 0, 1) : 1;
+        const hasHotChoco = this.hasHotChocolate && this.hasHotChocolate();
+        if(hasHotChoco){
             result.allowPartialCharge = true;
             if(chargeRatio < 1){
               const effective = Math.max(chargeRatio, 0.12);
@@ -6651,6 +7153,15 @@
         }
         this.lightsaber.swing = null;
       }
+      if(this.shortSword){
+        const swordState = this.ensureShortSwordState();
+        if(swordState.projectile && typeof swordState.projectile.forceReturn === 'function'){
+          swordState.projectile.forceReturn();
+        }
+        swordState.chargeTime = 0;
+        swordState.holdOffset = 0;
+        swordState.attached = true;
+      }
     }
     setActiveItem(item){
       if(!item){
@@ -6740,6 +7251,9 @@
         ? Math.max(0.01, this.holyHeartState.blessingMultiplier || 2.5)
         : 1;
       this.damage = +(Math.max(0.4, dmg) * this.damageMultiplier * holyMultiplier).toFixed(2);
+      if(this.shortSword){
+        this.ensureShortSwordState();
+      }
     }
   }
 
@@ -7914,6 +8428,358 @@
       ctx.fillStyle = endGlow;
       ctx.beginPath();
       ctx.arc(tipX, tipY, width*1.15, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  class ShortSwordProjectile{
+    constructor(options={}){
+      this.owner = options.owner || null;
+      this.x = Number(options.x) || 0;
+      this.y = Number(options.y) || 0;
+      this.prevX = this.x;
+      this.prevY = this.y;
+      const dirX = Number.isFinite(options.dirX) ? options.dirX : 1;
+      const dirY = Number.isFinite(options.dirY) ? options.dirY : 0;
+      const dirLen = Math.hypot(dirX, dirY) || 1;
+      this.dirX = dirX / dirLen;
+      this.dirY = dirY / dirLen;
+      this.length = Math.max(24, Number(options.length) || 60);
+      this.width = Math.max(8, Number(options.width) || this.length * 0.18);
+      this.speed = Math.max(140, Number(options.speed) || 260);
+      const baseReturnSpeed = Math.max(this.speed * 0.9, Number(options.returnSpeed) || this.speed * 1.1);
+      const returnMultiplier = Math.max(0.25, Number(options.returnSpeedMultiplier) || Number(options.returnSpeedMult) || Number(this.synergy?.returnSpeedMultiplier) || 1);
+      this.returnSpeed = baseReturnSpeed * returnMultiplier;
+      this.maxDistance = Math.max(this.length * 0.9, Number(options.maxDistance) || this.length * 4);
+      this.travelled = 0;
+      this.chargeRatio = clamp(Number(options.chargeRatio) || 0, 0, 1);
+      this.damage = Math.max(0.05, Number(options.damage) || 5);
+      this.baseDamage = Math.max(0.05, Number(options.baseDamage) || this.damage);
+      this.synergy = options.synergy || {};
+      this.rangeLimit = Math.max(this.maxDistance, Number(options.rangeLimit) || this.maxDistance);
+      this.phase = 'out';
+      this.alpha = 1;
+      this.tailX = Number.isFinite(options.baseX) ? options.baseX : this.x - this.dirX * this.length;
+      this.tailY = Number.isFinite(options.baseY) ? options.baseY : this.y - this.dirY * this.length;
+      this.trailColor = typeof options.trailColor === 'string' ? options.trailColor : (this.synergy?.trailColor || this.synergy?.glowColor || '#facc15');
+      this.homing = !!(this.synergy?.homing || options.homing);
+      this.homingStrength = Math.max(0, Number(this.synergy?.homingStrength) || Number(options.homingStrength) || 0);
+      this.homingRange = Math.max(0, Number(this.synergy?.homingRange) || Number(options.homingRange) || 0);
+      this.homingDelay = Math.max(0, Number(this.synergy?.homingDelay) || Number(options.homingDelay) || 0.12);
+      this.homingTarget = null;
+      this.homingAcquireTimer = 0;
+      this.alive = true;
+      this.trail = [];
+      this.trailTimer = 0;
+      this.glintPhase = 0;
+    }
+    forceReturn(){
+      if(!this.alive) return;
+      this.phase = 'return';
+      this.homingDelay = 0;
+      this.homingTarget = null;
+    }
+    update(dt, enemies){
+      if(!this.alive) return;
+      this.prevX = this.x;
+      this.prevY = this.y;
+      if(dt<=0){
+        this.tailX = this.x - this.dirX * this.length;
+        this.tailY = this.y - this.dirY * this.length;
+        return;
+      }
+      if(this.phase === 'out'){
+        const slowdownZone = Math.max(40, this.maxDistance * 0.2);
+        const remaining = Math.max(0, this.maxDistance - this.travelled);
+        let currentSpeed = this.speed;
+        if(remaining <= slowdownZone){
+          const slowRatio = slowdownZone>0 ? clamp(1 - remaining / slowdownZone, 0, 1) : 0;
+          currentSpeed = this.speed * (0.4 + 0.6 * (1 - slowRatio));
+        }
+        this.updateHoming(dt, enemies, currentSpeed);
+        const step = currentSpeed * dt;
+        this.x += this.dirX * step;
+        this.y += this.dirY * step;
+        this.travelled += step;
+        if(this.travelled >= this.maxDistance || remaining <= 0.5){
+          this.phase = 'return';
+        }
+      } else if(this.phase === 'return'){
+        const owner = this.owner;
+        const speed = this.returnSpeed * (1 + this.chargeRatio * 0.6);
+        if(owner){
+          const toOwnerX = owner.x - this.x;
+          const toOwnerY = owner.y - this.y;
+          const distance = Math.hypot(toOwnerX, toOwnerY) || 1;
+          const ndx = toOwnerX / distance;
+          const ndy = toOwnerY / distance;
+          const turn = clamp((12 + this.chargeRatio * 10) * dt, 0, 1);
+          this.dirX = this.dirX * (1 - turn) + ndx * turn;
+          this.dirY = this.dirY * (1 - turn) + ndy * turn;
+          const dirLen = Math.hypot(this.dirX, this.dirY) || 1;
+          this.dirX /= dirLen;
+          this.dirY /= dirLen;
+          const step = speed * dt;
+          this.x += this.dirX * step;
+          this.y += this.dirY * step;
+          if(distance <= (owner.r || 12) + this.length * 0.35){
+            this.attachToOwner();
+            return;
+          }
+        } else {
+          this.phase = 'fade';
+        }
+      } else if(this.phase === 'fade'){
+        this.alpha = Math.max(0, this.alpha - dt * 2.4);
+        if(this.alpha <= 0){
+          this.alive = false;
+          return;
+        }
+      }
+      this.tailX = this.x - this.dirX * this.length;
+      this.tailY = this.y - this.dirY * this.length;
+      if(this.phase !== 'fade'){
+        this.applyDamage(enemies, dt);
+      }
+      this.glintPhase = (this.glintPhase || 0) + dt * (7 + this.chargeRatio * 4);
+      if(!Array.isArray(this.trail)) this.trail = [];
+      if(dt>0){
+        this.trailTimer = (this.trailTimer || 0) + dt;
+        const sampleInterval = 0.028;
+        while(this.trailTimer >= sampleInterval){
+          this.trailTimer -= sampleInterval;
+          this.trail.unshift({
+            baseX: this.tailX,
+            baseY: this.tailY,
+            tipX: this.x,
+            tipY: this.y,
+            length: this.length,
+            width: this.width,
+            alpha: 0.48 + this.chargeRatio * 0.35,
+            color: this.trailColor,
+          });
+          if(this.trail.length>7){ this.trail.pop(); }
+        }
+      }
+      if(this.trail.length){
+        const fadeRate = 2.8 + this.chargeRatio * 0.6;
+        for(const sample of this.trail){
+          sample.alpha = Math.max(0, (sample.alpha || 0) - dt * fadeRate);
+        }
+        while(this.trail.length && (this.trail[this.trail.length-1]?.alpha ?? 0) <= 0.02){
+          this.trail.pop();
+        }
+      }
+    }
+    updateHoming(dt, enemies, currentSpeed){
+      if(!this.homing || !Array.isArray(enemies) || !enemies.length) return;
+      if(this.homingDelay>0){
+        this.homingDelay = Math.max(0, this.homingDelay - dt);
+        if(this.homingDelay>0) return;
+      }
+      this.homingAcquireTimer = Math.max(0, this.homingAcquireTimer - dt);
+      let target = this.homingTarget;
+      const rangeLimit = this.homingRange>0 ? this.homingRange : 480;
+      if(target){
+        const distance = Math.hypot(target.x - this.x, target.y - this.y);
+        if(!target || target.dead || (rangeLimit>0 && distance > rangeLimit + (target.r || 12))){
+          target = null;
+        }
+      }
+      if(!target && this.homingAcquireTimer<=0){
+        let best=null;
+        let bestDist=Infinity;
+        for(const enemy of enemies){
+          if(!enemy || enemy.dead) continue;
+          const dx = enemy.x - this.x;
+          const dy = enemy.y - this.y;
+          const dist = Math.hypot(dx, dy);
+          if(rangeLimit>0 && dist > rangeLimit + (enemy.r || 12)) continue;
+          if(dist < bestDist){
+            bestDist = dist;
+            best = enemy;
+          }
+        }
+        this.homingTarget = best;
+        this.homingAcquireTimer = 0.12;
+        target = best;
+      }
+      if(!target) return;
+      const dx = target.x - this.x;
+      const dy = target.y - this.y;
+      const distance = Math.hypot(dx, dy) || 1;
+      const ndx = dx / distance;
+      const ndy = dy / distance;
+      const strength = Math.max(0, this.homingStrength || 8);
+      const turn = clamp(strength * dt, 0, 1);
+      this.dirX = this.dirX * (1 - turn) + ndx * turn;
+      this.dirY = this.dirY * (1 - turn) + ndy * turn;
+      const dirLen = Math.hypot(this.dirX, this.dirY) || 1;
+      this.dirX /= dirLen;
+      this.dirY /= dirLen;
+      if(Number.isFinite(currentSpeed) && currentSpeed>0){
+        this.speed = Math.max(currentSpeed, this.speed * 0.92);
+      }
+    }
+    applyDamage(enemies, dt){
+      if(!Array.isArray(enemies) || !enemies.length) return;
+      const baseX = this.tailX;
+      const baseY = this.tailY;
+      const tipX = this.x;
+      const tipY = this.y;
+      const halfWidth = this.width * 0.5;
+      const dtFactor = clamp(dt * 60, 0.3, 1.25);
+      const distanceRatio = clamp(this.travelled / Math.max(1, this.maxDistance), 0, 1);
+      const contactMultiplier = Math.max(0.4, Number(this.synergy?.projectileContactMultiplier) || Number(this.synergy?.contactDamageMultiplier) || 1);
+      const damageValue = Math.max(this.baseDamage, this.damage) * (2 + distanceRatio * 3.5 + this.chargeRatio * 2.5) * dtFactor * contactMultiplier;
+      const room = dungeon?.current;
+      for(const enemy of enemies){
+        if(!enemy || enemy.dead) continue;
+        const reach = (enemy.r || 12) + halfWidth;
+        const sample = pointSegmentDistance(enemy.x, enemy.y, baseX, baseY, tipX, tipY);
+        if(sample.distance > reach) continue;
+        const killed = enemy.damage ? enemy.damage(damageValue) : false;
+        const knockScale = contactMultiplier>1 ? Math.min(1.8, 1 + (contactMultiplier - 1) * 0.6) : 1;
+        applyEnemyKnockback(enemy, this.dirX, this.dirY, {power: (260 + damageValue * 18) * knockScale, duration:0.2, slowFactor:0.6, slowDuration:0.32, maxSpeed:360});
+        if(killed){ handleEnemyDeath(enemy, room); }
+        else { enemy.damageFlashTimer = Math.max(enemy.damageFlashTimer || 0, 0.16); }
+      }
+    }
+    attachToOwner(){
+      if(!this.alive) return;
+      this.alive = false;
+      if(this.owner && typeof this.owner.onShortSwordReturned === 'function'){
+        this.owner.onShortSwordReturned(this);
+      }
+    }
+    draw(){
+      if(this.alpha <= 0) return;
+      const baseX = this.tailX;
+      const baseY = this.tailY;
+      const tipX = this.x;
+      const tipY = this.y;
+      const angle = Math.atan2(tipY - baseY, tipX - baseX);
+      const width = this.width;
+      const length = this.length;
+      const bladeWidth = width * 0.55;
+      const guardLength = Math.max(width * 0.6, 16);
+      const baseColor = this.synergy?.glowColor || '#facc15';
+      const tipColor = this.synergy?.tipColor || '#fde68a';
+      const edgeColor = this.synergy?.edgeColor || '#78350f';
+      const glowColor = this.trailColor || this.synergy?.glowColor || '#facc15';
+      const chargeRatio = clamp(this.chargeRatio || 0, 0, 1);
+      const sheen = Math.sin(this.glintPhase || 0) * 0.5 + 0.5;
+      if(Array.isArray(this.trail) && this.trail.length){
+        for(let i=this.trail.length-1;i>=0;i--){
+          const seg = this.trail[i];
+          const segAlpha = Math.min(1, seg?.alpha ?? 0) * this.alpha * 0.85;
+          if(segAlpha <= 0.01) continue;
+          const segBaseX = seg?.baseX ?? baseX;
+          const segBaseY = seg?.baseY ?? baseY;
+          const segTipX = seg?.tipX ?? tipX;
+          const segTipY = seg?.tipY ?? tipY;
+          const segLen = seg?.length ?? length;
+          const segWidth = seg?.width ?? width;
+          const segAngle = Math.atan2(segTipY - segBaseY, segTipX - segBaseX);
+          const segColor = seg?.color || glowColor;
+          ctx.save();
+          ctx.translate(segBaseX, segBaseY);
+          ctx.rotate(segAngle);
+          ctx.globalAlpha = segAlpha;
+          const trailGrad = ctx.createLinearGradient(-segLen * 0.05, 0, segLen, 0);
+          trailGrad.addColorStop(0, colorWithAlpha(segColor, 0));
+          trailGrad.addColorStop(0.45, colorWithAlpha(segColor, 0.28));
+          trailGrad.addColorStop(1, colorWithAlpha(segColor, 0));
+          ctx.fillStyle = trailGrad;
+          ctx.beginPath();
+          ctx.moveTo(-segLen * 0.1, -segWidth * 0.5);
+          ctx.lineTo(segLen * 0.95, -segWidth * 0.28);
+          ctx.lineTo(segLen * 1.05, 0);
+          ctx.lineTo(segLen * 0.95, segWidth * 0.28);
+          ctx.lineTo(-segLen * 0.1, segWidth * 0.5);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+      ctx.save();
+      ctx.translate(baseX, baseY);
+      ctx.rotate(angle);
+      ctx.globalAlpha *= this.alpha;
+      const gradient = ctx.createLinearGradient(0, 0, length, 0);
+      gradient.addColorStop(0, colorWithAlpha(baseColor, 0.85));
+      gradient.addColorStop(0.55, colorWithAlpha(tipColor, 0.95));
+      gradient.addColorStop(1, colorWithAlpha(tipColor, 0.82));
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.moveTo(-guardLength * 0.35, -bladeWidth * 0.5);
+      ctx.lineTo(length, -bladeWidth * 0.32);
+      ctx.lineTo(length + bladeWidth * 0.2, 0);
+      ctx.lineTo(length, bladeWidth * 0.32);
+      ctx.lineTo(-guardLength * 0.35, bladeWidth * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.lineWidth = Math.max(1.2, width * 0.12);
+      ctx.strokeStyle = colorWithAlpha(edgeColor, 0.92);
+      ctx.beginPath();
+      ctx.moveTo(0, -bladeWidth * 0.45);
+      ctx.lineTo(length, 0);
+      ctx.stroke();
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, this.alpha * (0.45 + sheen * 0.35));
+      const sheenGradient = ctx.createLinearGradient(length * 0.08, -bladeWidth * 0.5, length * 0.82, bladeWidth * 0.5);
+      sheenGradient.addColorStop(0, colorWithAlpha('#ffffff', 0.05));
+      sheenGradient.addColorStop(0.45, colorWithAlpha('#ffffff', 0.18 + sheen * 0.24));
+      sheenGradient.addColorStop(1, colorWithAlpha('#ffffff', 0.04));
+      ctx.fillStyle = sheenGradient;
+      ctx.beginPath();
+      ctx.moveTo(length * 0.12, -bladeWidth * 0.42);
+      ctx.lineTo(length * 0.78, -bladeWidth * 0.14);
+      ctx.lineTo(length * 0.78, bladeWidth * 0.14);
+      ctx.lineTo(length * 0.12, bladeWidth * 0.42);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      const guardGradient = ctx.createLinearGradient(-guardLength, 0, 0, 0);
+      guardGradient.addColorStop(0, colorWithAlpha(edgeColor, 0.9));
+      guardGradient.addColorStop(1, colorWithAlpha(baseColor, 0.6));
+      if(ctx.roundRect){
+        ctx.beginPath();
+        ctx.roundRect(-guardLength, -width * 0.5, guardLength, width, width * 0.25);
+        ctx.fillStyle = guardGradient;
+        ctx.fill();
+      } else {
+        ctx.fillStyle = guardGradient;
+        ctx.fillRect(-guardLength, -width * 0.5, guardLength, width);
+      }
+      ctx.strokeStyle = colorWithAlpha(edgeColor, 0.95);
+      ctx.lineWidth = Math.max(0.9, width * 0.08);
+      ctx.beginPath();
+      ctx.moveTo(-guardLength, -width * 0.5);
+      ctx.lineTo(-guardLength, width * 0.5);
+      ctx.stroke();
+      ctx.restore();
+      ctx.save();
+      const motionStrength = this.phase === 'out' ? 1 : (this.phase === 'return' ? 0.65 : 0.25);
+      if(motionStrength>0){
+        ctx.globalAlpha = 0.22 * motionStrength * this.alpha;
+        ctx.strokeStyle = colorWithAlpha(glowColor, 0.75);
+        ctx.lineWidth = Math.max(1, width * 0.18);
+        ctx.beginPath();
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(tipX - this.dirX * length * (0.45 + chargeRatio * 0.35), tipY - this.dirY * length * (0.45 + chargeRatio * 0.35));
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = 0.38 * this.alpha;
+      const glow = ctx.createRadialGradient(tipX, tipY, width * 0.25, tipX, tipY, width * (1.6 + chargeRatio * 0.6));
+      glow.addColorStop(0, colorWithAlpha(glowColor, 0.92));
+      glow.addColorStop(1, colorWithAlpha(glowColor, 0));
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, width * (1.6 + chargeRatio * 0.6), 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -13573,6 +14439,127 @@
       drawCurvedBeam(samples, geom, width, palette, {seed: beam.visualSeed});
     }
   }
+  function drawAttachedShortSword(playerRef){
+    if(!playerRef || typeof playerRef.ensureShortSwordState !== 'function') return;
+    const state = playerRef.ensureShortSwordState();
+    if(!state || state.projectile || state.attached === false) return;
+    const geometry = state.geometry || (typeof playerRef.getShortSwordGeometry === 'function' ? playerRef.getShortSwordGeometry(state) : null);
+    if(!geometry) return;
+    const baseX = geometry.baseX;
+    const baseY = geometry.baseY;
+    const tipX = geometry.tipX;
+    const tipY = geometry.tipY;
+    const angle = Math.atan2(geometry.dirY, geometry.dirX);
+    const width = geometry.width || state.width || (playerRef.r || 12) * 0.75;
+    const pulse = Math.max(0, state.contactPulse || 0);
+    const flash = Math.max(0, state.flash || 0);
+    const chargeRatio = clamp((state.chargeTime || 0) / Math.max(0.01, state.chargeMax || 4), 0, 1);
+    const baseColor = state.synergy?.glowColor || '#facc15';
+    const tipColor = state.synergy?.tipColor || '#fde68a';
+    const edgeColor = state.synergy?.edgeColor || '#78350f';
+    const changePulse = Math.max(0, state.changePulse || 0);
+    const sheen = Math.sin(state.glintPhase || 0) * 0.5 + 0.5;
+    const bladeWidth = width * (0.55 + pulse * 0.18 + chargeRatio * 0.12);
+    const guardLength = Math.max(width * 0.6, 14);
+    const length = geometry.length || state.length;
+    const glowColor = state.synergy?.trailColor || state.synergy?.glowColor || baseColor;
+    if(changePulse>0){
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.65, changePulse * 0.85);
+      ctx.strokeStyle = colorWithAlpha(edgeColor, 0.55);
+      ctx.lineWidth = Math.max(1.4, width * 0.22);
+      ctx.beginPath();
+      ctx.moveTo(playerRef.x, playerRef.y);
+      ctx.lineTo(baseX, baseY);
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.translate(baseX, baseY);
+    ctx.rotate(angle);
+    ctx.globalAlpha *= 1 - flash * 0.2;
+    const gradient = ctx.createLinearGradient(0, 0, length, 0);
+    gradient.addColorStop(0, colorWithAlpha(baseColor, 0.85 + flash * 0.25));
+    gradient.addColorStop(0.6, colorWithAlpha(tipColor, 0.95));
+    gradient.addColorStop(1, colorWithAlpha(tipColor, 0.82 + pulse * 0.1));
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(-guardLength * 0.35, -bladeWidth * 0.5);
+    ctx.lineTo(length, -bladeWidth * 0.32);
+    ctx.lineTo(length + bladeWidth * 0.2, 0);
+    ctx.lineTo(length, bladeWidth * 0.32);
+    ctx.lineTo(-guardLength * 0.35, bladeWidth * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.lineWidth = Math.max(1.1, width * 0.1);
+    ctx.strokeStyle = colorWithAlpha(edgeColor, 0.9);
+    ctx.beginPath();
+    ctx.moveTo(0, -bladeWidth * 0.42);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, (0.4 + chargeRatio * 0.35 + pulse * 0.25) * (1 - flash * 0.2));
+    const sheenGradient = ctx.createLinearGradient(length * 0.1, -bladeWidth * 0.48, length * 0.82, bladeWidth * 0.48);
+    sheenGradient.addColorStop(0, colorWithAlpha('#ffffff', 0.05));
+    sheenGradient.addColorStop(0.45, colorWithAlpha('#ffffff', 0.18 + sheen * 0.28));
+    sheenGradient.addColorStop(1, colorWithAlpha('#ffffff', 0.04));
+    ctx.fillStyle = sheenGradient;
+    ctx.beginPath();
+    ctx.moveTo(length * 0.14, -bladeWidth * 0.4);
+    ctx.lineTo(length * 0.76, -bladeWidth * 0.12);
+    ctx.lineTo(length * 0.76, bladeWidth * 0.12);
+    ctx.lineTo(length * 0.14, bladeWidth * 0.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    const guardGradient = ctx.createLinearGradient(-guardLength, 0, 0, 0);
+    guardGradient.addColorStop(0, colorWithAlpha(edgeColor, 0.92));
+    guardGradient.addColorStop(1, colorWithAlpha(baseColor, 0.68));
+    if(ctx.roundRect){
+      ctx.beginPath();
+      ctx.roundRect(-guardLength, -width * 0.45, guardLength, width * 0.9, width * 0.22);
+      ctx.fillStyle = guardGradient;
+      ctx.fill();
+    } else {
+      ctx.fillStyle = guardGradient;
+      ctx.fillRect(-guardLength, -width * 0.45, guardLength, width * 0.9);
+    }
+    ctx.strokeStyle = colorWithAlpha(edgeColor, 0.95);
+    ctx.lineWidth = Math.max(0.9, width * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(-guardLength, -width * 0.45);
+    ctx.lineTo(-guardLength, width * 0.45);
+    ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = 0.35 + flash * 0.22;
+    const glowRadius = width * (1.2 + chargeRatio * 0.45 + pulse * 0.25);
+    const glow = ctx.createRadialGradient(tipX, tipY, glowRadius * 0.2, tipX, tipY, glowRadius);
+    glow.addColorStop(0, colorWithAlpha(glowColor, 0.88));
+    glow.addColorStop(1, colorWithAlpha(glowColor, 0));
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(tipX, tipY, glowRadius, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+    if(pulse>0){
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.75, pulse * 0.6);
+      ctx.strokeStyle = colorWithAlpha(glowColor, 0.7);
+      ctx.lineWidth = Math.max(1.2, width * 0.16);
+      ctx.beginPath();
+      ctx.arc(baseX, baseY, width * (0.55 + pulse * 0.35), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+  function drawShortSwordProjectiles(){
+    if(!runtime.shortSwordProjectiles || !runtime.shortSwordProjectiles.length) return;
+    for(const proj of runtime.shortSwordProjectiles){
+      if(!proj || typeof proj.draw !== 'function') continue;
+      proj.draw(ctx);
+    }
+  }
   function drawLightsaberSwings(){
     if(!runtime.lightsaberSwings || !runtime.lightsaberSwings.length) return;
     for(const swing of runtime.lightsaberSwings){
@@ -14005,6 +14992,7 @@
     if(!Array.isArray(exchange.extraPortals)) exchange.extraPortals = [];
     runtime.bullets.length = 0;
     runtime.lightsaberSwings.length = 0;
+    runtime.shortSwordProjectiles.length = 0;
     runtime.enemyProjectiles.length = 0;
     runtime.pendingEnemySpawns.length = 0;
     player.handleRoomChange(exchange);
@@ -14056,6 +15044,7 @@
     if(player.lastVelocity){ player.lastVelocity.x = 0; player.lastVelocity.y = 0; }
     runtime.bullets.length = 0;
     runtime.lightsaberSwings.length = 0;
+    runtime.shortSwordProjectiles.length = 0;
     runtime.enemyProjectiles.length = 0;
     runtime.pendingEnemySpawns.length = 0;
     handleRoomEntry(targetRoom, 'center', {spawnEffects:false});
@@ -14203,6 +15192,7 @@
     pendingEnemySpawns: [],
     beams: [],
     lightsaberSwings: [],
+    shortSwordProjectiles: [],
     bossIntroTimer: 0,
     bossIntroText: '',
     itemPickupTimer: 0,
@@ -14492,6 +15482,7 @@
     lastTime = performance.now();
     runtime.bullets.length = 0;
     runtime.lightsaberSwings.length = 0;
+    runtime.shortSwordProjectiles.length = 0;
     runtime.enemyProjectiles.length = 0;
     runtime.pendingEnemySpawns.length = 0;
     runtime.beams = [];
@@ -14555,6 +15546,7 @@
     if(typeof player.interruptBrimstoneBeam === 'function'){ player.interruptBrimstoneBeam(); }
     runtime.bullets.length = 0;
     runtime.lightsaberSwings.length = 0;
+    runtime.shortSwordProjectiles.length = 0;
     runtime.enemyProjectiles.length = 0;
     runtime.pendingEnemySpawns.length = 0;
     runtime.beams = [];
@@ -14615,6 +15607,7 @@
     if(typeof player.interruptBrimstoneBeam === 'function'){ player.interruptBrimstoneBeam(); }
     runtime.bullets.length = 0;
     runtime.lightsaberSwings.length = 0;
+    runtime.shortSwordProjectiles.length = 0;
     runtime.enemyProjectiles.length = 0;
     runtime.pendingEnemySpawns.length = 0;
     runtime.beams = [];
@@ -14718,6 +15711,7 @@
 
     runtime.bullets.length = 0;
     runtime.lightsaberSwings.length = 0;
+    runtime.shortSwordProjectiles.length = 0;
     runtime.enemyProjectiles.length = 0;
     runtime.pendingEnemySpawns.length = 0;
     runtime.beams = [];
@@ -15022,6 +16016,7 @@
       }
     }
     updateBeams(dt);
+    updateShortSwordProjectiles(entryLocked ? 0 : dt, enemies);
     updateLightsaberSwings(entryLocked ? 0 : dt, enemies);
 
     // 敌方弹幕
@@ -15256,6 +16251,7 @@
 
     drawFollowers();
     drawPlayer();
+    drawShortSwordProjectiles();
     drawLightsaberSwings();
     ctx.restore();
 
@@ -16338,6 +17334,11 @@
         stroke = '#7f1d1d';
         highlight = '#fee2e2';
         break;
+      case 'shortsword':
+        fill = pressed ? '#facc15' : mixHexColor('#facc15', '#fde68a', 0.55);
+        stroke = '#78350f';
+        highlight = '#fef08a';
+        break;
       case 'lightsaber':
         fill = pressed ? '#60a5fa' : mixHexColor('#60a5fa', '#bfdbfe', 0.5);
         stroke = '#1d4ed8';
@@ -16441,6 +17442,11 @@
         baseColor = mixHexColor('#e1e7ff', '#fca5a5', ratio);
         edgeColor = mixHexColor('#a78bfa', '#ef4444', ratio);
       }
+    } else if(player.attackMode === 'shortsword'){
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      const wave = (Math.sin(now / 140) + 1) / 2;
+      baseColor = mixHexColor(baseColor, '#facc15', 0.25 + wave * 0.25);
+      edgeColor = mixHexColor(edgeColor, '#b45309', 0.2 + wave * 0.2);
     } else if(player.attackMode === 'lightsaber'){
       const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       const wave = (Math.sin(now / 160) + 1) / 2;
@@ -16481,6 +17487,9 @@
       }
     }
     drawBlob(player.x, player.y, player.r, baseColor, edgeColor);
+    if(player.attackMode === 'shortsword'){
+      drawAttachedShortSword(player);
+    }
     if(dashInvulnActive){
       const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       const wave = (Math.sin(now / 140) + 1) / 2;
