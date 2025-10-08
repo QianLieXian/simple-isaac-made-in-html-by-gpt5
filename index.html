@@ -992,6 +992,14 @@
     const inv = 1 - p;
     return 1 - inv * inv * inv;
   }
+  function easeInOutQuad(t){
+    const p = clamp(t, 0, 1);
+    if(p < 0.5){
+      return 2 * p * p;
+    }
+    const inv = -2 * p + 2;
+    return 1 - (inv * inv) / 2;
+  }
   const WEIGHT_PRESETS = {
     item: 10,
     shop: 10,
@@ -4409,6 +4417,36 @@
     }
   }
 
+  function applyBreakableObstacleHit(room, obs, options={}){
+    if(!room || !obs || obs.destroyed || obs.breakable === false) return null;
+    const cause = options.cause || 'melee';
+    const hitAmount = Math.max(1, Math.floor(options.hitAmount || 1));
+    const result = {applied:false, destroyed:false, needsCooldown:false};
+    if(obs.type === 'choco-tower' || obs.type === 'flame'){
+      const maxHits = Math.max(1, obs.maxHits || 1);
+      if(!Number.isFinite(obs.hitsRemaining)) obs.hitsRemaining = maxHits;
+      const before = obs.hitsRemaining;
+      const next = Math.max(0, obs.hitsRemaining - hitAmount);
+      if(next === before) return result;
+      obs.hitsRemaining = next;
+      obs.hitFlash = Math.max(obs.hitFlash || 0, 0.4);
+      updateObstacleIntegrity(obs);
+      result.applied = true;
+      result.needsCooldown = true;
+      if(obs.hitsRemaining <= 0){
+        obs.destroyed = true;
+        onObstacleDestroyed(room, obs, {cause});
+        result.destroyed = true;
+      }
+      return result;
+    }
+    obs.destroyed = true;
+    onObstacleDestroyed(room, obs, {cause});
+    result.applied = true;
+    result.destroyed = true;
+    return result;
+  }
+
   class Dungeon{
     constructor(){
       this.gridN = CONFIG.grid;
@@ -5707,17 +5745,9 @@
   function handleBulletObstacleHit(bullet, obs){
     if(!bullet || !obs) return false;
     const room = dungeon?.current;
-    if(obs.type === 'choco-tower' || obs.type === 'flame'){
-      const maxHits = Math.max(1, obs.maxHits || 1);
-      if(!Number.isFinite(obs.hitsRemaining)){ obs.hitsRemaining = maxHits; }
-      obs.hitsRemaining = Math.max(0, (obs.hitsRemaining ?? maxHits) - 1);
-      obs.hitFlash = Math.max(obs.hitFlash || 0, 0.4);
-      updateObstacleIntegrity(obs);
+    const outcome = applyBreakableObstacleHit(room, obs, {cause:'projectile', hitAmount:1});
+    if(outcome?.applied){
       bullet.destroy({glowStrength:0.35});
-      if(obs.hitsRemaining<=0){
-        obs.destroyed = true;
-        onObstacleDestroyed(room, obs, {cause:'projectile'});
-      }
       return true;
     }
     return false;
@@ -6817,9 +6847,13 @@
           transitionSlideDir: 0,
           glintPhase: 0,
           pendingRelease: null,
+          obstacleCooldowns: new Map(),
         };
       }
       const state = this.shortSword;
+      if(!(state.obstacleCooldowns instanceof Map)){
+        state.obstacleCooldowns = new Map();
+      }
       const bodyRadius = this.r || CONFIG.player.radius || 12;
       const diameter = bodyRadius * 2;
       state.bodyRadius = bodyRadius;
@@ -6908,6 +6942,16 @@
     handleShortSwordAttack(dt, shotState){
       const state = this.ensureShortSwordState();
       if(!state) return;
+      if(state.obstacleCooldowns instanceof Map && state.obstacleCooldowns.size){
+        for(const [obs, timer] of Array.from(state.obstacleCooldowns.entries())){
+          const next = timer - dt;
+          if(next <= 0 || (obs && obs.destroyed)){
+            state.obstacleCooldowns.delete(obs);
+          } else {
+            state.obstacleCooldowns.set(obs, next);
+          }
+        }
+      }
       const prevCharge = state.chargeTime || 0;
       const pressed = !!(shotState && shotState.pressed);
       const justReleased = !!(shotState && shotState.justReleased);
@@ -7084,12 +7128,22 @@
       }
       if(Array.isArray(room.obstacles)){
         const padding = Math.max(halfWidth, state.width * 0.3);
+        const obstaclePower = Math.max(1, Math.floor((this.damage || this.baseDamage || 1) * damageMultiplier * contactMultiplier * 0.25));
         for(const obs of room.obstacles){
           if(!obs || obs.destroyed || obs.breakable === false) continue;
+          const requiresTicks = obs.type === 'choco-tower' || obs.type === 'flame';
+          const cooldown = state.obstacleCooldowns?.get?.(obs) || 0;
+          if(requiresTicks && cooldown>0) continue;
           if(!segmentRectOverlap(baseX, baseY, tipX, tipY, obs, padding)) continue;
-          obs.destroyed = true;
-          onObstacleDestroyed(room, obs, {cause:'shortsword'});
-          state.contactPulse = Math.max(state.contactPulse || 0, 0.65);
+          const outcome = applyBreakableObstacleHit(room, obs, {cause:'shortsword', hitAmount: obstaclePower});
+          if(outcome?.applied){
+            state.contactPulse = Math.max(state.contactPulse || 0, 0.65);
+            const cd = outcome.needsCooldown ? 0.12 : 0.05;
+            state.obstacleCooldowns?.set?.(obs, cd);
+            if(outcome.destroyed){
+              state.obstacleCooldowns?.delete?.(obs);
+            }
+          }
         }
       }
     }
@@ -7115,12 +7169,16 @@
       const damageMultiplier = Math.max(0.4, Number(synergy.damageMultiplier) || 1);
       const returnSpeedMultiplier = Math.max(0.4, Number(synergy.returnSpeedMultiplier) || 1);
       const throwDamageMultiplier = Math.max(0.4, Number(synergy.throwDamageMultiplier) || 1);
-      const minRange = diameter * (1.45 + speedRatio * 0.25);
-      const maxRange = diameter * (2.6 + speedRatio * 0.7);
-      const maxRangeLimit = diameter * 7;
-      const easedCharge = Math.pow(chargeRatio, 0.7);
-      let throwRange = lerp(minRange, maxRange, easedCharge);
-      throwRange = clamp(throwRange * rangeMultiplier, diameter * 1.4, maxRangeLimit);
+      const baseLength = Math.max(diameter * 1.2, state.baseLength || diameter * 2);
+      const speedExcess = Math.max(0, speedRatio - 1);
+      const chargeCurve = easeInOutQuad(chargeRatio);
+      const minRange = baseLength * (1.05 + speedRatio * 0.12);
+      const maxRange = baseLength * (1.45 + speedRatio * 0.35 + speedExcess * 0.4);
+      const softCap = baseLength * (2.4 + Math.min(1.1, speedExcess * 0.85));
+      const capMultiplier = Math.max(1, Math.min(1.75, rangeMultiplier * 1.05));
+      const absoluteCap = Math.max(minRange, Math.min(softCap * capMultiplier, CONFIG.roomW * 0.55));
+      let throwRange = lerp(minRange, maxRange, chargeCurve);
+      throwRange = clamp(throwRange * rangeMultiplier, minRange, absoluteCap);
       const launchSpeed = Math.max(150, tearSpeed * (0.75 + chargeRatio * 0.85) * speedMultiplier);
       const baseDamage = Math.max(0.05, this.damage || this.baseDamage || 1);
       const distanceBonus = 1.8 + chargeRatio * 3.4;
@@ -7169,7 +7227,7 @@
           damage: projectileDamage,
           baseDamage,
           synergy,
-          rangeLimit: maxRangeLimit,
+          rangeLimit: absoluteCap,
           returnSpeedMultiplier,
           trailColor: synergy.trailColor,
         });
@@ -10751,6 +10809,7 @@
       this.verticalOffset = Number.isFinite(options.verticalOffset) ? options.verticalOffset : 0;
       this.damage = Math.max(0.05, Number(options.damage) || 7.5);
       this.hitEnemies = new WeakSet();
+      this.hitObstacles = new WeakSet();
       this.sparkCooldown = 0;
       this.alive = true;
     }
@@ -10845,11 +10904,15 @@
         const baseY = base.y;
         const tipX = base.x + Math.cos(currentAngle) * this.length;
         const tipY = base.y + Math.sin(currentAngle) * this.length;
+        const obstaclePower = Math.max(1, Math.floor(this.damage * 0.2));
         for(const obs of room.obstacles){
           if(!obs || obs.destroyed || obs.breakable === false) continue;
+          if(this.hitObstacles && this.hitObstacles.has(obs)) continue;
           if(!segmentRectOverlap(baseX, baseY, tipX, tipY, obs, padding)) continue;
-          obs.destroyed = true;
-          onObstacleDestroyed(room, obs, {cause:'lightsaber'});
+          const outcome = applyBreakableObstacleHit(room, obs, {cause:'lightsaber', hitAmount: obstaclePower});
+          if(outcome?.applied){
+            this.hitObstacles?.add?.(obs);
+          }
         }
       }
     }
@@ -10953,6 +11016,7 @@
       this.trail = [];
       this.trailTimer = 0;
       this.glintPhase = 0;
+      this.obstacleCooldowns = new Map();
     }
     forceReturn(){
       if(!this.alive) return;
@@ -10964,6 +11028,16 @@
       if(!this.alive) return;
       this.prevX = this.x;
       this.prevY = this.y;
+      if(this.obstacleCooldowns instanceof Map && this.obstacleCooldowns.size){
+        for(const [obs, timer] of Array.from(this.obstacleCooldowns.entries())){
+          const next = timer - dt;
+          if(next <= 0 || (obs && obs.destroyed)){
+            this.obstacleCooldowns.delete(obs);
+          } else {
+            this.obstacleCooldowns.set(obs, next);
+          }
+        }
+      }
       if(dt<=0){
         this.tailX = this.x - this.dirX * this.length;
         this.tailY = this.y - this.dirY * this.length;
@@ -11127,11 +11201,21 @@
       }
       if(room && Array.isArray(room.obstacles)){
         const padding = Math.max(halfWidth, this.width * 0.25);
+        const obstaclePower = Math.max(1, Math.floor(this.baseDamage * 0.45));
         for(const obs of room.obstacles){
           if(!obs || obs.destroyed || obs.breakable === false) continue;
+          const requiresTicks = obs.type === 'choco-tower' || obs.type === 'flame';
+          const cooldown = this.obstacleCooldowns?.get?.(obs) || 0;
+          if(requiresTicks && cooldown>0) continue;
           if(!segmentRectOverlap(baseX, baseY, tipX, tipY, obs, padding)) continue;
-          obs.destroyed = true;
-          onObstacleDestroyed(room, obs, {cause:'shortsword-projectile'});
+          const outcome = applyBreakableObstacleHit(room, obs, {cause:'shortsword-projectile', hitAmount: obstaclePower});
+          if(outcome?.applied){
+            const cd = outcome.needsCooldown ? 0.15 : 0.05;
+            this.obstacleCooldowns?.set?.(obs, cd);
+            if(outcome.destroyed){
+              this.obstacleCooldowns?.delete?.(obs);
+            }
+          }
         }
       }
     }
