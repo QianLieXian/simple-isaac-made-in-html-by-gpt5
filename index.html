@@ -60,12 +60,21 @@
     .codex-title{font-size:15px;font-weight:600;letter-spacing:.3px}
     .codex-progress{font-size:12px;color:var(--muted);letter-spacing:.3px}
     .codex-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
-    .codex-entry{display:grid;grid-template-columns:48px 1fr;gap:12px;padding:12px 14px;border:1px solid #222a38;border-radius:12px;background:rgba(17,21,29,.7);box-shadow:inset 0 0 0 1px rgba(65,76,104,.18)}
+    .codex-entry{position:relative;display:grid;grid-template-columns:48px 1fr;gap:12px;padding:12px 14px;border:1px solid #222a38;border-radius:12px;background:rgba(17,21,29,.7);box-shadow:inset 0 0 0 1px rgba(65,76,104,.18);transition:all .2s ease;cursor:pointer;text-align:left}
+    .codex-entry:hover{border-color:#2f3a52;box-shadow:inset 0 0 0 1px rgba(99,109,142,.3);background:rgba(19,23,33,.78)}
+    .codex-entry:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+    .codex-entry.selected{border-color:var(--accent);box-shadow:0 0 0 1px rgba(110,231,255,.35),0 12px 24px rgba(14,165,233,.16)}
+    .codex-entry.locked{opacity:0.55;border-style:dashed;box-shadow:none;background:rgba(14,17,24,.6)}
+    .codex-entry.locked:hover{border-color:#273042;box-shadow:none;background:rgba(14,17,24,.62)}
     .codex-icon{width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 35% 30%,rgba(110,231,255,.18),rgba(167,139,250,.12) 55%,transparent 100%);border-radius:12px}
     .codex-icon canvas{width:42px;height:42px}
+    .codex-entry.locked .codex-icon{background:radial-gradient(circle at 35% 30%,rgba(148,163,184,.18),rgba(100,116,139,.1) 55%,transparent 100%)}
+    .codex-entry.locked .codex-icon canvas{filter:grayscale(1) brightness(0.8);opacity:0.7}
     .codex-info{display:flex;flex-direction:column}
     .codex-name{font-size:13px;font-weight:600;color:var(--ink);letter-spacing:.2px}
+    .codex-entry.locked .codex-name{color:#94a3b8}
     .codex-desc{margin-top:4px;font-size:12px;color:var(--muted);line-height:1.5}
+    .codex-entry.locked .codex-desc{color:#6b7280}
     .codex-remark{margin-top:4px;font-size:11px;color:var(--accent2);letter-spacing:.3px}
     .codex-empty{grid-column:1/-1;text-align:center;padding:28px 18px;border:1px dashed #293347;border-radius:12px;color:var(--muted);font-size:13px;background:rgba(12,15,22,.65)}
     .cheat-feedback{margin-top:6px;font-size:12px;color:var(--muted);min-height:18px}
@@ -1293,9 +1302,15 @@
           maxCharge:5,
           startCharge:0,
           use(p){
-            const keyGain = grantResource('key',1);
-            const bombGain = grantResource('bomb',1);
-            const coinGain = grantResource('coin',3);
+            const synergy = p?.synergyState || null;
+            const keyBonus = synergy ? Math.max(0, Math.floor(synergy.pouchKeyBonus || 0)) : 0;
+            const bombBonus = synergy ? Math.max(0, Math.floor(synergy.pouchBombBonus || 0)) : 0;
+            const coinExtra = synergy ? Math.max(0, Math.floor(synergy.pouchCoinBonus || 0)) : 0;
+            const coinMultiplier = synergy ? Math.max(0.1, synergy.pouchCoinMultiplier || 1) : 1;
+            const keyGain = grantResource('key', Math.max(0, 1 + keyBonus));
+            const bombGain = grantResource('bomb', Math.max(0, 1 + bombBonus));
+            const coinBase = Math.max(0, 3 + coinExtra);
+            const coinGain = grantResource('coin', Math.max(0, Math.round(coinBase * coinMultiplier)) || 0);
             const detail = `钥匙 +${keyGain}，炸弹 +${bombGain}，金币 +${coinGain}`;
             return {message:'户外腰包翻找完毕', detail};
           }
@@ -1319,12 +1334,17 @@
             if(runtime.timeStopTimer>0){
               return {consume:0, message:'时间仍在冻结', detail:'等待时间流动回归。'};
             }
-            const duration = 4;
+            let duration = 4;
+            const synergy = player?.synergyState || null;
+            if(synergy && Number.isFinite(synergy.timeStopExtend)){
+              duration += Math.max(0, synergy.timeStopExtend);
+            }
+            const display = duration % 1 ? duration.toFixed(1) : String(Math.round(duration));
             runtime.timeStopTimer = duration;
             runtime.timeStopDuration = duration;
             runtime.timeStopSource = 'pocket-watch';
             runtime.timeStopFlash = Math.max(runtime.timeStopFlash || 0, 1);
-            return {message:'怀表·止时', detail:'未来 4 秒内只有你能行动。'};
+            return {message:'怀表·止时', detail:`未来 ${display} 秒内只有你能行动。`};
           }
         };
         player.setActiveItem(active);
@@ -1351,21 +1371,38 @@
               return {consume:0, message:'肾上腺素无法启动', detail:'至少需要 1 点生命。'};
             }
             const roomKey = `${room.i},${room.j}`;
+            const synergy = p?.synergyState || null;
+            let damageBonus = 2;
+            let fireRateBonus = 2;
+            let rangeMultiplier = 5;
+            let speedMultiplier = 2;
+            if(synergy){
+              damageBonus += Number.isFinite(synergy.adrenalineDamageBonus) ? synergy.adrenalineDamageBonus : 0;
+              fireRateBonus += Number.isFinite(synergy.adrenalineFireBonus) ? synergy.adrenalineFireBonus : 0;
+              rangeMultiplier *= Math.max(0.1, Number.isFinite(synergy.adrenalineRangeMultiplier) ? synergy.adrenalineRangeMultiplier : 1);
+              speedMultiplier *= Math.max(0.1, Number.isFinite(synergy.adrenalineSpeedMultiplier) ? synergy.adrenalineSpeedMultiplier : 1);
+            }
             p.applyRoomBuff({
               type:'adrenaline',
               roomKey,
-              damageBonus:2,
-              fireRateBonus:2,
-              rangeMultiplier:5,
-              speedMultiplier:2,
+              damageBonus,
+              fireRateBonus,
+              rangeMultiplier,
+              speedMultiplier,
             });
-            p.hp = Math.max(0, p.hp - 1);
+            let hpCost = 1;
+            if(synergy){
+              const reduction = Math.max(0, Math.floor(Number(synergy.adrenalineDurationBonus) || 0));
+              hpCost = Math.max(0, hpCost - reduction);
+            }
+            p.hp = Math.max(0, p.hp - hpCost);
             if(p.hp<=0){ gameOver(); }
             else {
               p.recalculateDamage();
               p.updateHolyHeartBlessing?.();
             }
-            return {message:'肾上腺素·爆发', detail:'当前房间属性飙升，生命 -1。'};
+            const detail = `当前房间属性飙升，伤害 +${damageBonus.toFixed(1)}，射速 +${fireRateBonus.toFixed(1)}，射程 x${rangeMultiplier.toFixed(2)}，移速 x${speedMultiplier.toFixed(2)}，生命 -${hpCost}.`;
+            return {message:'肾上腺素·爆发', detail};
           }
         };
         player.setActiveItem(active);
@@ -2034,6 +2071,7 @@
     return {byKey, byId, total: nextId-1};
   })();
   const ITEM_TOTAL_COUNT = ITEM_ID_REGISTRY.total;
+  const CODEX_ALL_ITEMS = Array.from(ITEM_ID_REGISTRY.byId.values()).sort((a,b)=>a.id-b.id);
   function getItemByNumericId(id){
     const numeric = Number(id);
     if(!Number.isFinite(numeric)) return null;
@@ -2082,6 +2120,986 @@
       handler(target, count, item);
     }
   }
+
+  function synergyAdd(state, key, amount){
+    if(!state || !key || !Number.isFinite(amount)) return;
+    const current = Number(state[key]);
+    state[key] = (Number.isFinite(current) ? current : 0) + amount;
+  }
+  function synergyMul(state, key, factor){
+    if(!state || !key || !Number.isFinite(factor)) return;
+    const current = Number(state[key]);
+    const base = Number.isFinite(current)
+      ? current
+      : (key.endsWith('Multiplier') || key.endsWith('Factor') ? 1 : 0);
+    state[key] = base * factor;
+  }
+  function synergyMax(state, key, value){
+    if(!state || !key || !Number.isFinite(value)) return;
+    const current = Number(state[key]);
+    state[key] = Number.isFinite(current) ? Math.max(current, value) : value;
+  }
+  function synergyFlag(state, key, enabled=true){
+    if(!state || !key || !enabled) return;
+    state[key] = true;
+  }
+
+  const ITEM_SYNERGY_BLUEPRINTS = {
+    'onion': {
+      perStack(state, ctx){
+        synergyMul(state,'fireIntervalMultiplier',0.94);
+        synergyMul(state,'tearSpeedMultiplier',1.02);
+        if(ctx.has('soy-milk')){
+          synergyMul(state,'fireIntervalMultiplier',0.98);
+        }
+      }
+    },
+    'tar': {
+      perStack(state){
+        synergyAdd(state,'damageAdd',0.45);
+        synergyMul(state,'tearSpeedMultiplier',0.98);
+        synergyMul(state,'tearLifeMultiplier',1.05);
+      }
+    },
+    'sneaker': {
+      perStack(state){
+        synergyAdd(state,'speedAdd',18);
+        synergyMul(state,'speedMultiplier',1.02);
+      }
+    },
+    'winged-socks': {
+      perStack(state){
+        synergyAdd(state,'speedAdd',22);
+        synergyMul(state,'fireIntervalMultiplier',0.97);
+      },
+      onCount(state, ctx){
+        const bonus = Math.min(0.18, 0.04 * ctx.count);
+        synergyMax(state,'maxSpeedScaleBonus',bonus);
+        synergyFlag(state,'grantsFlight',true);
+      }
+    },
+    'wind-sprint-medal': {
+      perStack(state){
+        synergyAdd(state,'speedAdd',20);
+        synergyMul(state,'speedMultiplier',1.03);
+        synergyMul(state,'ifrMultiplier',1.02);
+      }
+    },
+    'lightstep-tonic': {
+      perStack(state){
+        synergyAdd(state,'speedAdd',15);
+        synergyMul(state,'tearSpeedMultiplier',1.05);
+        synergyMul(state,'tearLifeMultiplier',1.08);
+      }
+    },
+    'pepper-steak': {
+      perStack(state, ctx){
+        synergyAdd(state,'damageAdd',0.75);
+        synergyMul(state,'damageMultiplier',1.1);
+        synergyMul(state,'fireIntervalMultiplier',0.92);
+        synergyMul(state,'tearLifeMultiplier',1.18);
+        synergyAdd(state,'speedAdd',8);
+        if(ctx.has('adrenaline')){
+          synergyAdd(state,'adrenalineDamageBonus',0.5);
+          synergyMul(state,'adrenalineSpeedMultiplier',1.08);
+        }
+      }
+    },
+    'rope': {
+      perStack(state){
+        synergyFlag(state,'grantsFlight',true);
+        synergyMul(state,'speedMultiplier',1.02);
+        synergyMul(state,'tearSpeedMultiplier',1.02);
+        synergyAdd(state,'dashDistanceBonus',6);
+      }
+    },
+    'spirit-date': {
+      perStack(state){
+        synergyMul(state,'tearLifeMultiplier',1.45);
+        synergyFlag(state,'grantsPierce',true);
+      }
+    },
+    'compressed-peach': {
+      perStack(state, ctx){
+        synergyMul(state,'tearLifeMultiplier',1.06);
+        synergyMul(state,'tearSpeedMultiplier',0.96);
+        if(ctx.has('magic-bullet')){
+          synergyMax(state,'homingStrengthBonus',4);
+        }
+      }
+    },
+    'lightsaber': {
+      perStack(state){
+        synergyMul(state,'lightsaberDamageMultiplier',1.22);
+        synergyAdd(state,'lightsaberDamageAdd',0.25);
+        synergyMul(state,'lightsaberRangeMultiplier',1.08);
+        synergyMul(state,'lightsaberSpeedMultiplier',1.05);
+      }
+    },
+    'short-sword': {
+      perStack(state, ctx){
+        synergyMul(state,'shortSwordDamageMultiplier',1.16);
+        synergyMul(state,'shortSwordReturnSpeedMultiplier',1.1);
+        synergyMul(state,'shortSwordChargeMultiplier',1.12);
+        synergyMul(state,'shortSwordThrowMultiplier',1.08);
+        if(ctx.has('impact-chocolate')){
+          synergyAdd(state,'dashDistanceBonus',4);
+        }
+      }
+    },
+    'betrayal-hound': {
+      perStack(state){
+        synergyMul(state,'damageMultiplier',1.55);
+        synergyAdd(state,'damageAdd',0.6);
+        synergyMul(state,'fireIntervalMultiplier',1.06);
+      }
+    },
+    'despair-shout': {
+      perStack(state){
+        synergyMul(state,'tearLifeMultiplier',2.2);
+      }
+    },
+    'bad-thing': {
+      perStack(state){
+        synergyMul(state,'tearSpeedMultiplier',1.05);
+        synergyAdd(state,'speedAdd',4);
+      }
+    },
+    'good-thing': {
+      perStack(state, ctx){
+        synergyMul(state,'fireIntervalMultiplier',0.9);
+        synergyMul(state,'tearSpeedMultiplier',0.85);
+        synergyMul(state,'tearLifeMultiplier',1.2);
+        if(ctx.has('bad-thing')){
+          synergyMul(state,'tearSpeedMultiplier',0.92);
+        }
+      }
+    },
+    'double-gaze': {
+      perStack(state){
+        synergyMul(state,'fireIntervalMultiplier',1.04);
+        synergyMul(state,'tearLifeMultiplier',1.05);
+      }
+    },
+    'triple-gaze': {
+      perStack(state){
+        synergyMul(state,'fireIntervalMultiplier',1.14);
+        synergyMul(state,'tearLifeMultiplier',1.1);
+      }
+    },
+    'quad-gaze': {
+      perStack(state){
+        synergyMul(state,'fireIntervalMultiplier',1.2);
+        synergyMul(state,'damageMultiplier',0.95);
+      }
+    },
+    'impact-chocolate': {
+      perStack(state){
+        synergyMul(state,'dashCooldownMultiplier',0.88);
+        synergyMul(state,'dashDamageMultiplier',1.28);
+        synergyAdd(state,'dashDistanceBonus',12);
+      }
+    },
+    'hot-chocolate': {
+      perStack(state, ctx){
+        synergyMul(state,'damageMultiplier',1.08);
+        synergyMul(state,'fireIntervalMultiplier',1.05);
+        synergyMul(state,'tearLifeMultiplier',1.15);
+        synergyAdd(state,'adrenalineDamageBonus',0.4);
+        if(ctx.has('soy-milk')){
+          synergyMul(state,'fireIntervalMultiplier',0.96);
+        }
+      }
+    },
+    'soy-milk': {
+      perStack(state){
+        synergyMul(state,'fireIntervalMultiplier',0.28);
+        synergyMul(state,'damageMultiplier',0.32);
+        synergyMul(state,'tearLifeMultiplier',1.8);
+        synergyMul(state,'speedMultiplier',1.12);
+      }
+    },
+    'seer-map': {
+      perStack(state){
+        synergyMul(state,'shopPriceMultiplier',0.97);
+        synergyAdd(state,'cardDropBonus',0.05);
+      }
+    },
+    'outdoor-pouch': {
+      perStack(state){
+        synergyAdd(state,'pouchKeyBonus',0.6);
+        synergyAdd(state,'pouchBombBonus',0.6);
+        synergyAdd(state,'pouchCoinBonus',1.2);
+        synergyMul(state,'pouchCoinMultiplier',1.05);
+      }
+    },
+    'pocket-watch': {
+      perStack(state, ctx){
+        synergyAdd(state,'timeStopExtend',0.5);
+        if(ctx.has('seer-map')){
+          synergyAdd(state,'timeStopExtend',0.25);
+        }
+      }
+    },
+    'adrenaline': {
+      perStack(state){
+        synergyAdd(state,'adrenalineDamageBonus',0.3);
+        synergyAdd(state,'adrenalineFireBonus',0.3);
+        synergyMul(state,'adrenalineRangeMultiplier',1.25);
+        synergyMul(state,'adrenalineSpeedMultiplier',1.15);
+      }
+    },
+    'bomb-cousin': {
+      perStack(state){
+        synergyMul(state,'bombDamageMultiplier',1.18);
+        synergyMul(state,'bombRadiusMultiplier',1.12);
+        synergyAdd(state,'pouchBombBonus',0.4);
+      }
+    },
+    'bomb-uncle': {
+      perStack(state){
+        synergyMul(state,'bombDamageMultiplier',1.32);
+        synergyMul(state,'bombRadiusMultiplier',1.3);
+      }
+    },
+    'bomb-grandpa': {
+      perStack(state){
+        synergyMul(state,'bombDamageMultiplier',1.05);
+        synergyMul(state,'bombRadiusMultiplier',1.05);
+        synergyMul(state,'ifrMultiplier',1.05);
+      }
+    },
+    'bomb-elder': {
+      perStack(state){
+        synergyMul(state,'bombDamageMultiplier',1.24);
+        synergyMul(state,'bombRadiusMultiplier',1.12);
+        synergyAdd(state,'dashDamageMultiplier',0.05);
+      }
+    },
+    'bomb-progenitor': {
+      perStack(state){
+        synergyMul(state,'bombDamageMultiplier',1.35);
+        synergyMul(state,'bombRadiusMultiplier',1.22);
+        synergyMul(state,'dashDamageMultiplier',1.08);
+      }
+    },
+    'magic-bullet': {
+      perStack(state){
+        synergyMul(state,'tearLifeMultiplier',1.6);
+        synergyFlag(state,'grantsHoming',true);
+        synergyMax(state,'homingStrengthBonus',6);
+      }
+    },
+    'younger-cousin': {
+      perStack(state){
+        synergyAdd(state,'followerDamageAdd',1.2);
+        synergyMul(state,'followerFireRateMultiplier',1.08);
+        synergyMul(state,'followerRangeMultiplier',1.12);
+      }
+    },
+    'aunt-brimstone': {
+      perStack(state){
+        synergyMul(state,'followerDamageMultiplier',1.08);
+        synergyMul(state,'followerRangeMultiplier',1.1);
+        synergyAdd(state,'followerHomingStrengthBonus',1.5);
+      }
+    },
+    'black-buddy': {
+      perStack(state){
+        synergyAdd(state,'pouchCoinBonus',0.6);
+        synergyMul(state,'pouchCoinMultiplier',1.04);
+      }
+    },
+    'brother': {
+      perStack(state){
+        synergyMul(state,'followerDamageMultiplier',1.06);
+        synergyMul(state,'followerFireRateMultiplier',1.05);
+      }
+    },
+    'sister': {
+      perStack(state){
+        synergyMul(state,'followerDamageMultiplier',1.08);
+        synergyMul(state,'followerRangeMultiplier',1.05);
+      }
+    },
+    'cousin': {
+      perStack(state){
+        synergyAdd(state,'followerDamageAdd',1.5);
+        synergyAdd(state,'followerHomingStrengthBonus',1.2);
+      }
+    },
+    'dog-food': {
+      perStack(state){
+        synergyAdd(state,'adrenalineDurationBonus',0.25);
+      }
+    },
+    'vital-broth': {
+      perStack(state){
+        synergyAdd(state,'speedAdd',6);
+        synergyAdd(state,'adrenalineDurationBonus',0.35);
+      }
+    },
+    'guardian-core': {
+      perStack(state){
+        synergyAdd(state,'speedAdd',10);
+        synergyMul(state,'ifrMultiplier',1.15);
+      }
+    },
+    'ember-heart': {
+      perStack(state){
+        synergyMul(state,'damageMultiplier',1.06);
+        synergyAdd(state,'damageAdd',0.4);
+        synergyMul(state,'tearSpeedMultiplier',0.96);
+      }
+    },
+    'ending-note': {
+      perStack(state){
+        synergyMul(state,'fireIntervalMultiplier',0.93);
+        synergyMul(state,'tearLifeMultiplier',1.1);
+      }
+    },
+    'kettle': {
+      perStack(state){
+        synergyAdd(state,'damageAdd',0.8);
+      }
+    },
+    'abaddon': {
+      perStack(state){
+        synergyMul(state,'damageMultiplier',1.8);
+        synergyMul(state,'tearLifeMultiplier',2.6);
+        synergyAdd(state,'cardDropBonus',0.1);
+      }
+    },
+    'escape-tool': {
+      perStack(state){
+        synergyMul(state,'speedMultiplier',1.4);
+        synergyMul(state,'tearSpeedMultiplier',1.4);
+        synergyMul(state,'ifrMultiplier',1.8);
+        synergyAdd(state,'dashDistanceBonus',24);
+      }
+    },
+    'blood-power': {
+      perStack(state){
+        synergyMul(state,'damageMultiplier',1.07);
+        synergyAdd(state,'damageAdd',0.2);
+      }
+    },
+    'money-power': {
+      perStack(state){
+        synergyMul(state,'damageMultiplier',1.07);
+      }
+    },
+    'despair-power': {
+      perStack(state){
+        synergyMul(state,'damageMultiplier',1.06);
+        synergyAdd(state,'damageAdd',0.15);
+      }
+    },
+    'brimstone': {
+      perStack(state){
+        synergyMul(state,'brimstoneDamageMultiplier',1.25);
+        synergyMul(state,'brimstoneChargeMultiplier',0.82);
+        synergyFlag(state,'grantsPierce',true);
+      }
+    },
+    'holy-heart': {
+      perStack(state){
+        synergyMul(state,'damageMultiplier',1.5);
+        synergyAdd(state,'damageAdd',1.2);
+        synergyMul(state,'speedMultiplier',1.12);
+        synergyMul(state,'tearLifeMultiplier',1.8);
+        synergyFlag(state,'grantsFlight',true);
+        synergyFlag(state,'grantsPierce',true);
+        synergyFlag(state,'grantsHoming',true);
+        synergyMax(state,'homingStrengthBonus',8);
+        synergyMul(state,'ifrMultiplier',1.35);
+      }
+    },
+  };
+
+  function applyItemSynergyBlueprints(state, context){
+    if(!state || !context || !context.counts) return;
+    for(const [slug, count] of context.counts.entries()){
+      const blueprint = ITEM_SYNERGY_BLUEPRINTS[slug];
+      if(!blueprint || !Number.isFinite(count) || count<=0) continue;
+      const info = {...context, slug, count};
+      if(typeof blueprint.onCount === 'function'){
+        blueprint.onCount(state, info);
+      }
+      if(typeof blueprint.perStack === 'function'){
+        for(let i=0;i<count;i++){
+          blueprint.perStack(state, info);
+        }
+      }
+      if(Array.isArray(blueprint.thresholds)){
+        for(const threshold of blueprint.thresholds){
+          if(!threshold) continue;
+          const need = Math.max(1, Number(threshold.count) || 0);
+          if(count >= need && typeof threshold.effect === 'function'){
+            threshold.effect(state, info);
+          }
+        }
+      }
+    }
+  }
+
+  const ITEM_SYNERGY_GROUPS = [
+    {
+      key:'speed-core',
+      items:['sneaker','winged-socks','wind-sprint-medal','lightstep-tonic','rope','escape-tool','pepper-steak','adrenaline','holy-heart'],
+      thresholds:[
+        {count:2, effect(state){
+          state.speedAdd += 25;
+          state.tearSpeedAdd += 12;
+          state.maxSpeedScaleBonus = Math.max(state.maxSpeedScaleBonus, 0.08);
+        }},
+        {count:4, effect(state){
+          state.speedAdd += 30;
+          state.tearSpeedMultiplier *= 1.08;
+          state.fireIntervalMultiplier *= 0.96;
+          state.ifrMultiplier *= 1.05;
+        }},
+        {count:6, effect(state){
+          state.speedAdd += 35;
+          state.grantsFlight = true;
+          state.ifrMultiplier *= 1.08;
+          state.cardDropBonus += 0.05;
+        }},
+      ]
+    },
+    {
+      key:'brew',
+      items:['onion','hot-chocolate','soy-milk','pepper-steak','good-thing','adrenaline'],
+      thresholds:[
+        {count:2, effect(state){
+          state.fireIntervalMultiplier *= 0.94;
+          state.tearSpeedMultiplier *= 1.06;
+        }},
+        {count:3, effect(state){
+          state.damageMultiplier *= 1.05;
+          state.adrenalineDamageBonus += 0.6;
+          state.adrenalineFireBonus += 0.35;
+        }},
+        {count:4, effect(state){
+          state.tearLifeMultiplier *= 1.08;
+          state.tearSpeedMultiplier *= 1.04;
+          state.adrenalineRangeMultiplier *= 1.15;
+          state.adrenalineSpeedMultiplier *= 1.12;
+        }},
+      ]
+    },
+    {
+      key:'range-focus',
+      items:['spirit-date','despair-shout','magic-bullet','good-thing','ending-note','compressed-peach','double-gaze','triple-gaze','quad-gaze','hot-chocolate','soy-milk'],
+      thresholds:[
+        {count:2, effect(state){
+          state.tearLifeMultiplier *= 1.12;
+          state.grantsPierce = true;
+        }},
+        {count:4, effect(state){
+          state.tearSpeedMultiplier *= 1.08;
+          state.grantsHoming = true;
+          state.homingStrengthBonus = Math.max(state.homingStrengthBonus, 3);
+        }},
+        {count:6, effect(state){
+          state.fireIntervalMultiplier *= 0.96;
+          state.damageMultiplier *= 1.06;
+        }},
+      ]
+    },
+    {
+      key:'damage-core',
+      items:['tar','pepper-steak','betrayal-hound','kettle','ember-heart','abaddon','blood-power','money-power','despair-power','bomb-elder','bomb-progenitor','adrenaline','holy-heart','brimstone'],
+      thresholds:[
+        {count:2, effect(state){
+          state.damageAdd += 0.5;
+          state.damageMultiplier *= 1.05;
+        }},
+        {count:4, effect(state){
+          state.damageAdd += 0.9;
+          state.damageMultiplier *= 1.08;
+          state.ifrMultiplier *= 1.04;
+        }},
+        {count:6, effect(state){
+          state.damageMultiplier *= 1.12;
+          state.fireIntervalMultiplier *= 0.94;
+          state.brimstoneDamageMultiplier *= 1.1;
+        }},
+      ]
+    },
+    {
+      key:'bomb-family',
+      items:['bomb-cousin','bomb-uncle','bomb-grandpa','bomb-elder','bomb-progenitor','outdoor-pouch'],
+      thresholds:[
+        {count:2, effect(state){
+          state.bombDamageMultiplier *= 1.15;
+          state.bombRadiusMultiplier *= 1.1;
+        }},
+        {count:3, effect(state){
+          state.bombDamageMultiplier *= 1.08;
+          state.damageMultiplier *= 1.04;
+        }},
+        {count:4, effect(state){
+          state.fireIntervalMultiplier *= 0.97;
+          state.speedAdd += 18;
+          state.pouchBombBonus += 1;
+        }},
+        {count:5, effect(state){
+          state.damageAdd += 0.6;
+          state.pouchCoinMultiplier *= 1.1;
+          state.ifrMultiplier *= 1.05;
+        }},
+      ]
+    },
+    {
+      key:'follower-bond',
+      items:['younger-cousin','aunt-brimstone','black-buddy','brother','sister','cousin'],
+      thresholds:[
+        {count:2, effect(state){
+          state.followerDamageMultiplier *= 1.12;
+          state.followerRangeMultiplier *= 1.05;
+        }},
+        {count:3, effect(state){
+          state.followerFireRateMultiplier *= 1.1;
+          state.followerHomingStrengthBonus = Math.max(state.followerHomingStrengthBonus, 2);
+        }},
+        {count:4, effect(state){
+          state.followerDamageMultiplier *= 1.08;
+          state.cardDropBonus += 0.04;
+        }},
+        {count:5, effect(state){
+          state.grantsHoming = true;
+          state.homingStrengthBonus = Math.max(state.homingStrengthBonus, 2);
+        }},
+      ]
+    },
+    {
+      key:'knowledge',
+      items:['seer-map','pocket-watch','outdoor-pouch','magic-bullet','escape-tool','holy-heart'],
+      thresholds:[
+        {count:2, effect(state){
+          state.shopPriceMultiplier *= 0.94;
+          state.shopPriceOffset += 1;
+          state.cardDropBonus += 0.03;
+        }},
+        {count:3, effect(state){
+          state.fireIntervalMultiplier *= 0.98;
+          state.tearSpeedMultiplier *= 1.05;
+          state.pouchCoinBonus += 1;
+        }},
+        {count:4, effect(state){
+          state.timeStopExtend += 0.8;
+          state.ifrMultiplier *= 1.06;
+        }},
+      ]
+    },
+    {
+      key:'vitality',
+      items:['dog-food','vital-broth','guardian-core','ember-heart','holy-heart','pepper-steak','escape-tool','bomb-grandpa'],
+      thresholds:[
+        {count:2, effect(state){
+          state.ifrMultiplier *= 1.05;
+          state.speedAdd += 10;
+        }},
+        {count:3, effect(state){
+          state.damageMultiplier *= 1.05;
+          state.tearLifeMultiplier *= 1.06;
+        }},
+        {count:4, effect(state){
+          state.damageAdd += 0.8;
+          state.tearSpeedAdd += 10;
+          state.cardDropBonus += 0.04;
+        }},
+      ]
+    },
+    {
+      key:'blade-dance',
+      items:['lightsaber','short-sword','impact-chocolate','hot-chocolate','soy-milk','pepper-steak','magic-bullet','brimstone','rope'],
+      thresholds:[
+        {count:2, effect(state){
+          state.lightsaberDamageMultiplier *= 1.08;
+          state.shortSwordDamageMultiplier *= 1.05;
+        }},
+        {count:3, effect(state){
+          state.dashCooldownMultiplier *= 0.92;
+          state.dashDamageMultiplier *= 1.08;
+          state.shortSwordChargeMultiplier *= 1.08;
+        }},
+        {count:4, effect(state){
+          state.lightsaberSpeedMultiplier *= 1.12;
+          state.shortSwordReturnSpeedMultiplier *= 1.1;
+          state.shortSwordThrowMultiplier *= 1.08;
+        }},
+        {count:5, effect(state){
+          state.homingStrengthBonus = Math.max(state.homingStrengthBonus, 3);
+          state.grantsHoming = true;
+          state.dashDistanceBonus += 0.6;
+        }},
+      ]
+    },
+  ];
+
+  const ITEM_SYNERGY_COMBOS = [
+    {items:['good-thing','bad-thing'], effect(state){
+      state.fireIntervalMultiplier *= 0.92;
+      state.tearSpeedMultiplier *= 1.12;
+      state.tearLifeMultiplier *= 1.06;
+    }},
+    {items:['pocket-watch','seer-map'], effect(state){
+      state.shopPriceMultiplier *= 0.95;
+      state.cardDropBonus += 0.05;
+      state.timeStopExtend += 0.6;
+    }},
+    {items:['pocket-watch','adrenaline'], effect(state){
+      state.timeStopExtend += 0.8;
+      state.adrenalineDurationBonus += 1;
+      state.ifrMultiplier *= 1.05;
+    }},
+    {items:['pocket-watch','escape-tool'], effect(state){
+      state.speedAdd += 25;
+      state.fireIntervalMultiplier *= 0.95;
+    }},
+    {items:['outdoor-pouch','bomb-cousin'], effect(state){
+      state.pouchBombBonus += 1;
+      state.pouchKeyBonus += 1;
+    }},
+    {items:['outdoor-pouch','bomb-uncle'], effect(state){
+      state.pouchCoinMultiplier *= 1.25;
+      state.pouchBombBonus += 2;
+    }},
+    {items:['outdoor-pouch','bomb-grandpa'], effect(state){
+      state.pouchCoinBonus += 3;
+      state.ifrMultiplier *= 1.03;
+    }},
+    {items:['hot-chocolate','soy-milk'], effect(state){
+      state.fireIntervalMultiplier *= 0.9;
+      state.damageMultiplier *= 1.04;
+      state.brimstoneChargeMultiplier *= 0.92;
+    }},
+    {items:['hot-chocolate','magic-bullet'], effect(state){
+      state.homingStrengthBonus = Math.max(state.homingStrengthBonus, 3);
+      state.grantsHoming = true;
+    }},
+    {items:['lightsaber','impact-chocolate'], effect(state){
+      state.dashCooldownMultiplier *= 0.85;
+      state.dashDamageMultiplier *= 1.12;
+      state.lightsaberSpeedMultiplier *= 1.12;
+    }},
+    {items:['lightsaber','short-sword'], effect(state){
+      state.lightsaberRangeMultiplier *= 1.08;
+      state.shortSwordDamageMultiplier *= 1.08;
+    }},
+    {items:['short-sword','impact-chocolate'], effect(state){
+      state.shortSwordReturnSpeedMultiplier *= 1.12;
+      state.dashDistanceBonus += 0.4;
+    }},
+    {items:['brimstone','magic-bullet'], effect(state){
+      state.grantsHoming = true;
+      state.homingStrengthBonus = Math.max(state.homingStrengthBonus, 4);
+      state.brimstoneDamageMultiplier *= 1.12;
+    }},
+    {items:['brimstone','hot-chocolate'], effect(state){
+      state.brimstoneChargeMultiplier *= 0.9;
+      state.brimstoneDamageMultiplier *= 1.08;
+    }},
+    {items:['holy-heart','escape-tool'], effect(state){
+      state.ifrMultiplier *= 1.12;
+      state.speedAdd += 20;
+      state.grantsFlight = true;
+    }},
+    {items:['holy-heart','magic-bullet'], effect(state){
+      state.homingStrengthBonus = Math.max(state.homingStrengthBonus, 3);
+      state.grantsHoming = true;
+    }},
+    {items:['blood-power','money-power'], effect(state){
+      state.damageMultiplier *= 1.08;
+      state.damageAdd += 0.6;
+    }},
+    {items:['blood-power','despair-power'], effect(state){
+      state.damageMultiplier *= 1.05;
+      state.fireIntervalMultiplier *= 0.97;
+    }},
+    {items:['money-power','despair-power'], effect(state){
+      state.damageMultiplier *= 1.05;
+      state.tearSpeedMultiplier *= 1.04;
+    }},
+    {items:['blood-power','money-power','despair-power'], minCount:3, effect(state){
+      state.damageMultiplier *= 1.12;
+      state.fireIntervalMultiplier *= 0.95;
+      state.ifrMultiplier *= 1.04;
+    }},
+    {items:['pepper-steak','adrenaline'], effect(state){
+      state.adrenalineDamageBonus += 0.4;
+      state.adrenalineSpeedMultiplier *= 1.08;
+    }},
+    {items:['dog-food','vital-broth'], effect(state){
+      state.ifrMultiplier *= 1.06;
+      state.speedAdd += 12;
+    }},
+    {items:['vital-broth','guardian-core'], effect(state){
+      state.damageMultiplier *= 1.06;
+      state.tearSpeedMultiplier *= 1.05;
+    }},
+    {items:['guardian-core','holy-heart'], effect(state){
+      state.ifrMultiplier *= 1.08;
+      state.cardDropBonus += 0.05;
+    }},
+    {items:['ending-note','onion'], effect(state){
+      state.fireIntervalMultiplier *= 0.95;
+      state.tearLifeMultiplier *= 1.05;
+    }},
+    {items:['tar','soy-milk'], effect(state){
+      state.damageAdd += 0.9;
+      state.damageMultiplier *= 1.04;
+    }},
+    {items:['spirit-date','magic-bullet'], effect(state){
+      state.grantsPierce = true;
+      state.homingStrengthBonus = Math.max(state.homingStrengthBonus, 2);
+    }},
+    {items:['despair-shout','compressed-peach'], effect(state){
+      state.tearLifeMultiplier *= 1.08;
+      state.tearSpeedMultiplier *= 1.04;
+    }},
+    {items:['bomb-grandpa','bomb-elder'], effect(state){
+      state.bombRadiusMultiplier *= 1.12;
+      state.damageAdd += 0.5;
+    }},
+    {items:['bomb-grandpa','bomb-progenitor'], effect(state){
+      state.bombDamageMultiplier *= 1.12;
+      state.ifrMultiplier *= 1.05;
+    }},
+    {items:['bomb-uncle','bomb-progenitor'], effect(state){
+      state.bombDamageMultiplier *= 1.08;
+      state.pouchBombBonus += 1;
+    }},
+  ];
+
+  function createEmptySynergyAdjustments(){
+    return {
+      speedAdd:0,
+      speedMultiplier:1,
+      tearSpeedAdd:0,
+      tearSpeedMultiplier:1,
+      tearLifeMultiplier:1,
+      fireIntervalMultiplier:1,
+      damageMultiplier:1,
+      damageAdd:0,
+      ifrMultiplier:1,
+      maxSpeedScaleBonus:0,
+      shopPriceMultiplier:1,
+      shopPriceOffset:0,
+      cardDropBonus:0,
+      bombDamageMultiplier:1,
+      bombRadiusMultiplier:1,
+      grantsHoming:false,
+      homingStrengthBonus:0,
+      grantsPierce:false,
+      grantsFlight:false,
+      followerDamageMultiplier:1,
+      followerDamageAdd:0,
+      followerFireRateMultiplier:1,
+      followerRangeMultiplier:1,
+      followerHomingStrengthBonus:0,
+      dashCooldownMultiplier:1,
+      dashDamageMultiplier:1,
+      dashDistanceBonus:0,
+      lightsaberDamageMultiplier:1,
+      lightsaberDamageAdd:0,
+      lightsaberRangeMultiplier:1,
+      lightsaberSpeedMultiplier:1,
+      shortSwordDamageMultiplier:1,
+      shortSwordReturnSpeedMultiplier:1,
+      shortSwordChargeMultiplier:1,
+      shortSwordThrowMultiplier:1,
+      brimstoneChargeMultiplier:1,
+      brimstoneDamageMultiplier:1,
+      timeStopExtend:0,
+      adrenalineDamageBonus:0,
+      adrenalineFireBonus:0,
+      adrenalineRangeMultiplier:1,
+      adrenalineSpeedMultiplier:1,
+      adrenalineDurationBonus:0,
+      pouchKeyBonus:0,
+      pouchBombBonus:0,
+      pouchCoinBonus:0,
+      pouchCoinMultiplier:1,
+    };
+  }
+
+  function cloneSynergyAdjustments(source){
+    return Object.assign(createEmptySynergyAdjustments(), source || {});
+  }
+
+  function applyPlayerSynergyAdjustments(player, previous, next){
+    if(!player) return;
+    const old = cloneSynergyAdjustments(previous);
+    const fresh = cloneSynergyAdjustments(next);
+
+    if(Math.abs(old.fireIntervalMultiplier - 1)>1e-4 && Number.isFinite(player.fireInterval) && old.fireIntervalMultiplier>0){
+      player.fireInterval /= old.fireIntervalMultiplier;
+      player.fireCd = Math.min(player.fireCd, player.fireInterval);
+    }
+    if(Math.abs(old.tearSpeedMultiplier - 1)>1e-4 && Number.isFinite(player.tearSpeed) && old.tearSpeedMultiplier>0){
+      player.tearSpeed /= old.tearSpeedMultiplier;
+    }
+    if(old.tearSpeedAdd){
+      player.tearSpeed -= old.tearSpeedAdd;
+    }
+    if(Math.abs(old.speedMultiplier - 1)>1e-4 && Number.isFinite(player.speed) && old.speedMultiplier>0){
+      player.speed /= old.speedMultiplier;
+    }
+    if(old.speedAdd){
+      player.speed -= old.speedAdd;
+    }
+    if(Math.abs(old.tearLifeMultiplier - 1)>1e-4 && Number.isFinite(player.tearLife) && old.tearLifeMultiplier>0){
+      player.tearLife /= old.tearLifeMultiplier;
+    }
+    if(Math.abs(old.damageMultiplier - 1)>1e-4 && Number.isFinite(player.damageMultiplier) && old.damageMultiplier>0){
+      player.damageMultiplier /= old.damageMultiplier;
+    }
+    if(old.damageAdd){
+      player.baseDamage = +(player.baseDamage - old.damageAdd);
+    }
+    if(Math.abs(old.ifrMultiplier - 1)>1e-4 && Number.isFinite(player.ifrBoostMultiplier) && old.ifrMultiplier>0){
+      player.ifrBoostMultiplier /= old.ifrMultiplier;
+    }
+    if(old.maxSpeedScaleBonus){
+      player.maxSpeedScale -= old.maxSpeedScaleBonus;
+    }
+    if(Math.abs(old.shopPriceMultiplier - 1)>1e-4 && Number.isFinite(player.shopPriceMultiplier) && old.shopPriceMultiplier>0){
+      player.shopPriceMultiplier /= old.shopPriceMultiplier;
+    }
+    if(old.shopPriceOffset){
+      player.shopPriceOffset -= old.shopPriceOffset;
+    }
+    if(old.cardDropBonus){
+      player.cardDropBonus -= old.cardDropBonus;
+    }
+    if(Math.abs(old.bombDamageMultiplier - 1)>1e-4 && Number.isFinite(player.bombDamageMultiplier) && old.bombDamageMultiplier>0){
+      player.bombDamageMultiplier /= old.bombDamageMultiplier;
+    }
+    if(Math.abs(old.bombRadiusMultiplier - 1)>1e-4 && Number.isFinite(player.bombRadiusMultiplier) && old.bombRadiusMultiplier>0){
+      player.bombRadiusMultiplier /= old.bombRadiusMultiplier;
+    }
+
+    if(fresh.speedAdd){
+      player.speed += fresh.speedAdd;
+    }
+    if(Math.abs(fresh.speedMultiplier - 1)>1e-4 && Number.isFinite(player.speed)){
+      player.speed *= fresh.speedMultiplier;
+    }
+    if(fresh.tearSpeedAdd){
+      player.tearSpeed += fresh.tearSpeedAdd;
+    }
+    if(Math.abs(fresh.tearSpeedMultiplier - 1)>1e-4 && Number.isFinite(player.tearSpeed)){
+      player.tearSpeed *= fresh.tearSpeedMultiplier;
+    }
+    if(Math.abs(fresh.tearLifeMultiplier - 1)>1e-4 && Number.isFinite(player.tearLife)){
+      player.tearLife *= fresh.tearLifeMultiplier;
+    }
+    if(Math.abs(fresh.fireIntervalMultiplier - 1)>1e-4 && Number.isFinite(player.fireInterval)){
+      player.fireInterval *= fresh.fireIntervalMultiplier;
+      player.fireCd = Math.min(player.fireCd, player.fireInterval);
+    }
+    if(fresh.damageAdd){
+      player.baseDamage = +(player.baseDamage + fresh.damageAdd);
+    }
+    if(Math.abs(fresh.damageMultiplier - 1)>1e-4 && Number.isFinite(player.damageMultiplier)){
+      player.damageMultiplier *= fresh.damageMultiplier;
+    }
+    if(Math.abs(fresh.ifrMultiplier - 1)>1e-4 && Number.isFinite(player.ifrBoostMultiplier)){
+      player.ifrBoostMultiplier *= fresh.ifrMultiplier;
+    }
+    if(fresh.maxSpeedScaleBonus){
+      player.maxSpeedScale += fresh.maxSpeedScaleBonus;
+    }
+    if(Math.abs(fresh.shopPriceMultiplier - 1)>1e-4 && Number.isFinite(player.shopPriceMultiplier)){
+      player.shopPriceMultiplier *= fresh.shopPriceMultiplier;
+    }
+    if(fresh.shopPriceOffset){
+      player.shopPriceOffset += fresh.shopPriceOffset;
+    }
+    if(fresh.cardDropBonus){
+      player.cardDropBonus += fresh.cardDropBonus;
+    }
+    if(Math.abs(fresh.bombDamageMultiplier - 1)>1e-4 && Number.isFinite(player.bombDamageMultiplier)){
+      player.bombDamageMultiplier *= fresh.bombDamageMultiplier;
+    }
+    if(Math.abs(fresh.bombRadiusMultiplier - 1)>1e-4 && Number.isFinite(player.bombRadiusMultiplier)){
+      player.bombRadiusMultiplier *= fresh.bombRadiusMultiplier;
+    }
+
+    if(fresh.grantsFlight){
+      player.flying = true;
+    }
+    if(fresh.grantsPierce){
+      player.canPierceObstacles = true;
+      player.canPierceEnemies = true;
+    }
+    if(fresh.grantsHoming){
+      player.homingTears = true;
+    }
+
+    player.speed = Math.max(60, player.speed);
+    player.tearSpeed = Math.max(40, player.tearSpeed);
+    player.tearLife = Math.max(0.2, player.tearLife);
+    player.fireInterval = Math.max(12, player.fireInterval);
+    player.fireCd = Math.min(player.fireCd, player.fireInterval);
+
+    player.synergyAdjustments = fresh;
+    player.synergyState = cloneSynergyAdjustments(fresh);
+
+    if(typeof player.recalculateDamage === 'function'){
+      player.recalculateDamage();
+    }
+    if(typeof player.updateBrimstoneChargeMetrics === 'function'){
+      player.updateBrimstoneChargeMetrics();
+    }
+    if(typeof player.updateImpactDashStackBonuses === 'function'){
+      player.updateImpactDashStackBonuses();
+    }
+  }
+
+  function evaluateItemSynergies(player){
+    if(!player) return;
+    const stacks = player.itemStacks && typeof player.itemStacks === 'object' ? player.itemStacks : {};
+    const counts = new Map();
+    for(const [slug, value] of Object.entries(stacks)){
+      const numeric = Math.floor(Number(value));
+      if(Number.isFinite(numeric) && numeric>0){
+        counts.set(slug, numeric);
+      }
+    }
+    const has = slug => (counts.get(slug) || 0) > 0;
+    const next = createEmptySynergyAdjustments();
+    applyItemSynergyBlueprints(next, {player, counts, has});
+    for(const group of ITEM_SYNERGY_GROUPS){
+      if(!group || !Array.isArray(group.items)) continue;
+      let count = 0;
+      for(const slug of group.items){ if(has(slug)) count++; }
+      if(count<=0) continue;
+      if(Array.isArray(group.thresholds)){
+        for(const threshold of group.thresholds){
+          if(!threshold) continue;
+          const need = Math.max(1, threshold.count || threshold.minCount || threshold.min || 1);
+          if(count >= need && typeof threshold.effect === 'function'){
+            threshold.effect(next, {player, counts, has, count, group});
+          }
+        }
+      }
+    }
+    for(const combo of ITEM_SYNERGY_COMBOS){
+      if(!combo || !Array.isArray(combo.items) || !combo.items.length) continue;
+      let have = 0;
+      for(const slug of combo.items){ if(has(slug)) have++; }
+      const need = Math.max(1, combo.minCount || combo.items.length);
+      if(have >= need && typeof combo.effect === 'function'){
+        combo.effect(next, {player, counts, has, have});
+      }
+    }
+    applyPlayerSynergyAdjustments(player, player.synergyAdjustments, next);
+  }
+
   const SET_EFFECTS = {
     '宝宝套装': {
       key:'baby-super',
@@ -2146,6 +3164,7 @@
       }
     }
     registerItemDiscovery(item);
+    evaluateItemSynergies(player);
     return stackCount;
   }
   const RESOURCE_LABELS = {bomb:'炸弹', key:'钥匙', coin:'金币'};
@@ -2180,6 +3199,7 @@
     cheatItemIdInput.setAttribute('max', String(ITEM_TOTAL_COUNT));
   }
   const discoveredItems = new Set();
+  let lastCodexSelectedId = null;
 
   function formatItemNumber(id){
     const str = String(id);
@@ -2202,26 +3222,70 @@
     });
   }
 
+  function selectCodexItem(item, unlocked){
+    if(!item) return;
+    lastCodexSelectedId = item.id;
+    if(CODEX_GRID){
+      const prev = CODEX_GRID.querySelectorAll('.codex-entry.selected');
+      prev.forEach(node=>{
+        node.classList.remove('selected');
+        node.setAttribute('aria-pressed','false');
+      });
+      const current = CODEX_GRID.querySelector(`.codex-entry[data-item-id="${item.id}"]`);
+      if(current){
+        current.classList.add('selected');
+        current.setAttribute('aria-pressed','true');
+      }
+    }
+    if(cheatItemIdInput){
+      cheatItemIdInput.value = item.id;
+    }
+    if(cheatItemResult){
+      const badge = unlocked ? '' : '（未解锁）';
+      cheatItemResult.textContent = `已选中「${item.name}」 #${formatItemNumber(item.id)}${badge}`;
+      cheatItemResult.style.color = unlocked ? 'var(--accent)' : 'var(--accent2)';
+    }
+  }
+
+  function highlightCodexItemById(id, {scroll=true}={}){
+    const numeric = Number(id);
+    if(!Number.isFinite(numeric) || numeric<1) return false;
+    const item = getItemByNumericId(numeric);
+    if(!item) return false;
+    const unlocked = discoveredItems.has(item.id);
+    selectCodexItem(item, unlocked);
+    if(scroll && CODEX_GRID){
+      const target = CODEX_GRID.querySelector(`.codex-entry[data-item-id="${item.id}"]`);
+      target?.scrollIntoView({behavior:'smooth', block:'nearest'});
+    }
+    return true;
+  }
+
+  if(typeof window !== 'undefined'){
+    window.highlightCodexItemById = highlightCodexItemById;
+  }
+
   function updateCodex(){
     if(CODEX_TOTAL) CODEX_TOTAL.textContent = ITEM_TOTAL_COUNT;
     if(CODEX_COUNT) CODEX_COUNT.textContent = discoveredItems.size;
     if(!CODEX_GRID) return;
     CODEX_GRID.innerHTML='';
-    const discoveredList = Array.from(discoveredItems)
-      .sort((a,b)=>a-b)
-      .map(id=>ITEM_ID_REGISTRY.byId.get(id))
-      .filter(Boolean);
-    if(!discoveredList.length){
-      const empty=document.createElement('div');
-      empty.className='codex-empty';
-      empty.textContent='尚未获得任何道具。探索地下室，解锁第一件宝物吧！';
-      CODEX_GRID.appendChild(empty);
-      return;
-    }
     const canvases=[];
-    for(const item of discoveredList){
+    const fragment=document.createDocumentFragment();
+    for(const item of CODEX_ALL_ITEMS){
+      if(!item) continue;
+      const unlocked = discoveredItems.has(item.id);
       const card=document.createElement('div');
       card.className='codex-entry';
+      if(!unlocked) card.classList.add('locked');
+      if(lastCodexSelectedId && lastCodexSelectedId===item.id){
+        card.classList.add('selected');
+      }
+      card.dataset.itemId=String(item.id);
+      card.dataset.itemSlug=item.slug;
+      card.setAttribute('tabindex','0');
+      card.setAttribute('role','button');
+      card.setAttribute('aria-pressed', card.classList.contains('selected') ? 'true' : 'false');
       const iconWrap=document.createElement('div');
       iconWrap.className='codex-icon';
       const canvas=document.createElement('canvas');
@@ -2245,12 +3309,33 @@
         remark.textContent=`套装：${item.setTag}`;
         info.appendChild(remark);
       }
+      if(!unlocked){
+        const lockNote=document.createElement('div');
+        lockNote.className='codex-remark';
+        lockNote.textContent='未解锁';
+        info.appendChild(lockNote);
+      }
       card.appendChild(iconWrap);
       card.appendChild(info);
-      CODEX_GRID.appendChild(card);
+      const select=()=> selectCodexItem(item, unlocked);
+      card.addEventListener('click', select);
+      card.addEventListener('keydown', (ev)=>{
+        if(ev.key==='Enter' || ev.key===' '){
+          ev.preventDefault();
+          select();
+        }
+      });
+      fragment.appendChild(card);
       canvases.push(canvas);
     }
+    CODEX_GRID.appendChild(fragment);
     drawCodexIcons(canvases);
+    if(lastCodexSelectedId){
+      const selectedItem = CODEX_ALL_ITEMS.find(entry=>entry && entry.id===lastCodexSelectedId);
+      if(selectedItem){
+        selectCodexItem(selectedItem, discoveredItems.has(selectedItem.id));
+      }
+    }
   }
 
   function registerItemDiscovery(item){
@@ -4956,6 +6041,8 @@
       this.items=[];
       this.itemStacks = Object.create(null);
       this.itemNameStacks = Object.create(null);
+      this.synergyAdjustments = createEmptySynergyAdjustments();
+      this.synergyState = createEmptySynergyAdjustments();
       this.bombs = CONFIG.resources.bombStart;
       this.keys = CONFIG.resources.keyStart;
       this.coins = CONFIG.resources.coinStart;
@@ -5048,6 +6135,7 @@
       if(typeof this.resetFollowerTrail === 'function'){
         this.resetFollowerTrail();
       }
+      evaluateItemSynergies(this);
     }
     update(dt, options={}){
       const entryLocked = !!options.entryLocked;
@@ -5428,12 +6516,29 @@
         homing: this.homingTears,
         homingStrength: this.homingStrength
       };
+      const synergyState = this.synergyState || null;
       if(typeof options.color === 'string') bulletOptions.color = options.color;
       if(typeof options.trailColor === 'string') bulletOptions.trailColor = options.trailColor;
       if(typeof options.pierce === 'boolean') bulletOptions.pierce = options.pierce;
       if(typeof options.pierceEnemies === 'boolean') bulletOptions.pierceEnemies = options.pierceEnemies;
       if(typeof options.homing === 'boolean') bulletOptions.homing = options.homing;
       if(Number.isFinite(options.homingStrength)) bulletOptions.homingStrength = Math.max(0, options.homingStrength);
+      if(synergyState){
+        if(synergyState.grantsPierce){
+          bulletOptions.pierce = true;
+          bulletOptions.pierceEnemies = true;
+        }
+        const homingBonus = Math.max(0, synergyState.homingStrengthBonus || 0);
+        const baseStrength = Number.isFinite(bulletOptions.homingStrength) ? bulletOptions.homingStrength : (this.homingStrength || 6);
+        if(synergyState.grantsHoming){
+          bulletOptions.homing = true;
+          if(homingBonus>0){
+            bulletOptions.homingStrength = Math.max(baseStrength, baseStrength + homingBonus);
+          }
+        } else if(homingBonus>0 && (bulletOptions.homing || this.homingTears)){
+          bulletOptions.homingStrength = Math.max(baseStrength, baseStrength + homingBonus);
+        }
+      }
       const shots=[];
       const baseSpeedMag = Math.hypot(vx, vy) || 0;
       const tripleBonus = this.getSetBonus ? this.getSetBonus('baby-super') : (this.setBonuses?.['baby-super'] || null);
@@ -6149,6 +7254,19 @@
       state.arcBias = 0.45;
       state.baseOffset = bodyRadius * 0.45;
       state.verticalOffset = bodyRadius * 0.1;
+      const synergy = this.synergyState || null;
+      if(synergy){
+        if(Math.abs(synergy.lightsaberRangeMultiplier - 1)>1e-4){
+          state.length = Math.max(state.length, state.length * synergy.lightsaberRangeMultiplier);
+        }
+        if(Math.abs(synergy.lightsaberSpeedMultiplier - 1)>1e-4){
+          const speedScale = Math.max(0.2, synergy.lightsaberSpeedMultiplier || 1);
+          state.swingDuration = Math.max(0.12, state.swingDuration / speedScale);
+          state.fadeDuration = Math.max(0.05, state.fadeDuration / speedScale);
+          state.recoveryDuration = Math.max(0.08, state.recoveryDuration / Math.sqrt(speedScale));
+          state.autoRepeatWindow = Math.max(0.05, state.autoRepeatWindow / Math.sqrt(speedScale));
+        }
+      }
       if(!Number.isFinite(state.lastAimX) || !Number.isFinite(state.lastAimY)){
         state.lastAimX = 0;
         state.lastAimY = -1;
@@ -6189,7 +7307,16 @@
       const bias = clamp(state.arcBias ?? 0.45, 0.1, 0.9);
       const startAngle = normalizeAngle(aimAngle + span * (1 - bias));
       const endAngle = normalizeAngle(aimAngle - span * bias);
-      const damageValue = Math.max(0.05, this.damage * 7.5);
+      let damageValue = Math.max(0.05, this.damage * 7.5);
+      const synergy = this.synergyState || null;
+      if(synergy){
+        if(Math.abs(synergy.lightsaberDamageMultiplier - 1)>1e-4){
+          damageValue *= synergy.lightsaberDamageMultiplier;
+        }
+        if(Number.isFinite(synergy.lightsaberDamageAdd) && synergy.lightsaberDamageAdd!==0){
+          damageValue += synergy.lightsaberDamageAdd;
+        }
+      }
       const swing = new LightsaberSwing({
         owner: this,
         startAngle,
@@ -7650,6 +8777,7 @@
     }
     collectSynergyOptions(aspect, base={}, context={}){
       const result = {...base};
+      const synergyState = this.synergyState || null;
       switch(aspect){
         case 'compressed-peach': {
           const stacks = Math.max(1, Number(context?.stacks) || Number(this.compressedPeachStacks) || 1);
@@ -7698,6 +8826,17 @@
             result.seedHomingStrength = Math.max(Number(result.seedHomingStrength) || 0, strengthBoost);
             result.fragmentHomingStrength = Math.max(Number(result.fragmentHomingStrength) || 0, strengthBoost * (1.15 + (stacks-1)*0.05));
             result.fragmentHomingRange = Math.max(Number(result.fragmentHomingRange) || 0, 640 + (stacks-1) * 90);
+          }
+          if(synergyState){
+            if(synergyState.grantsHoming){
+              result.seedHoming = true;
+              result.fragmentHoming = true;
+            }
+            if(synergyState.homingStrengthBonus>0){
+              const bonus = Math.max(0, synergyState.homingStrengthBonus || 0);
+              result.seedHomingStrength = Math.max(Number(result.seedHomingStrength) || 0, bonus + Math.max(this.homingStrength || 0, 6));
+              result.fragmentHomingStrength = Math.max(Number(result.fragmentHomingStrength) || 0, bonus + Math.max(this.homingStrength || 0, 6));
+            }
           }
           break;
         }
@@ -7772,10 +8911,22 @@
               palette.stroke = palette.stroke || '#991b1b';
           }
           result.colors = palette;
+          }
+          if(synergyState){
+            if(Math.abs(synergyState.dashDamageMultiplier - 1)>1e-4){
+              const baseScale = Number(result.damageScale) || Number(base?.damageScale) || 1;
+              result.damageScale = Math.max(baseScale, baseScale * synergyState.dashDamageMultiplier);
+            }
+            const bonus = Math.max(0, synergyState.homingStrengthBonus || 0);
+            if((result.homing || synergyState.grantsHoming) && bonus>0){
+              result.homing = true;
+              const baseStrength = Number(result.homingStrength) || Number(this.homingStrength) || 8;
+              result.homingStrength = Math.max(baseStrength, baseStrength + bonus);
+            }
+          }
+          break;
         }
-        break;
-      }
-      case 'shortsword': {
+        case 'shortsword': {
         const stacks = Math.max(1, Number(this.shortSwordStacks) || 1);
         result.rangeMultiplier = Math.max(Number(result.rangeMultiplier) || 0, 1 + (stacks - 1) * 0.05);
         result.speedMultiplier = Math.max(Number(result.speedMultiplier) || 0, 1 + (stacks - 1) * 0.04);
@@ -7837,6 +8988,20 @@
           result.throwDamageMultiplier = Math.max(Number(result.throwDamageMultiplier) || 0, 1.2);
           result.returnSpeedMultiplier = Math.max(Number(result.returnSpeedMultiplier) || 0, 1.3);
         }
+        if(synergyState){
+          if(Math.abs(synergyState.shortSwordDamageMultiplier - 1)>1e-4){
+            result.damageMultiplier = Math.max(Number(result.damageMultiplier) || 0, synergyState.shortSwordDamageMultiplier);
+          }
+          if(Math.abs(synergyState.shortSwordReturnSpeedMultiplier - 1)>1e-4){
+            result.returnSpeedMultiplier = Math.max(Number(result.returnSpeedMultiplier) || 0, synergyState.shortSwordReturnSpeedMultiplier);
+          }
+          if(Math.abs(synergyState.shortSwordChargeMultiplier - 1)>1e-4){
+            result.chargeRateMultiplier = Math.max(Number(result.chargeRateMultiplier) || 0, synergyState.shortSwordChargeMultiplier);
+          }
+          if(Math.abs(synergyState.shortSwordThrowMultiplier - 1)>1e-4){
+            result.throwDamageMultiplier = Math.max(Number(result.throwDamageMultiplier) || 0, synergyState.shortSwordThrowMultiplier);
+          }
+        }
         if(speedRatio > 1){
           result.rangeMultiplier = Math.max(Number(result.rangeMultiplier) || 0, 1 + (speedRatio - 1) * 0.15);
           result.speedMultiplier = Math.max(Number(result.speedMultiplier) || 0, 1 + (speedRatio - 1) * 0.12);
@@ -7858,6 +9023,12 @@
               result.tickIntervalMultiplier = Math.max(Number(result.tickIntervalMultiplier) || 0, 0.7 + 0.3 * effective);
             }
           }
+          if(synergyState){
+            if(Math.abs(synergyState.brimstoneDamageMultiplier - 1)>1e-4){
+              const baseScale = Number(result.damageScaleMultiplier) || 1;
+              result.damageScaleMultiplier = Math.max(baseScale, baseScale * synergyState.brimstoneDamageMultiplier);
+            }
+          }
           break;
         }
         case 'brimstone-charge-rate': {
@@ -7865,11 +9036,18 @@
             const prev = Number(result.chargeTimeMultiplier) || 1;
             result.chargeTimeMultiplier = prev * 0.82;
           }
+          if(synergyState && Math.abs(synergyState.brimstoneChargeMultiplier - 1)>1e-4){
+            const prev = Number(result.chargeTimeMultiplier) || 1;
+            result.chargeTimeMultiplier = prev * synergyState.brimstoneChargeMultiplier;
+          }
           break;
         }
         case 'impact-dash-cooldown': {
           if(isTimeStopActive()){
             result.cooldown = 0;
+          }
+          if(synergyState && Math.abs(synergyState.dashCooldownMultiplier - 1)>1e-4){
+            result.cooldown = Math.max(0, result.cooldown * synergyState.dashCooldownMultiplier);
           }
           break;
         }
@@ -7961,6 +9139,26 @@
       dash.trailSparkleColor = stacks>=4 ? '#f0fdf4' : '#e0f2fe';
 
       dash.canBreakObstacles = stacks>3;
+      const synergy = this.synergyState || null;
+      if(synergy){
+        if(Number.isFinite(synergy.dashDistanceBonus) && synergy.dashDistanceBonus!==0){
+          dash.distanceUnits = Math.max(dash.distanceUnits, dash.distanceUnits + synergy.dashDistanceBonus);
+          const radius = this.r || CONFIG.player.radius || 12;
+          const newDistance = Math.max(radius * 2, radius * 2 * dash.distanceUnits);
+          dash.currentDashDistance = newDistance;
+          const baseSpeed = Number(dash.baseDashSpeed);
+          if(Number.isFinite(baseSpeed) && baseSpeed>0){
+            dash.dashDuration = Math.max(0.12, newDistance / baseSpeed);
+          }
+        }
+        if(Math.abs(synergy.dashCooldownMultiplier - 1)>1e-4){
+          dash.cooldownDuration = Math.max(0.2, dash.cooldownDuration * synergy.dashCooldownMultiplier);
+          dash.cooldown = Math.min(dash.cooldown, dash.cooldownDuration);
+        }
+        if(Math.abs(synergy.dashDamageMultiplier - 1)>1e-4){
+          dash.trailDamageMultiplier = Math.max(0.05, dash.trailDamageMultiplier * synergy.dashDamageMultiplier);
+        }
+      }
     }
     adjustMaxHp(delta){
       if(!Number.isFinite(delta)) return;
@@ -8741,7 +9939,7 @@
 
   function createShooterBehavior(options={}){
     const rate = Math.max(0.1, options.rate || 1);
-    const cooldown = 1 / rate;
+    const baseCooldown = 1 / rate;
     const speedMultiplier = Number.isFinite(options.speedMultiplier) ? options.speedMultiplier : 1;
     const rangeMultiplier = Number.isFinite(options.rangeMultiplier) ? options.rangeMultiplier : 1;
     const homing = !!options.homing;
@@ -8749,6 +9947,9 @@
     const damage = Number.isFinite(options.damage) ? options.damage : 3;
     return {
       afterUpdate(follower, owner, dt){
+        const synergy = owner?.synergyState || null;
+        const rateMultiplier = Math.max(0.1, synergy?.followerFireRateMultiplier || 1);
+        const actualCooldown = Math.max(0.05, baseCooldown / rateMultiplier);
         follower.fireTimer = Math.max(0, (follower.fireTimer || 0) - dt);
         if(follower.fireTimer>0) return;
         const target = acquireNearestEnemy(follower);
@@ -8760,10 +9961,24 @@
         const baseSpeed = (owner?.tearSpeed ?? CONFIG.player.tearSpeed) * speedMultiplier;
         const vx = (dx/len) * baseSpeed;
         const vy = (dy/len) * baseSpeed;
-        const life = Math.max(0.2, (owner?.tearLife ?? CONFIG.player.tearLife) * rangeMultiplier);
-        const options = {homing, homingStrength};
-        runtime.bullets.push(new Bullet(follower.x, follower.y, vx, vy, life, damage, options));
-        follower.fireTimer = cooldown;
+        const baseLife = Math.max(0.2, (owner?.tearLife ?? CONFIG.player.tearLife) * rangeMultiplier);
+        const life = Math.max(0.2, baseLife * (synergy ? Math.max(0.1, synergy.followerRangeMultiplier || 1) : 1));
+        let damageValue = damage * (synergy ? Math.max(0.05, synergy.followerDamageMultiplier || 1) : 1);
+        if(synergy){ damageValue += synergy.followerDamageAdd || 0; }
+        damageValue = Math.max(0.05, damageValue);
+        const bulletOptions = {homing, homingStrength};
+        if(synergy){
+          const bonus = Math.max(0, synergy.followerHomingStrengthBonus || 0);
+          if(bonus>0 || synergy.grantsHoming){
+            bulletOptions.homing = true;
+          }
+          if(bonus>0){
+            const baseStrength = Number.isFinite(bulletOptions.homingStrength) ? bulletOptions.homingStrength : (owner?.homingStrength || 6);
+            bulletOptions.homingStrength = Math.max(baseStrength, baseStrength + bonus);
+          }
+        }
+        runtime.bullets.push(new Bullet(follower.x, follower.y, vx, vy, life, damageValue, bulletOptions));
+        follower.fireTimer = actualCooldown;
       }
     };
   }
