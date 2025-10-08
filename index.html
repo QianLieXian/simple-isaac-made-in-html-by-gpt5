@@ -251,6 +251,16 @@
       hiddenChance:0.005,
       hiddenItemChance:0.001,
       hollowChance:0.55,
+      glowChance:0.05,
+      glowSoulHeartChance:0.84,
+      glowSoulHeartMin:1,
+      glowSoulHeartMax:3,
+      glowItemChance:0.01,
+      glowGoldChestChance:0.15,
+      spike:{chance:0.15, max:3, sizeScale:0.7, damage:1},
+      bloodSpike:{chance:0.015, max:3, sizeScale:0.7, playerDamage:1, enemyDamagePerFrame:1},
+      choco:{chance:0.15, max:5, sizeScale:1, minHits:3, maxHits:5, dropChance:0.1, dropTypes:['key','bomb','heart'], rareItemChance:0.001, itemSlug:'hot-chocolate'},
+      flame:{chance:0.25, max:5, sizeScale:0.7, minHits:3, maxHits:5, dropChance:0.1, dropTypes:['key','bomb','heart'], playerDamage:1, enemyDamage:3, enemyIntervalFrames:20},
     },
     shop: {
       itemChance: 0.95,
@@ -373,6 +383,18 @@
   }
   function rectOverlap(a,b){
     return !(a.x+a.w < b.x || b.x+b.w < a.x || a.y+a.h < b.y || b.y+b.h < a.y);
+  }
+  function rectOverlapExpanded(a,b,padding=0){
+    const pad = Math.max(0, padding);
+    const ax1 = a.x - pad;
+    const ay1 = a.y - pad;
+    const ax2 = a.x + a.w + pad;
+    const ay2 = a.y + a.h + pad;
+    const bx1 = b.x - pad;
+    const by1 = b.y - pad;
+    const bx2 = b.x + b.w + pad;
+    const by2 = b.y + b.h + pad;
+    return !(ax2 < bx1 || bx2 < ax1 || ay2 < by1 || by2 < ay1);
   }
   function hexToRgb(color){
     if(typeof color !== 'string') return null;
@@ -2840,12 +2862,9 @@
           remaining: candidateTiles.length,
         };
         for(const tile of candidateTiles){
-          tile.hp = 60;
-          tile.destroyed = false;
-          tile.parent = parent;
-          tile.hidden = isHidden;
+          const obs = makeStoneObstacle(tile.x, tile.y, tile.w, tile.h, {parent, hidden: isHidden});
+          created.push(obs);
         }
-        created.push(...candidateTiles);
         clustersPlaced++;
         if(hollow){
           const centerX = x + tileSize * 1.5;
@@ -2853,7 +2872,73 @@
           spawnRandomDrop(this, centerX, centerY);
         }
       }
+      this.spawnTerrainFeatures(created);
       this.obstacles = created;
+    }
+    spawnTerrainFeatures(list){
+      const obstacles = Array.isArray(list) ? list : [];
+      const cfg = CONFIG.obstacles || {};
+      const paddingDefault = 8;
+      const placeStandalone = (count, size, padding, builder)=>{
+        if(count<=0 || size<=0 || typeof builder!=='function') return;
+        const pad = Number.isFinite(padding) ? Math.max(0, padding) : paddingDefault;
+        const minX = 60;
+        const maxX = CONFIG.roomW - 60 - size;
+        const minY = 70;
+        const maxY = CONFIG.roomH - 70 - size;
+        if(maxX < minX || maxY < minY) return;
+        let placed = 0;
+        let attempts = 0;
+        const maxAttempts = Math.max(60, count * 60);
+        while(placed < count && attempts < maxAttempts){
+          attempts++;
+          const x = maxX === minX ? minX : randRange(minX, maxX);
+          const y = maxY === minY ? minY : randRange(minY, maxY);
+          const rect = {x, y, w:size, h:size};
+          if(this.collidesDoorCorridor(rect)) continue;
+          let blocked = false;
+          for(const existing of obstacles){
+            if(existing.destroyed) continue;
+            if(rectOverlapExpanded(existing, rect, pad)){
+              blocked = true;
+              break;
+            }
+          }
+          if(blocked) continue;
+          const obs = builder(rect);
+          if(!obs) continue;
+          obstacles.push(obs);
+          placed++;
+        }
+      };
+      const spikeCfg = cfg.spike;
+      if(spikeCfg && spikeCfg.chance>0 && rand() < clamp(spikeCfg.chance,0,1)){
+        const max = Math.max(1, spikeCfg.max|0);
+        const count = randInt(1, max);
+        const size = CONFIG.player.radius * 2 * Math.max(0.2, spikeCfg.sizeScale || 0.7);
+        placeStandalone(count, size, size*0.35, rect=>makeSpikeObstacle(rect.x, rect.y, rect.w, rect.h, spikeCfg));
+      }
+      const bloodCfg = cfg.bloodSpike;
+      if(bloodCfg && bloodCfg.chance>0 && rand() < clamp(bloodCfg.chance,0,1)){
+        const max = Math.max(1, bloodCfg.max|0);
+        const count = randInt(1, max);
+        const size = CONFIG.player.radius * 2 * Math.max(0.2, bloodCfg.sizeScale || 0.7);
+        placeStandalone(count, size, size*0.35, rect=>makeBloodSpikeObstacle(rect.x, rect.y, rect.w, rect.h, bloodCfg));
+      }
+      const chocoCfg = cfg.choco;
+      if(chocoCfg && chocoCfg.chance>0 && rand() < clamp(chocoCfg.chance,0,1)){
+        const max = Math.max(1, chocoCfg.max|0);
+        const count = randInt(1, max);
+        const size = CONFIG.player.radius * 2 * Math.max(0.2, chocoCfg.sizeScale || 1);
+        placeStandalone(count, size, size*0.45, rect=>makeChocolateTowerObstacle(rect.x, rect.y, rect.w, rect.h, chocoCfg));
+      }
+      const flameCfg = cfg.flame;
+      if(flameCfg && flameCfg.chance>0 && rand() < clamp(flameCfg.chance,0,1)){
+        const max = Math.max(1, flameCfg.max|0);
+        const count = randInt(1, max);
+        const size = CONFIG.player.radius * 2 * Math.max(0.2, flameCfg.sizeScale || 0.7);
+        placeStandalone(count, size, size*0.4, rect=>makeFlameObstacle(rect.x, rect.y, rect.w, rect.h, flameCfg));
+      }
     }
     collidesDoorCorridor(rect){
       const corridors = [];
@@ -2953,6 +3038,127 @@
         return {...entry};
       });
     }
+  }
+
+  function makeStoneObstacle(x, y, w, h, options={}){
+    const parent = options.parent || null;
+    const hidden = !!options.hidden;
+    const obs = {
+      type: 'rock',
+      x,
+      y,
+      w,
+      h,
+      hp: Math.max(1, Number(options.hp) || 60),
+      destroyed: false,
+      parent,
+      hidden,
+      solid: true,
+      projectileSolid: true,
+      breakable: true,
+      bombImmune: false,
+    };
+    if(!hidden){
+      const glowChance = clamp(CONFIG?.obstacles?.glowChance ?? 0, 0, 1);
+      if(glowChance>0 && rand() < glowChance){
+        obs.type = 'glow-rock';
+        obs.glowPhase = rand()*Math.PI*2;
+        obs.glowPulse = rand()*Math.PI*2;
+      }
+    }
+    return obs;
+  }
+
+  function makeSpikeObstacle(x, y, w, h, cfg={}){
+    return {
+      type:'spike',
+      x,
+      y,
+      w,
+      h,
+      destroyed:false,
+      solid:false,
+      projectileSolid:false,
+      breakable:false,
+      bombImmune:true,
+      hazard:true,
+      playerDamage: Math.max(0, cfg.damage ?? 1),
+      enemyDamagePerFrame: 0,
+    };
+  }
+
+  function makeBloodSpikeObstacle(x, y, w, h, cfg={}){
+    return {
+      type:'blood-spike',
+      x,
+      y,
+      w,
+      h,
+      destroyed:false,
+      solid:false,
+      projectileSolid:false,
+      breakable:false,
+      bombImmune:true,
+      hazard:true,
+      playerDamage: Math.max(0, cfg.playerDamage ?? cfg.damage ?? 1),
+      enemyDamagePerFrame: Math.max(0, cfg.enemyDamagePerFrame ?? 1),
+    };
+  }
+
+  function makeChocolateTowerObstacle(x, y, w, h, cfg={}){
+    const minHits = Math.max(1, Math.floor(cfg.minHits ?? 3));
+    const maxHits = Math.max(minHits, Math.floor(cfg.maxHits ?? minHits));
+    const hits = randInt(minHits, maxHits);
+    return {
+      type:'choco-tower',
+      x,
+      y,
+      w,
+      h,
+      destroyed:false,
+      solid:true,
+      projectileSolid:true,
+      breakable:true,
+      bombImmune:false,
+      hazard:false,
+      hitsRemaining:hits,
+      maxHits:hits,
+      dropChance: clamp(cfg.dropChance ?? 0.1, 0, 1),
+      dropTypes: Array.isArray(cfg.dropTypes) && cfg.dropTypes.length ? cfg.dropTypes.slice() : ['key','bomb','heart'],
+      rareItemChance: clamp(cfg.rareItemChance ?? 0.001, 0, 1),
+      itemSlug: cfg.itemSlug || 'hot-chocolate',
+      hitFlash:0,
+    };
+  }
+
+  function makeFlameObstacle(x, y, w, h, cfg={}){
+    const minHits = Math.max(1, Math.floor(cfg.minHits ?? 3));
+    const maxHits = Math.max(minHits, Math.floor(cfg.maxHits ?? minHits));
+    const hits = randInt(minHits, maxHits);
+    const intervalFrames = Math.max(1, Math.floor(cfg.enemyIntervalFrames ?? 20));
+    return {
+      type:'flame',
+      x,
+      y,
+      w,
+      h,
+      destroyed:false,
+      solid:false,
+      projectileSolid:true,
+      breakable:true,
+      bombImmune:false,
+      hazard:true,
+      hitsRemaining:hits,
+      maxHits:hits,
+      dropChance: clamp(cfg.dropChance ?? 0.1, 0, 1),
+      dropTypes: Array.isArray(cfg.dropTypes) && cfg.dropTypes.length ? cfg.dropTypes.slice() : ['key','bomb','heart'],
+      playerDamage: Math.max(0, cfg.playerDamage ?? 1),
+      enemyDamage: Math.max(0, cfg.enemyDamage ?? 3),
+      enemyInterval: Math.max(1/240, intervalFrames / 60),
+      hitFlash:0,
+      flickerPhase: rand()*Math.PI*2,
+      enemyDamageMap: null,
+    };
   }
 
   class Dungeon{
@@ -4013,6 +4219,122 @@
       }
     }
   }
+
+  function updateRoomObstacles(dt){
+    const room = dungeon?.current;
+    if(!room || !Array.isArray(room.obstacles)) return;
+    for(const obs of room.obstacles){
+      if(obs.destroyed) continue;
+      if(typeof obs.hitFlash === 'number' && obs.hitFlash>0){
+        obs.hitFlash = Math.max(0, obs.hitFlash - dt*4);
+      }
+      switch(obs.type){
+        case 'spike':{
+          handleSpikeContact(room, obs, dt, {bleeding:false});
+          break;
+        }
+        case 'blood-spike':{
+          handleSpikeContact(room, obs, dt, {bleeding:true});
+          break;
+        }
+        case 'flame':{
+          updateFlameObstacle(room, obs, dt);
+          break;
+        }
+        case 'glow-rock':{
+          if(typeof obs.glowPhase === 'number'){ obs.glowPhase += dt * 0.6; }
+          if(typeof obs.glowPulse === 'number'){ obs.glowPulse += dt * 0.8; }
+          break;
+        }
+        case 'choco-tower':{
+          // handled by hitFlash decay
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  }
+
+  function handleSpikeContact(room, obs, dt, options={}){
+    const playerDamage = Math.max(0, obs.playerDamage ?? 0);
+    if(playerDamage>0 && player && !player.flying && circleRectOverlap(player, obs)){
+      player.hurt(playerDamage, {cause: obs.type || 'spike'});
+    }
+    if(!options.bleeding) return;
+    const damage = Math.max(0, obs.enemyDamagePerFrame ?? 0);
+    if(damage<=0 || !Array.isArray(room.enemies)) return;
+    for(const enemy of room.enemies){
+      if(!enemy || enemy.dead) continue;
+      if(enemy.flying) continue;
+      if(!circleRectOverlap(enemy, obs)) continue;
+      const killed = enemy.damage ? enemy.damage(damage) : false;
+      if(killed){
+        handleEnemyDeath(enemy, room);
+      } else if(typeof enemy.damageFlashTimer === 'number'){
+        enemy.damageFlashTimer = Math.max(enemy.damageFlashTimer, 0.08);
+      }
+    }
+  }
+
+  function updateFlameObstacle(room, obs, dt){
+    const playerDamage = Math.max(0, obs.playerDamage ?? 0);
+    if(playerDamage>0 && player && !player.flying && circleRectOverlap(player, obs)){
+      player.hurt(playerDamage, {cause:'flame'});
+    }
+    const damage = Math.max(0, obs.enemyDamage ?? 0);
+    if(damage>0 && Array.isArray(room.enemies)){
+      if(!obs.enemyDamageMap || typeof obs.enemyDamageMap.get !== 'function'){
+        obs.enemyDamageMap = new WeakMap();
+      }
+      const interval = Math.max(1/240, Number(obs.enemyInterval) || (20/60));
+      for(const enemy of room.enemies){
+        if(!enemy || enemy.dead) continue;
+        if(enemy.flying) continue;
+        if(!circleRectOverlap(enemy, obs)){
+          obs.enemyDamageMap.delete?.(enemy);
+          continue;
+        }
+        let acc = obs.enemyDamageMap.get(enemy) || 0;
+        acc += dt;
+        const ticks = Math.floor(acc / interval);
+        if(ticks>0){
+          acc -= ticks * interval;
+          const totalDamage = damage * ticks;
+          if(totalDamage>0){
+            const killed = enemy.damage ? enemy.damage(totalDamage) : false;
+            if(killed){
+              handleEnemyDeath(enemy, room);
+            } else if(typeof enemy.damageFlashTimer === 'number'){
+              enemy.damageFlashTimer = Math.max(enemy.damageFlashTimer, 0.12);
+            }
+          }
+        }
+        obs.enemyDamageMap.set(enemy, acc);
+      }
+    }
+    if(typeof obs.flickerPhase === 'number'){
+      obs.flickerPhase += dt * 6;
+    }
+  }
+
+  function handleBulletObstacleHit(bullet, obs){
+    if(!bullet || !obs) return false;
+    const room = dungeon?.current;
+    if(obs.type === 'choco-tower' || obs.type === 'flame'){
+      const maxHits = Math.max(1, obs.maxHits || 1);
+      if(!Number.isFinite(obs.hitsRemaining)){ obs.hitsRemaining = maxHits; }
+      obs.hitsRemaining = Math.max(0, (obs.hitsRemaining ?? maxHits) - 1);
+      obs.hitFlash = Math.max(obs.hitFlash || 0, 0.4);
+      bullet.destroy({glowStrength:0.35});
+      if(obs.hitsRemaining<=0){
+        obs.destroyed = true;
+        onObstacleDestroyed(room, obs, {cause:'projectile'});
+      }
+      return true;
+    }
+    return false;
+  }
   function endBeam(beam){
     if(!beam) return;
     if(typeof beam.finish === 'function'){
@@ -4292,6 +4614,7 @@
     if(!dungeon?.current || bomb.exploded) return;
     for(const obs of dungeon.current.obstacles){
       if(obs.destroyed) continue;
+      if(obs.solid === false) continue;
       const push = circleRectResolve(bomb, obs);
       if(push){
         bomb.x += push.x;
@@ -8194,7 +8517,14 @@
       if(!this.pierceObstacles){
         for(const obs of dungeon.current.obstacles){
           if(obs.destroyed) continue;
-          if(circleRectOverlap(this, obs)){ this.destroy({glowStrength:0.45}); break; }
+          if(obs.projectileSolid === false) continue;
+          if(circleRectOverlap(this, obs)){
+            if(handleBulletObstacleHit(this, obs)){
+              break;
+            }
+            this.destroy({glowStrength:0.45});
+            break;
+          }
         }
       }
       if(this.holyAura){
@@ -10131,8 +10461,15 @@
     }
   });
 
-  function onObstacleDestroyed(room, obs){
+  function onObstacleDestroyed(room, obs, options={}){
     if(!room || !obs) return;
+    if(obs.type === 'choco-tower'){
+      handleChocolateTowerDrops(room, obs);
+    } else if(obs.type === 'flame'){
+      handleFlameDrops(room, obs);
+    } else if(obs.type === 'glow-rock'){
+      handleGlowRockDrops(room, obs);
+    }
     const parent = obs.parent;
     if(parent && typeof parent.remaining === 'number'){
       parent.remaining = Math.max(0, parent.remaining - 1);
@@ -10146,6 +10483,100 @@
           const item = rollItem();
           room.pickups.push({type:'item', x:clamp(dropX,80,CONFIG.roomW-80), y:clamp(dropY,90,CONFIG.roomH-90), r:18, item, vx:0, vy:0, solid:false});
         }
+      }
+    }
+  }
+
+  function obstacleCenter(obs){
+    const x = clamp(obs.x + obs.w/2, 70, CONFIG.roomW-70);
+    const y = clamp(obs.y + obs.h/2, 80, CONFIG.roomH-80);
+    return {x, y};
+  }
+
+  function spawnObstacleResourceDrop(room, obs, dropTypes){
+    if(!room || !obs) return;
+    const table = Array.isArray(dropTypes) && dropTypes.length ? dropTypes : ['key','bomb','heart'];
+    const choice = table[Math.floor(rand()*table.length)] || 'coin';
+    const {x, y} = obstacleCenter(obs);
+    if(choice === 'heart'){
+      const heart = makeHeartPickup(x, y, 1);
+      heart.spawnGrace = 0.2;
+      room.pickups.push(heart);
+    } else {
+      const amount = choice==='coin' ? randInt(3,5) : 1;
+      const pickup = makeResourcePickup(choice, x, y, amount);
+      pickup.spawnGrace = 0.2;
+      room.pickups.push(pickup);
+    }
+  }
+
+  function handleChocolateTowerDrops(room, obs){
+    if(obs.lootProcessed) return;
+    obs.lootProcessed = true;
+    if(obs.dropChance>0 && rand() < obs.dropChance){
+      spawnObstacleResourceDrop(room, obs, obs.dropTypes);
+    }
+    if(obs.rareItemChance>0 && rand() < obs.rareItemChance){
+      const item = ITEM_REF_HOT_CHOCOLATE || rollItem();
+      if(item){
+        const {x, y} = obstacleCenter(obs);
+        const pickup = makeLooseItemPickup(x, y - 10, item);
+        if(pickup){
+          pickup.spawnGrace = 0.25;
+          room.pickups.push(pickup);
+        }
+      }
+    }
+  }
+
+  function handleFlameDrops(room, obs){
+    if(obs.lootProcessed) return;
+    obs.lootProcessed = true;
+    if(obs.dropChance>0 && rand() < obs.dropChance){
+      spawnObstacleResourceDrop(room, obs, obs.dropTypes);
+    }
+  }
+
+  function handleGlowRockDrops(room, obs){
+    if(obs.lootProcessed) return;
+    obs.lootProcessed = true;
+    const cfg = CONFIG.obstacles || {};
+    const {x, y} = obstacleCenter(obs);
+    const soulChance = clamp(cfg.glowSoulHeartChance ?? 0.84, 0, 1);
+    const soulMin = Math.max(1, Math.floor(cfg.glowSoulHeartMin ?? 1));
+    const soulMax = Math.max(soulMin, Math.floor(cfg.glowSoulHeartMax ?? soulMin));
+    if(soulChance>0 && rand() < soulChance){
+      const count = randInt(soulMin, soulMax);
+      for(let i=0;i<count;i++){
+        const angle = rand()*Math.PI*2;
+        const distScale = randRange(0, 18);
+        const px = clamp(x + Math.cos(angle)*distScale, 70, CONFIG.roomW-70);
+        const py = clamp(y + Math.sin(angle)*distScale, 80, CONFIG.roomH-80);
+        const soul = makeSoulHeartPickup(px, py, 1);
+        soul.spawnGrace = 0.25;
+        room.pickups.push(soul);
+      }
+    }
+    const itemChance = clamp(cfg.glowItemChance ?? 0.01, 0, 1);
+    if(itemChance>0 && rand() < itemChance){
+      const item = rollItem();
+      if(item){
+        const pickup = makeLooseItemPickup(x, y - 10, item);
+        if(pickup){
+          pickup.spawnGrace = 0.25;
+          room.pickups.push(pickup);
+        }
+      }
+    }
+    const chestChance = clamp(cfg.glowGoldChestChance ?? 0.15, 0, 1);
+    if(chestChance>0 && rand() < chestChance){
+      const chestCount = randInt(1, 3);
+      for(let i=0;i<chestCount;i++){
+        const angle = rand()*Math.PI*2;
+        const distScale = randRange(10, 28);
+        const px = clamp(x + Math.cos(angle)*distScale, 80, CONFIG.roomW-80);
+        const py = clamp(y + Math.sin(angle)*distScale, 90, CONFIG.roomH-90);
+        spawnChestInRoom(room, 'gold', {position:{x:px, y:py}, radius:20});
       }
     }
   }
@@ -10191,10 +10622,11 @@
     }
     for(const obs of room.obstacles){
       if(obs.destroyed) continue;
-      if(circleRectOverlap(circle, obs)){
-        obs.destroyed = true;
-        onObstacleDestroyed(room, obs);
-      }
+      if(obs.bombImmune) continue;
+      if(!circleRectOverlap(circle, obs)) continue;
+      if(obs.breakable === false) continue;
+      obs.destroyed = true;
+      onObstacleDestroyed(room, obs, {cause:'bomb'});
     }
     if(room.pickups){
       for(const drop of room.pickups){
@@ -16938,11 +17370,12 @@
       && player.impactDash?.canBreakObstacles;
     for(const obs of dungeon.current.obstacles){
       if(obs.destroyed) continue;
-      if(playerSmash && circleRectOverlap(entity, obs)){
+      if(playerSmash && obs.breakable !== false && circleRectOverlap(entity, obs)){
         obs.destroyed = true;
         onObstacleDestroyed(dungeon.current, obs);
         continue;
       }
+      if(obs.solid === false) continue;
       const push = circleRectResolve(entity, obs);
       if(push){
         entity.x += push.x;
@@ -17085,6 +17518,7 @@
       if(b.done){ bombs.splice(i,1); }
     }
     updatePickups(worldDt);
+    updateRoomObstacles(worldDt);
     updateRoomPortal(dungeon.current, worldDt);
     if(!timeStopActive){
       for(const b of bombs){
@@ -17553,55 +17987,245 @@
     for(const obs of room.obstacles){
       if(obs.destroyed) continue;
       if(obs.hidden) continue;
-      const shadowW = Math.max(6, obs.w * 0.65);
-      const shadowH = Math.max(4, obs.h * 0.28);
-      ctx.fillStyle = colorWithAlpha('#000000', 0.28);
-      ctx.beginPath();
-      ctx.ellipse(obs.x + obs.w/2, obs.y + obs.h + 6, shadowW/2, shadowH, 0, 0, Math.PI*2);
-      ctx.fill();
-      const radius = Math.min(obs.w, obs.h) * 0.22;
-      const base = '#2e364b';
-      const grad = ctx.createLinearGradient(obs.x, obs.y, obs.x, obs.y + obs.h);
-      grad.addColorStop(0, shadeColor(base, 0.22));
-      grad.addColorStop(0.55, base);
-      grad.addColorStop(1, shadeColor(base, -0.28));
+      switch(obs.type){
+        case 'spike':
+          drawSpikeObstacleShape(obs, {variant:'stone'});
+          break;
+        case 'blood-spike':
+          drawSpikeObstacleShape(obs, {variant:'blood'});
+          break;
+        case 'choco-tower':
+          drawChocolateTowerObstacle(obs);
+          break;
+        case 'flame':
+          drawFlameObstacleShape(obs);
+          break;
+        case 'glow-rock':
+          drawStoneObstacleShape(obs, {glow:true});
+          break;
+        default:
+          drawStoneObstacleShape(obs);
+          break;
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawObstacleShadow(cx, cy, w, h, alpha=0.28){
+    ctx.save();
+    ctx.fillStyle = colorWithAlpha('#000000', alpha);
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, Math.max(3, w/2), Math.max(2, h), 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawStoneObstacleShape(obs, options={}){
+    const {x, y, w, h} = obs;
+    const shadowW = Math.max(6, w * 0.65);
+    const shadowH = Math.max(4, h * 0.28);
+    drawObstacleShadow(x + w/2, y + h + 6, shadowW, shadowH);
+    const radius = Math.min(w, h) * 0.22;
+    const baseColor = options.baseColor || '#2e364b';
+    const flash = clamp(obs.hitFlash || 0, 0, 1);
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, shadeColor(baseColor, 0.22 + flash*0.35));
+    grad.addColorStop(0.55, shadeColor(baseColor, flash*0.25));
+    grad.addColorStop(1, shadeColor(baseColor, -0.28 + flash*0.2));
+    ctx.save();
+    ctx.beginPath();
+    if(typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, radius);
+    else ctx.rect(x, y, w, h);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = colorWithAlpha('#05070d', 0.65 + flash*0.2);
+    ctx.stroke();
+    ctx.clip();
+    const topSheen = ctx.createLinearGradient(x, y, x, y + h*0.6);
+    topSheen.addColorStop(0, colorWithAlpha('#ffffff',0.18 + flash*0.15));
+    topSheen.addColorStop(0.3, colorWithAlpha('#ffffff',0.08 + flash*0.08));
+    topSheen.addColorStop(1, colorWithAlpha('#ffffff',0));
+    ctx.fillStyle = topSheen;
+    ctx.fillRect(x, y, w, h*0.65);
+    const crackColor = colorWithAlpha('#cdd5f6', 0.16 + flash*0.12);
+    ctx.strokeStyle = crackColor;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(x + w*0.2, y + h*0.35);
+    ctx.lineTo(x + w*0.38, y + h*0.48);
+    ctx.lineTo(x + w*0.3, y + h*0.65);
+    ctx.moveTo(x + w*0.68, y + h*0.22);
+    ctx.lineTo(x + w*0.78, y + h*0.42);
+    ctx.lineTo(x + w*0.62, y + h*0.58);
+    ctx.stroke();
+    ctx.strokeStyle = colorWithAlpha('#0b0f18', 0.55);
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(x + w*0.15, y + h*0.82);
+    ctx.quadraticCurveTo(x + w*0.32, y + h*0.72, x + w*0.5, y + h*0.86);
+    ctx.moveTo(x + w*0.58, y + h*0.78);
+    ctx.quadraticCurveTo(x + w*0.74, y + h*0.68, x + w*0.86, y + h*0.82);
+    ctx.stroke();
+    ctx.restore();
+    if(options.glow){
+      const phase = obs.glowPulse || 0;
+      const base = obs.glowPhase || 0;
+      const pulse = Math.sin(phase) * 0.5 + 0.5;
+      const glowColor = options.glowColor || '#8ddcff';
+      const glowStrength = 0.2 + pulse * 0.25 + flash * 0.25;
+      const glowGrad = ctx.createRadialGradient(x + w/2, y + h/2, Math.max(4, Math.min(w,h)*0.2), x + w/2, y + h/2, Math.max(w,h)*0.65);
+      glowGrad.addColorStop(0, colorWithAlpha(glowColor, glowStrength));
+      glowGrad.addColorStop(1, colorWithAlpha(glowColor, 0));
       ctx.save();
-      ctx.beginPath();
-      if(typeof ctx.roundRect === 'function') ctx.roundRect(obs.x, obs.y, obs.w, obs.h, radius);
-      else ctx.rect(obs.x, obs.y, obs.w, obs.h);
-      ctx.fillStyle = grad;
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = colorWithAlpha('#05070d', 0.65);
-      ctx.stroke();
-      ctx.clip();
-      const topSheen = ctx.createLinearGradient(obs.x, obs.y, obs.x, obs.y + obs.h*0.6);
-      topSheen.addColorStop(0, colorWithAlpha('#ffffff',0.18));
-      topSheen.addColorStop(0.3, colorWithAlpha('#ffffff',0.08));
-      topSheen.addColorStop(1, colorWithAlpha('#ffffff',0));
-      ctx.fillStyle = topSheen;
-      ctx.fillRect(obs.x, obs.y, obs.w, obs.h*0.65);
-      const crackColor = colorWithAlpha('#cdd5f6', 0.16);
-      ctx.strokeStyle = crackColor;
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = glowGrad;
+      ctx.fillRect(x - 12, y - 12, w + 24, h + 24);
+      ctx.restore();
+      ctx.save();
+      ctx.translate(x + w/2, y + h/2);
+      ctx.rotate(base * 0.08);
+      ctx.strokeStyle = colorWithAlpha(glowColor, 0.28 + pulse*0.15);
       ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.moveTo(obs.x + obs.w*0.2, obs.y + obs.h*0.35);
-      ctx.lineTo(obs.x + obs.w*0.38, obs.y + obs.h*0.48);
-      ctx.lineTo(obs.x + obs.w*0.3, obs.y + obs.h*0.65);
-      ctx.moveTo(obs.x + obs.w*0.68, obs.y + obs.h*0.22);
-      ctx.lineTo(obs.x + obs.w*0.78, obs.y + obs.h*0.42);
-      ctx.lineTo(obs.x + obs.w*0.62, obs.y + obs.h*0.58);
-      ctx.stroke();
-      ctx.strokeStyle = colorWithAlpha('#0b0f18', 0.55);
-      ctx.lineWidth = 1.3;
-      ctx.beginPath();
-      ctx.moveTo(obs.x + obs.w*0.15, obs.y + obs.h*0.82);
-      ctx.quadraticCurveTo(obs.x + obs.w*0.32, obs.y + obs.h*0.72, obs.x + obs.w*0.5, obs.y + obs.h*0.86);
-      ctx.moveTo(obs.x + obs.w*0.58, obs.y + obs.h*0.78);
-      ctx.quadraticCurveTo(obs.x + obs.w*0.74, obs.y + obs.h*0.68, obs.x + obs.w*0.86, obs.y + obs.h*0.82);
+      ctx.ellipse(0, 0, w*0.32, h*0.2, 0, 0, Math.PI*2);
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  function drawSpikeObstacleShape(obs, options={}){
+    const {x, y, w, h} = obs;
+    const centerX = x + w/2;
+    const shadowW = Math.max(6, w * 0.8);
+    const shadowH = Math.max(4, h * 0.3);
+    drawObstacleShadow(centerX, y + h + 4, shadowW, shadowH, 0.32);
+    const variant = options.variant || 'stone';
+    const basePlateColor = variant==='blood' ? '#2d1118' : '#1a1f26';
+    const spikeBase = variant==='blood' ? '#831843' : '#4b5563';
+    const spikeTip = variant==='blood' ? '#f87171' : '#cdd5f6';
+    const glowColor = variant==='blood' ? '#ff4d6d' : null;
+    ctx.save();
+    const plateHeight = h * 0.4;
+    ctx.beginPath();
+    if(typeof ctx.roundRect === 'function') ctx.roundRect(x, y + h - plateHeight, w, plateHeight, Math.min(w,h)*0.15);
+    else ctx.rect(x, y + h - plateHeight, w, plateHeight);
+    ctx.fillStyle = basePlateColor;
+    ctx.fill();
+    const rows = 2;
+    const cols = 2;
+    for(let row=0; row<rows; row++){
+      for(let col=0; col<cols; col++){
+        const sx = x + (col + 0.5) * (w/cols);
+        const sy = y + h - plateHeight - row * (h * 0.28);
+        const spikeWidth = w/(cols*2.2);
+        const spikeHeight = h * 0.55;
+        const grad = ctx.createLinearGradient(sx, sy, sx, sy + spikeHeight);
+        grad.addColorStop(0, shadeColor(spikeTip, 0.1));
+        grad.addColorStop(1, spikeBase);
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx - spikeWidth, sy + spikeHeight);
+        ctx.lineTo(sx + spikeWidth, sy + spikeHeight);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+        ctx.strokeStyle = colorWithAlpha('#05070d', 0.6);
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+    if(glowColor){
+      const aura = ctx.createRadialGradient(centerX, y + h*0.3, Math.max(2, w*0.12), centerX, y + h*0.4, Math.max(w,h));
+      aura.addColorStop(0, colorWithAlpha(glowColor, 0.22));
+      aura.addColorStop(1, colorWithAlpha(glowColor, 0));
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = aura;
+      ctx.fillRect(x - w*0.4, y - h*0.2, w*1.8, h*1.6);
+    }
+    ctx.restore();
+  }
+
+  function drawChocolateTowerObstacle(obs){
+    const {x, y, w, h} = obs;
+    const centerX = x + w/2;
+    const shadowW = Math.max(6, w * 0.7);
+    const shadowH = Math.max(4, h * 0.28);
+    drawObstacleShadow(centerX, y + h + 6, shadowW, shadowH, 0.32);
+    const flash = clamp(obs.hitFlash || 0, 0, 1);
+    const baseColor = shadeColor('#7c3f16', flash*0.4);
+    const bodyGrad = ctx.createLinearGradient(x, y, x, y + h);
+    bodyGrad.addColorStop(0, shadeColor(baseColor, 0.32));
+    bodyGrad.addColorStop(1, shadeColor('#4a220c', flash*0.35 - 0.15));
+    ctx.save();
+    ctx.beginPath();
+    if(typeof ctx.roundRect === 'function') ctx.roundRect(x, y + h*0.12, w, h*0.88, Math.min(w,h)*0.28);
+    else ctx.rect(x, y + h*0.12, w, h*0.88);
+    ctx.fillStyle = bodyGrad;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = colorWithAlpha('#2d1306', 0.85);
+    ctx.stroke();
+    const topHeight = h * 0.35;
+    ctx.beginPath();
+    ctx.moveTo(x, y + h*0.2);
+    ctx.lineTo(centerX, y);
+    ctx.lineTo(x + w, y + h*0.2);
+    ctx.closePath();
+    const topGrad = ctx.createLinearGradient(centerX, y, centerX, y + topHeight);
+    topGrad.addColorStop(0, shadeColor('#a95a2a', 0.3 + flash*0.3));
+    topGrad.addColorStop(1, shadeColor('#6b3014', flash*0.2 - 0.1));
+    ctx.fillStyle = topGrad;
+    ctx.fill();
+    ctx.strokeStyle = colorWithAlpha('#2d1306', 0.8);
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + w*0.25, y + h*0.55);
+    ctx.quadraticCurveTo(centerX, y + h*0.3, x + w*0.75, y + h*0.48);
+    ctx.strokeStyle = colorWithAlpha('#f8c28d', 0.6 + flash*0.35);
+    ctx.lineWidth = Math.max(1.5, w*0.08);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawFlameObstacleShape(obs){
+    const {x, y, w, h} = obs;
+    const centerX = x + w/2;
+    const shadowW = Math.max(6, w * 0.65);
+    const shadowH = Math.max(4, h * 0.28);
+    drawObstacleShadow(centerX, y + h + 4, shadowW, shadowH, 0.3);
+    const baseHeight = h * 0.28;
+    ctx.save();
+    if(typeof ctx.roundRect === 'function') ctx.roundRect(x, y + h - baseHeight, w, baseHeight, baseHeight*0.5);
+    else ctx.rect(x, y + h - baseHeight, w, baseHeight);
+    ctx.fillStyle = '#291d12';
+    ctx.fill();
+    ctx.strokeStyle = colorWithAlpha('#110a05', 0.8);
+    ctx.stroke();
+    ctx.restore();
+    const flameHeight = h * 0.9;
+    const flameWidth = w * 0.6;
+    const flash = clamp(obs.hitFlash || 0, 0, 1);
+    const phase = obs.flickerPhase || 0;
+    const flicker = Math.sin(phase) * 0.15 + 1;
+    ctx.save();
+    ctx.translate(centerX, y + h - baseHeight*0.6);
+    ctx.beginPath();
+    ctx.moveTo(0, -flameHeight*0.9);
+    ctx.quadraticCurveTo(flameWidth*0.5, -flameHeight*0.45, flameWidth*0.25, 0);
+    ctx.quadraticCurveTo(0, flameHeight*0.2, -flameWidth*0.25, 0);
+    ctx.quadraticCurveTo(-flameWidth*0.5, -flameHeight*0.45, 0, -flameHeight*0.9);
+    const bodyGrad = ctx.createRadialGradient(0, -flameHeight*0.5, flameWidth*0.1, 0, -flameHeight*0.3, flameWidth*0.7*flicker);
+    bodyGrad.addColorStop(0, colorWithAlpha('#fff1b9', 0.88 + flash*0.08));
+    bodyGrad.addColorStop(1, colorWithAlpha('#fb923c', 0.45 + flash*0.25));
+    ctx.fillStyle = bodyGrad;
+    ctx.fill();
+    const innerGrad = ctx.createRadialGradient(0, -flameHeight*0.65, flameWidth*0.05, 0, -flameHeight*0.25, flameWidth*0.45);
+    innerGrad.addColorStop(0, colorWithAlpha('#ffffff', 0.9));
+    innerGrad.addColorStop(1, colorWithAlpha('#facc15', 0));
+    ctx.fillStyle = innerGrad;
+    ctx.fill();
     ctx.restore();
   }
   function drawPickup(p){
