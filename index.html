@@ -5022,6 +5022,9 @@
         justReleased: false,
         justChangedDir: false,
         holdTime: 0,
+        lastHoldTime: 0,
+        releaseGrace: 0,
+        resumeFromGrace: false,
       };
       this.setBonuses = {};
       this.followers = [];
@@ -5040,6 +5043,8 @@
       this.shortSword = null;
       this.lightsaberStacks = 0;
       this.lightsaber = null;
+      this.brimstoneReleasePending = null;
+      this.aimIndicator = null;
       if(typeof this.resetFollowerTrail === 'function'){
         this.resetFollowerTrail();
       }
@@ -5210,7 +5215,7 @@
       if(keys.has('ArrowLeft')) shotX -= 1;
       if(keys.has('ArrowRight')) shotX += 1;
       if(entryLocked){ shotX = 0; shotY = 0; }
-      this.updateShotInputState(shotX, shotY);
+      this.updateShotInputState(shotX, shotY, dt);
       if(entryLocked && this.shotInput){
         this.shotInput.pressed = false;
         this.shotInput.justPressed = false;
@@ -5261,11 +5266,26 @@
       const shotState = this.getShotInput();
       if(shotState){
         if(!entryLocked && shotState.pressed){
+          if(shotState.resumeFromGrace){
+            shotState.holdTime = Math.max(shotState.holdTime || 0, shotState.lastHoldTime || 0);
+          }
           shotState.holdTime = (shotState.holdTime || 0) + dt;
-        } else if(!shotState.pressed || entryLocked){
+          shotState.lastHoldTime = shotState.holdTime;
+        } else if(!entryLocked && !shotState.pressed){
+          if(shotState.releaseGrace>0){
+            shotState.holdTime = Math.max(shotState.holdTime || 0, shotState.lastHoldTime || 0);
+          } else {
+            shotState.holdTime = 0;
+            shotState.lastHoldTime = 0;
+          }
+        } else if(entryLocked){
           shotState.holdTime = 0;
+          shotState.lastHoldTime = 0;
+          shotState.releaseGrace = 0;
+          shotState.resumeFromGrace = false;
         }
       }
+      this.updateAimIndicator(dt, shotState);
       const shotPressed = !entryLocked && !!(shotState && shotState.pressed);
       const hasHotChoco = typeof this.hasHotChocolate === 'function' && this.hasHotChocolate();
       if(this.attackMode !== 'lightsaber' && this.lightsaber && this.lightsaber.swing){
@@ -5326,6 +5346,9 @@
           state.charging = false;
           state.chargeTime = 0;
         }
+      }
+      if(shotState){
+        shotState.resumeFromGrace = false;
       }
       this.recordFollowerTrailPoint();
       this.updateFollowers(dt);
@@ -5473,6 +5496,7 @@
       if(firedCount>0){
         const volume = Math.min(0.75, 0.42 + firedCount*0.04);
         audio.play('playerShoot', {volume});
+        this.triggerAimIndicatorFlash?.('shoot', {intensity: Math.min(1.15, 0.6 + firedCount * 0.18)});
       }
     }
     hasCompressedPeach(){
@@ -5687,6 +5711,7 @@
           transitionFromY: -1,
           transitionSlideDir: 0,
           glintPhase: 0,
+          pendingRelease: null,
         };
       }
       const state = this.shortSword;
@@ -5738,6 +5763,9 @@
       }
       if(!Number.isFinite(state.transitionSlideDir)) state.transitionSlideDir = 0;
       if(!Number.isFinite(state.glintPhase)) state.glintPhase = 0;
+      if(state.pendingRelease && typeof state.pendingRelease !== 'object'){
+        state.pendingRelease = null;
+      }
       return state;
     }
     enableShortSwordMode(){
@@ -5850,10 +5878,48 @@
       }
       state.attached = true;
       const maxCharge = Math.max(0.6, state.chargeMax || 4);
+      const releaseBufferActive = Number.isFinite(shotState?.releaseGrace) && shotState.releaseGrace>0;
+      const resumed = !!(shotState && shotState.resumeFromGrace);
+      let pendingThrow = null;
       if(pressed){
-        state.chargeTime = Math.min(maxCharge, prevCharge + dt * (state.chargeRate || 1));
+        let nextCharge = prevCharge;
+        if(resumed && state.pendingRelease){
+          nextCharge = Math.max(nextCharge, state.pendingRelease.chargeTime || 0);
+          state.pendingRelease = null;
+        }
+        state.chargeTime = Math.min(maxCharge, nextCharge + dt * (state.chargeRate || 1));
       } else {
-        state.chargeTime = Math.max(0, prevCharge - dt * 1.2);
+        if(state.pendingRelease){
+          state.chargeTime = Math.max(state.chargeTime || 0, state.pendingRelease.chargeTime || 0);
+          if(!releaseBufferActive && !state.projectile){
+            pendingThrow = {...state.pendingRelease};
+            state.pendingRelease = null;
+          }
+        } else if(!state.projectile && prevCharge>0){
+          if(releaseBufferActive){
+            state.pendingRelease = {
+              chargeTime: prevCharge,
+              dirX: dispX,
+              dirY: dispY,
+              geometry: null,
+            };
+            state.chargeTime = prevCharge;
+          } else if(justReleased){
+            const releaseCharge = Math.max(prevCharge, Number(shotState?.holdTime) || 0);
+            if(releaseCharge >= 0.05){
+              pendingThrow = {
+                chargeTime: releaseCharge,
+                dirX: dispX,
+                dirY: dispY,
+                geometry: null,
+              };
+            }
+          } else {
+            state.chargeTime = Math.max(0, prevCharge - dt * 1.2);
+          }
+        } else {
+          state.chargeTime = Math.max(0, prevCharge - dt * 1.2);
+        }
       }
       const chargeRatio = clamp((state.chargeTime || 0) / maxCharge, 0, 1);
       const targetOffset = pressed ? (-state.bodyRadius * (0.28 + chargeRatio * 0.55)) : 0;
@@ -5866,16 +5932,19 @@
       state.geometry = geometry;
       state.glintPhase = (state.glintPhase || 0) + dt * (6 + chargeRatio * 4);
       this.applyShortSwordContactDamage(state, dt, geometry);
-      if(justReleased && !state.projectile){
-        const releaseCharge = Math.max(prevCharge, Number(shotState?.holdTime) || 0);
-        if(releaseCharge >= 0.05){
-          this.throwShortSword(state, {
-            dirX: geometry.dirX,
-            dirY: geometry.dirY,
-            chargeTime: releaseCharge,
-            geometry,
-          });
-        }
+      if(state.pendingRelease && !state.pendingRelease.geometry){
+        state.pendingRelease.geometry = geometry;
+      }
+      if(pendingThrow && !state.projectile){
+        const payload = pendingThrow;
+        const throwDirX = Number.isFinite(payload.dirX) ? payload.dirX : geometry.dirX;
+        const throwDirY = Number.isFinite(payload.dirY) ? payload.dirY : geometry.dirY;
+        this.throwShortSword(state, {
+          dirX: throwDirX,
+          dirY: throwDirY,
+          chargeTime: payload.chargeTime,
+          geometry: payload.geometry || geometry,
+        });
         state.chargeTime = 0;
       }
       this.fireCd = 0;
@@ -5908,6 +5977,16 @@
         const pulseBoost = contactMultiplier>1 ? (contactMultiplier - 1) * 0.35 : 0;
         state.contactPulse = Math.max(state.contactPulse || 0, 0.55 + pulseBoost);
       }
+      if(Array.isArray(room.obstacles)){
+        const padding = Math.max(halfWidth, state.width * 0.3);
+        for(const obs of room.obstacles){
+          if(!obs || obs.destroyed || obs.breakable === false) continue;
+          if(!segmentRectOverlap(baseX, baseY, tipX, tipY, obs, padding)) continue;
+          obs.destroyed = true;
+          onObstacleDestroyed(room, obs, {cause:'shortsword'});
+          state.contactPulse = Math.max(state.contactPulse || 0, 0.65);
+        }
+      }
     }
     throwShortSword(state, options={}){
       if(!state) state = this.ensureShortSwordState();
@@ -5931,13 +6010,15 @@
       const damageMultiplier = Math.max(0.4, Number(synergy.damageMultiplier) || 1);
       const returnSpeedMultiplier = Math.max(0.4, Number(synergy.returnSpeedMultiplier) || 1);
       const throwDamageMultiplier = Math.max(0.4, Number(synergy.throwDamageMultiplier) || 1);
-      const rangeBase = diameter * (3.4 + speedRatio * 1.15);
-      const maxRangeLimit = diameter * 12;
-      let throwRange = rangeBase + (maxRangeLimit - rangeBase) * (0.35 + chargeRatio * 0.65);
-      throwRange = clamp(throwRange * rangeMultiplier, diameter * 2.4, maxRangeLimit);
-      const launchSpeed = Math.max(180, tearSpeed * (1.1 + chargeRatio * 0.75) * speedMultiplier);
+      const minRange = diameter * (1.45 + speedRatio * 0.25);
+      const maxRange = diameter * (2.6 + speedRatio * 0.7);
+      const maxRangeLimit = diameter * 7;
+      const easedCharge = Math.pow(chargeRatio, 0.7);
+      let throwRange = lerp(minRange, maxRange, easedCharge);
+      throwRange = clamp(throwRange * rangeMultiplier, diameter * 1.4, maxRangeLimit);
+      const launchSpeed = Math.max(150, tearSpeed * (0.75 + chargeRatio * 0.85) * speedMultiplier);
       const baseDamage = Math.max(0.05, this.damage || this.baseDamage || 1);
-      const distanceBonus = 2 + chargeRatio * 4.2;
+      const distanceBonus = 1.8 + chargeRatio * 3.4;
       const projectileDamage = baseDamage * distanceBonus * damageMultiplier * throwDamageMultiplier;
       const baseGeometry = options.geometry && typeof options.geometry === 'object'
         ? options.geometry
@@ -6012,6 +6093,8 @@
       state.flash = Math.max(state.flash || 0, 0.6 + chargeRatio * 0.3);
       if(projectiles.length){
         audio.play('playerShoot', {volume: clamp(0.55 + chargeRatio * 0.2, 0, 1)});
+        const flashColor = synergy.glowColor || synergy.trailColor || '#facc15';
+        this.triggerAimIndicatorFlash?.('shoot', {color: flashColor, intensity: Math.min(1.25, 0.65 + chargeRatio * 0.5)});
         if(typeof this.dispatchFollowerShot === 'function'){
           this.dispatchFollowerShot('melee', {damage: projectileDamage, angle: baseAngle});
         }
@@ -6129,6 +6212,7 @@
         runtimeState.lightsaberSwings.push(swing);
       }
       audio.play('lightsaberSwing', {volume: clamp(0.58 + Math.min(0.3, damageValue * 0.02), 0, 1)});
+      this.triggerAimIndicatorFlash?.('shoot', {color: '#60a5fa', intensity: Math.min(1.1, 0.55 + Math.min(0.6, damageValue * 0.05))});
       if(typeof this.dispatchFollowerShot === 'function'){
         this.dispatchFollowerShot('melee', {damage: damageValue, angle: aimAngle});
       }
@@ -6486,6 +6570,9 @@
           justReleased: false,
           justChangedDir: false,
           holdTime: 0,
+          lastHoldTime: 0,
+          releaseGrace: 0,
+          resumeFromGrace: false,
         };
       }
       if(!Number.isFinite(this.shotInput.dirX) || !Number.isFinite(this.shotInput.dirY)){
@@ -6498,11 +6585,13 @@
       }
       return this.shotInput;
     }
-    updateShotInputState(rawX, rawY){
+    updateShotInputState(rawX, rawY, dt=0){
       const state = this.getShotInput();
       const prevPressed = !!state.pressed;
       const prevDirX = Number.isFinite(state.dirX) ? state.dirX : 0;
       const prevDirY = Number.isFinite(state.dirY) ? state.dirY : -1;
+      const delta = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+      state.releaseGrace = Math.max(0, (state.releaseGrace || 0) - delta);
       const pressed = !!(rawX || rawY);
       state.justPressed = pressed && !prevPressed;
       state.justReleased = !pressed && prevPressed;
@@ -6536,8 +6625,179 @@
       if(!pressed){
         state.justChangedDir = false;
       }
+      if(state.justReleased){
+        state.releaseGrace = Math.max(state.releaseGrace || 0, 0.06);
+        state.lastHoldTime = Math.max(state.lastHoldTime || 0, state.holdTime || 0);
+      }
+      state.resumeFromGrace = false;
+      if(state.justPressed && state.releaseGrace>0){
+        state.resumeFromGrace = true;
+      }
+      if(pressed){
+        state.releaseGrace = 0;
+      } else if(state.releaseGrace<=0){
+        if(!state.justReleased){
+          state.lastHoldTime = Math.max(state.lastHoldTime || 0, state.holdTime || 0);
+        }
+      }
       state.pressed = pressed;
       return state;
+    }
+    ensureAimIndicatorState(){
+      if(!this.aimIndicator || typeof this.aimIndicator !== 'object'){
+        this.aimIndicator = {
+          shootFlash: 0,
+          shootColor: '#38bdf8',
+          hurtFlash: 0,
+          hurtColor: '#f87171',
+          charge: {
+            active: false,
+            ratio: 0,
+            color: '#38bdf8',
+            highlightColor: '#e0f2fe',
+            ready: false,
+            readyFlash: 0,
+            readyColor: '#fde68a',
+            glow: 0,
+            wasReady: false,
+            type: null,
+          },
+        };
+      } else {
+        const aim = this.aimIndicator;
+        if(typeof aim.shootFlash !== 'number') aim.shootFlash = 0;
+        if(typeof aim.hurtFlash !== 'number') aim.hurtFlash = 0;
+        if(typeof aim.shootColor !== 'string') aim.shootColor = '#38bdf8';
+        if(typeof aim.hurtColor !== 'string') aim.hurtColor = '#f87171';
+        if(!aim.charge || typeof aim.charge !== 'object'){
+          aim.charge = {
+            active: false,
+            ratio: 0,
+            color: '#38bdf8',
+            highlightColor: '#e0f2fe',
+            ready: false,
+            readyFlash: 0,
+            readyColor: '#fde68a',
+            glow: 0,
+            wasReady: false,
+            type: null,
+          };
+        } else {
+          const charge = aim.charge;
+          if(typeof charge.active !== 'boolean') charge.active = !!charge.active;
+          if(!Number.isFinite(charge.ratio)) charge.ratio = 0;
+          if(typeof charge.color !== 'string') charge.color = '#38bdf8';
+          if(typeof charge.highlightColor !== 'string') charge.highlightColor = '#e0f2fe';
+          if(typeof charge.ready !== 'boolean') charge.ready = false;
+          if(!Number.isFinite(charge.readyFlash)) charge.readyFlash = 0;
+          if(typeof charge.readyColor !== 'string') charge.readyColor = '#fde68a';
+          if(!Number.isFinite(charge.glow)) charge.glow = 0;
+          if(typeof charge.wasReady !== 'boolean') charge.wasReady = false;
+          if(typeof charge.type !== 'string') charge.type = null;
+        }
+      }
+      return this.aimIndicator;
+    }
+    triggerAimIndicatorFlash(type, options={}){
+      const state = this.ensureAimIndicatorState();
+      const intensity = Math.max(0, Number.isFinite(options.intensity) ? options.intensity : 1);
+      switch(type){
+        case 'shoot': {
+          const color = typeof options.color === 'string' ? options.color : '#38bdf8';
+          state.shootColor = color;
+          state.shootFlash = Math.max(state.shootFlash || 0, 0.45 * intensity);
+          break;
+        }
+        case 'hurt': {
+          const color = typeof options.color === 'string' ? options.color : '#f87171';
+          state.hurtColor = color;
+          state.hurtFlash = Math.max(state.hurtFlash || 0, 0.85 * intensity);
+          break;
+        }
+        case 'charge-ready': {
+          const charge = state.charge || this.ensureAimIndicatorState().charge;
+          const color = typeof options.color === 'string'
+            ? options.color
+            : (charge.highlightColor || '#fde68a');
+          charge.readyColor = color;
+          charge.readyFlash = Math.max(charge.readyFlash || 0, 0.9 * intensity);
+          charge.glow = Math.max(charge.glow || 0, 0.6 * intensity);
+          break;
+        }
+        default:
+          break;
+      }
+    }
+    updateAimIndicator(dt, shotState){
+      const aim = this.ensureAimIndicatorState();
+      const decay = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+      aim.shootFlash = Math.max(0, (aim.shootFlash || 0) - decay * 6.2);
+      aim.hurtFlash = Math.max(0, (aim.hurtFlash || 0) - decay * 3.8);
+      const charge = aim.charge || (aim.charge = {});
+      charge.readyFlash = Math.max(0, (charge.readyFlash || 0) - decay * 3.4);
+      charge.glow = Math.max(0, (charge.glow || 0) - decay * 1.9);
+
+      let chargeActive = false;
+      let chargeRatio = 0;
+      let chargeReady = false;
+      let chargeColor = charge.color || '#38bdf8';
+      let chargeHighlight = charge.highlightColor || '#e0f2fe';
+      let chargeType = null;
+
+      if(this.attackMode === 'shortsword'){
+        const swordState = this.ensureShortSwordState();
+        if(swordState){
+          const maxCharge = Math.max(0.6, swordState.chargeMax || 4);
+          const pending = swordState.pendingRelease;
+          const value = Number.isFinite(pending?.chargeTime) ? pending.chargeTime : (swordState.chargeTime || 0);
+          chargeRatio = clamp(value / maxCharge, 0, 1);
+          chargeActive = (!!shotState?.pressed) || value>1e-3 || !!pending;
+          chargeReady = chargeRatio >= 0.98;
+          chargeColor = chargeReady ? '#fde047' : '#facc15';
+          chargeHighlight = chargeReady ? '#fef08a' : '#fde68a';
+          chargeType = 'shortsword';
+        }
+      } else if(this.attackMode === 'brimstone'){
+        const pending = this.brimstoneReleasePending;
+        const ratioBase = typeof this.getBrimstoneChargeRatio === 'function' ? this.getBrimstoneChargeRatio() : 0;
+        chargeRatio = pending ? (pending.full ? 1 : Math.max(ratioBase, pending.chargeRatio || 0)) : ratioBase;
+        chargeActive = (this.brimstoneCharging || this.brimstoneCharged || !!pending) && chargeRatio>0;
+        chargeReady = !!(this.brimstoneCharged || (pending && pending.full));
+        chargeColor = chargeReady ? '#fb923c' : '#f87171';
+        chargeHighlight = chargeReady ? '#fed7aa' : '#fecaca';
+        chargeType = 'brimstone';
+      } else if(this.hasHotChocolate && this.hasHotChocolate()){
+        const hotState = this.ensureHotChocolateState();
+        if(hotState){
+          const pending = hotState.releasePending ? hotState.releaseCharge : null;
+          const value = Number.isFinite(pending) ? pending : (hotState.chargeTime || 0);
+          const baseline = Math.max(0.05, this.getHotChocolateBaselineSeconds());
+          const expo = 1 - Math.exp(-value / Math.max(baseline * 1.05, 0.0001));
+          const normalized = value / Math.max(baseline * 3.2, 0.0001);
+          chargeRatio = clamp(Math.max(normalized * 0.55, expo), 0, 1);
+          chargeActive = !!(hotState.charging || value>1e-3 || hotState.releasePending);
+          chargeReady = value >= baseline * 1.2;
+          chargeColor = chargeReady ? '#f97316' : '#fbbf24';
+          chargeHighlight = chargeReady ? '#fed7aa' : '#fde68a';
+          chargeType = 'hot-chocolate';
+        }
+      } else {
+        chargeType = null;
+      }
+
+      charge.active = chargeActive;
+      charge.ratio = chargeRatio;
+      charge.ready = chargeReady;
+      charge.color = chargeColor;
+      charge.highlightColor = chargeHighlight;
+      charge.type = chargeType;
+      if(chargeActive){
+        charge.glow = Math.max(charge.glow || 0, chargeRatio * 0.85 + (chargeReady ? 0.35 : 0));
+      }
+      if(chargeReady && !charge.wasReady){
+        this.triggerAimIndicatorFlash('charge-ready', {color: chargeHighlight, intensity: 1});
+      }
+      charge.wasReady = chargeReady;
     }
     getSetBonus(key){
       if(!key) return null;
@@ -6778,10 +7038,22 @@
           chargeSpeedBonus: 1.5,
           damageBonus: 1.5,
           stacks: 0,
+          releasePending: false,
+          releaseCharge: 0,
+          releaseDir: {x:0, y:-1},
         };
       }
       if(!this.hotChocolate.dir){
         this.hotChocolate.dir = {x:0, y:-1};
+      }
+      if(typeof this.hotChocolate.releasePending !== 'boolean'){
+        this.hotChocolate.releasePending = false;
+      }
+      if(!Number.isFinite(this.hotChocolate.releaseCharge)){
+        this.hotChocolate.releaseCharge = 0;
+      }
+      if(!this.hotChocolate.releaseDir){
+        this.hotChocolate.releaseDir = {x:0, y:-1};
       }
       return this.hotChocolate;
     }
@@ -6815,6 +7087,8 @@
     handleHotChocolateAttack(dt, shotState, lvx, lvy, maxSpeed){
       const state = this.ensureHotChocolateState();
       const shotPressed = !!(shotState && shotState.pressed);
+      const releaseBufferActive = Number.isFinite(shotState?.releaseGrace) && shotState.releaseGrace>0;
+      const resumed = !!(shotState && shotState.resumeFromGrace);
       if(shotPressed){
         const dirX = Number.isFinite(shotState.dirX) ? shotState.dirX : 0;
         const dirY = Number.isFinite(shotState.dirY) ? shotState.dirY : 0;
@@ -6823,20 +7097,50 @@
         }
         state.dir.x = dirX;
         state.dir.y = dirY;
+        if(resumed && state.releasePending){
+          state.chargeTime = Math.max(state.chargeTime || 0, state.releaseCharge || 0);
+          state.releasePending = false;
+        }
         if(!state.charging){
-          state.chargeTime = 0;
+          state.chargeTime = Math.max(0, state.releasePending ? state.releaseCharge : state.chargeTime || 0);
         }
         state.charging = true;
         const bonus = Number.isFinite(state.chargeSpeedBonus) ? Math.max(0.05, state.chargeSpeedBonus) : 1;
         state.chargeTime += dt * bonus;
-      } else if(state.charging && state.chargeTime>0){
-        this.fireHotChocolateShot(state, lvx, lvy, maxSpeed);
-      } else if(!shotPressed){
-        state.charging = false;
-        state.chargeTime = 0;
+      } else {
+        if(state.releasePending){
+          if(releaseBufferActive){
+            state.chargeTime = Math.max(state.chargeTime || 0, state.releaseCharge || 0);
+            return;
+          }
+          const pendingCharge = Math.max(0, state.releaseCharge || state.chargeTime || 0);
+          const dir = state.releaseDir || state.dir || {x:0, y:-1};
+          state.dir.x = dir.x;
+          state.dir.y = dir.y;
+          state.releasePending = false;
+          state.chargeTime = pendingCharge;
+          this.fireHotChocolateShot(state, lvx, lvy, maxSpeed, {chargeTime: pendingCharge});
+          state.chargeTime = 0;
+          state.charging = false;
+          return;
+        }
+        if(state.charging && state.chargeTime>0){
+          if(releaseBufferActive){
+            state.releasePending = true;
+            state.releaseCharge = state.chargeTime;
+            state.releaseDir = {x: state.dir.x, y: state.dir.y};
+            return;
+          }
+          this.fireHotChocolateShot(state, lvx, lvy, maxSpeed, {chargeTime: state.chargeTime});
+          state.chargeTime = 0;
+          state.charging = false;
+        } else {
+          state.charging = false;
+          state.chargeTime = 0;
+        }
       }
     }
-    fireHotChocolateShot(state, lvx, lvy, maxSpeed){
+    fireHotChocolateShot(state, lvx, lvy, maxSpeed, options={}){
       if(!state || !state.dir) return;
       const dirX = state.dir.x;
       const dirY = state.dir.y;
@@ -6846,11 +7150,12 @@
         state.charging = false;
         return;
       }
-      const chargeSeconds = Math.max(0, state.chargeTime);
+      const overrideCharge = Number.isFinite(options.chargeTime) ? Math.max(0, options.chargeTime) : null;
+      const chargeSeconds = overrideCharge !== null ? overrideCharge : Math.max(0, state.chargeTime);
       const baseline = this.getHotChocolateBaselineSeconds();
       const stacks = Math.max(1, state.stacks || (this.getItemStack ? this.getItemStack('hot-chocolate') : 1) || 1);
       const damageBonus = Number.isFinite(state.damageBonus) ? Math.max(0.05, state.damageBonus) : 1;
-      const rawRatio = baseline>0 ? state.chargeTime / baseline : state.chargeTime;
+      const rawRatio = baseline>0 ? chargeSeconds / baseline : chargeSeconds;
       const ratio = Math.max(0.05, rawRatio);
       const damage = Math.max(0.05, this.damage * ratio * damageBonus);
       const pierceObstacles = this.canPierceObstacles || chargeSeconds >= 5;
@@ -6887,6 +7192,7 @@
         homingStrength,
       });
       audio.play('playerShoot', {volume: 0.55});
+      this.triggerAimIndicatorFlash?.('shoot', {color: color, intensity: Math.min(1.1, 0.8 + Math.min(chargeSeconds / Math.max(0.2, baseline), 1) * 0.4)});
       state.chargeTime = 0;
       state.charging = false;
       this.fireCd = 0;
@@ -7305,6 +7611,7 @@
       }
       if(tookDamage){
         audio.play('playerHurt', {volume: 0.65});
+        this.triggerAimIndicatorFlash?.('hurt', {intensity: Math.min(1.4, amount || 1)});
       }
       const ifrBase = Number.isFinite(options.ifr) ? Math.max(0, options.ifr) : 0.75;
       const ifrDuration = ifrBase * this.getIFrameMultiplier();
@@ -7812,6 +8119,8 @@
     }
     handleBrimstoneAttack(dt, shotState, lvx, lvy, maxSpeed){
       const pressed = !!(shotState && shotState.pressed);
+      const releaseBufferActive = Number.isFinite(shotState?.releaseGrace) && shotState.releaseGrace>0;
+      const resumed = !!(shotState && shotState.resumeFromGrace);
       if(this.brimstoneBeam){
         this.brimstoneBeamTimer = Math.max(0, (this.brimstoneBeamTimer || 0) - dt);
         if(pressed){
@@ -7827,6 +8136,17 @@
         const len = Math.hypot(dirX, dirY) || 1;
         this.brimstoneAim.x = dirX / len;
         this.brimstoneAim.y = dirY / len;
+        if(resumed && this.brimstoneReleasePending){
+          const pending = this.brimstoneReleasePending;
+          const effectiveRatio = clamp(pending.chargeRatio || (this.brimstoneCharged ? 1 : 0), 0, 1);
+          if(this.brimstoneChargeTime>0){
+            this.brimstoneCharge = Math.max(this.brimstoneCharge || 0, this.brimstoneChargeTime * effectiveRatio);
+          }
+          if(pending.full){
+            this.brimstoneCharged = true;
+          }
+          this.brimstoneReleasePending = null;
+        }
         if(!this.brimstoneCharging){
           this.brimstoneCharging = true;
           this.brimstoneCharge = 0;
@@ -7841,9 +8161,34 @@
           this.brimstoneCharged = true;
         }
       } else {
+        if(this.brimstoneReleasePending){
+          if(releaseBufferActive){
+            const pending = this.brimstoneReleasePending;
+            if(this.brimstoneChargeTime>0){
+              const effectiveRatio = pending.full ? 1 : clamp(pending.chargeRatio || 0, 0, 1);
+              this.brimstoneCharge = Math.max(this.brimstoneCharge || 0, this.brimstoneChargeTime * effectiveRatio);
+            }
+            return;
+          }
+          const pending = this.brimstoneReleasePending;
+          this.brimstoneReleasePending = null;
+          if(pending.full){
+            this.fireBrimstoneBeam({chargeRatio:1});
+          } else {
+            this.fireBrimstoneBeam({chargeRatio: clamp(pending.chargeRatio || 0, 0, 1)});
+          }
+          this.brimstoneCharging = false;
+          this.brimstoneCharge = 0;
+          this.brimstoneCharged = false;
+          return;
+        }
         if(this.brimstoneCharging){
           const ratioRaw = this.brimstoneChargeTime>0 ? this.brimstoneCharge / this.brimstoneChargeTime : 0;
           const chargeRatio = clamp(ratioRaw, 0, 1);
+          if(releaseBufferActive){
+            this.brimstoneReleasePending = {chargeRatio, full: this.brimstoneCharged};
+            return;
+          }
           if(this.brimstoneCharged){
             this.fireBrimstoneBeam({chargeRatio:1});
           } else {
@@ -7928,7 +8273,9 @@
       this.brimstoneCharge = 0;
       this.brimstoneCharged = false;
       this.brimstoneCharging = false;
+      this.brimstoneReleasePending = null;
       this.dispatchFollowerShot?.('brimstone-start', {dir, duration, tickFrames, damageScale, width: widthOverride});
+      this.triggerAimIndicatorFlash?.('shoot', {color: '#f87171', intensity: Math.min(1.2, 0.8 + (chargeRatio || 0) * 0.4)});
       return true;
     }
     applyImpulse(dx,dy,strength){
@@ -8076,7 +8423,8 @@
       if(Number.isFinite(item.startCharge)){
         this.activeCharge = clamp(Math.floor(item.startCharge), 0, this.activeMaxCharge);
       } else {
-        this.activeCharge = clamp(this.activeCharge, 0, this.activeMaxCharge);
+        const maxCharge = Number.isFinite(this.activeMaxCharge) ? this.activeMaxCharge : 0;
+        this.activeCharge = Math.max(0, maxCharge);
       }
     }
     enableFullMapVision(dungeonInstance){
@@ -9276,6 +9624,19 @@
         }
         this.spawnImpactSpark(enemy, dirX, dirY);
       }
+      if(room && Array.isArray(room.obstacles)){
+        const padding = Math.max(thickness, this.width * 0.4);
+        const baseX = base.x;
+        const baseY = base.y;
+        const tipX = base.x + Math.cos(currentAngle) * this.length;
+        const tipY = base.y + Math.sin(currentAngle) * this.length;
+        for(const obs of room.obstacles){
+          if(!obs || obs.destroyed || obs.breakable === false) continue;
+          if(!segmentRectOverlap(baseX, baseY, tipX, tipY, obs, padding)) continue;
+          obs.destroyed = true;
+          onObstacleDestroyed(room, obs, {cause:'lightsaber'});
+        }
+      }
     }
     spawnImpactSpark(enemy, dirX, dirY){
       if(this.sparkCooldown>0) return;
@@ -9548,6 +9909,15 @@
         applyEnemyKnockback(enemy, this.dirX, this.dirY, {power: (260 + damageValue * 18) * knockScale, duration:0.2, slowFactor:0.6, slowDuration:0.32, maxSpeed:360});
         if(killed){ handleEnemyDeath(enemy, room); }
         else { enemy.damageFlashTimer = Math.max(enemy.damageFlashTimer || 0, 0.16); }
+      }
+      if(room && Array.isArray(room.obstacles)){
+        const padding = Math.max(halfWidth, this.width * 0.25);
+        for(const obs of room.obstacles){
+          if(!obs || obs.destroyed || obs.breakable === false) continue;
+          if(!segmentRectOverlap(baseX, baseY, tipX, tipY, obs, padding)) continue;
+          obs.destroyed = true;
+          onObstacleDestroyed(room, obs, {cause:'shortsword-projectile'});
+        }
       }
     }
     attachToOwner(){
@@ -10129,6 +10499,14 @@
         const threshold = half + (enemy.r || 12);
         if(result.distance <= threshold){
           if(enemy.damage(damageValue)){ handleEnemyDeath(enemy, room); }
+        }
+      }
+      if(Array.isArray(room.obstacles)){
+        for(const obs of room.obstacles){
+          if(!obs || obs.destroyed || obs.breakable === false) continue;
+          if(!segmentRectOverlap(geom.startX, geom.startY, geom.endX, geom.endY, obs, half)) continue;
+          obs.destroyed = true;
+          onObstacleDestroyed(room, obs, {cause:'brimstone'});
         }
       }
     }
@@ -17766,6 +18144,74 @@
     const distSq = (px - cx)*(px - cx) + (py - cy)*(py - cy);
     return {distance: Math.sqrt(Math.max(0, distSq)), t, cx, cy};
   }
+  function segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy){
+    const rdx = bx - ax;
+    const rdy = by - ay;
+    const sdx = dx - cx;
+    const sdy = dy - cy;
+    const denom = rdx * sdy - rdy * sdx;
+    const epsilon = 1e-6;
+    if(Math.abs(denom) < epsilon){
+      const cross = (cx - ax) * rdy - (cy - ay) * rdx;
+      if(Math.abs(cross) > epsilon) return false;
+      const minAx = Math.min(ax, bx);
+      const maxAx = Math.max(ax, bx);
+      const minAy = Math.min(ay, by);
+      const maxAy = Math.max(ay, by);
+      const minCx = Math.min(cx, dx);
+      const maxCx = Math.max(cx, dx);
+      const minCy = Math.min(cy, dy);
+      const maxCy = Math.max(cy, dy);
+      return !(maxAx < minCx || maxCx < minAx || maxAy < minCy || maxCy < minAy);
+    }
+    const t = ((cx - ax) * sdy - (cy - ay) * sdx) / denom;
+    const u = ((cx - ax) * rdy - (cy - ay) * rdx) / denom;
+    return t>=0 && t<=1 && u>=0 && u<=1;
+  }
+  function segmentRectOverlap(ax, ay, bx, by, rect, padding=0){
+    if(!rect) return false;
+    const pad = Math.max(0, padding || 0);
+    let rx = rect.x;
+    let ry = rect.y;
+    let rw = rect.w ?? rect.width;
+    let rh = rect.h ?? rect.height;
+    if(!Number.isFinite(rw) && Number.isFinite(rect.r)){
+      const radius = Math.max(0, rect.r + pad);
+      const centerX = Number.isFinite(rect.x) ? rect.x : Number(rect.cx) || 0;
+      const centerY = Number.isFinite(rect.y) ? rect.y : Number(rect.cy) || 0;
+      const result = pointSegmentDistance(centerX, centerY, ax, ay, bx, by);
+      return result.distance <= radius;
+    }
+    if(!Number.isFinite(rw) || !Number.isFinite(rh)) return false;
+    if(!Number.isFinite(rx) && Number.isFinite(rect.cx)){
+      rx = rect.cx - rw/2;
+    }
+    if(!Number.isFinite(ry) && Number.isFinite(rect.cy)){
+      ry = rect.cy - rh/2;
+    }
+    if(!Number.isFinite(rx) || !Number.isFinite(ry)) return false;
+    const minX = rx - pad;
+    const maxX = rx + rw + pad;
+    const minY = ry - pad;
+    const maxY = ry + rh + pad;
+    if(Math.max(ax, bx) < minX || Math.min(ax, bx) > maxX || Math.max(ay, by) < minY || Math.min(ay, by) > maxY){
+      return false;
+    }
+    if(ax >= minX && ax <= maxX && ay >= minY && ay <= maxY) return true;
+    if(bx >= minX && bx <= maxX && by >= minY && by <= maxY) return true;
+    const edges = [
+      [minX, minY, maxX, minY],
+      [maxX, minY, maxX, maxY],
+      [maxX, maxY, minX, maxY],
+      [minX, maxY, minX, minY],
+    ];
+    for(const [ex1, ey1, ex2, ey2] of edges){
+      if(segmentsIntersect(ax, ay, bx, by, ex1, ey1, ex2, ey2)){
+        return true;
+      }
+    }
+    return false;
+  }
   function resolveEntityObstacles(entity){
     if(!dungeon?.current) return;
     if(entity===player){
@@ -19772,6 +20218,8 @@
     const headHalf = radius * (pressed ? 0.6 : 0.52);
     const tailOffset = -radius * 0.38;
     const hasHotChoco = typeof player.hasHotChocolate === 'function' && player.hasHotChocolate();
+    const aimState = typeof player.ensureAimIndicatorState === 'function' ? player.ensureAimIndicatorState() : null;
+    const chargeState = aimState?.charge;
     let fill = '#38bdf8';
     let stroke = '#0f172a';
     let highlight = '#e0f2fe';
@@ -19809,11 +20257,61 @@
         }
         break;
     }
+    const shootFlash = aimState ? clamp(aimState.shootFlash || 0, 0, 1.2) : 0;
+    if(shootFlash>0){
+      const flashColor = aimState?.shootColor || '#38bdf8';
+      fill = mixHexColor(fill, flashColor, Math.min(0.75, shootFlash));
+      highlight = mixHexColor(highlight, '#e0f2fe', Math.min(0.8, shootFlash));
+    }
+    const hurtFlash = aimState ? clamp(aimState.hurtFlash || 0, 0, 1.3) : 0;
+    if(hurtFlash>0){
+      const hurtColor = aimState?.hurtColor || '#f87171';
+      fill = mixHexColor(fill, hurtColor, Math.min(0.85, hurtFlash));
+      stroke = mixHexColor(stroke, '#7f1d1d', Math.min(0.7, hurtFlash));
+      highlight = mixHexColor(highlight, '#fee2e2', Math.min(0.9, hurtFlash));
+    }
+    const readyFlash = chargeState ? clamp(chargeState.readyFlash || 0, 0, 1) : 0;
+    if(readyFlash>0){
+      const readyColor = chargeState?.readyColor || chargeState?.highlightColor || highlight;
+      highlight = mixHexColor(highlight, readyColor, Math.min(0.85, readyFlash));
+    }
     const alpha = pressed ? 0.95 : 0.58;
     ctx.save();
     ctx.translate(player.x, player.y);
     ctx.rotate(Math.atan2(dirY, dirX));
     ctx.globalAlpha *= alpha;
+    if(chargeState?.active){
+      const ratio = clamp(chargeState.ratio || 0, 0, 1);
+      const ringColor = chargeState.color || fill;
+      const ringHighlight = chargeState.highlightColor || highlight;
+      const ringRadius = radius * (1.12 + ratio * 0.28);
+      ctx.save();
+      ctx.globalAlpha *= 0.65 + ratio * 0.35;
+      ctx.lineWidth = Math.max(radius * 0.22, 2.1);
+      ctx.strokeStyle = colorWithAlpha(ringColor, 0.35 + ratio * 0.35);
+      ctx.beginPath();
+      ctx.arc(0, 0, ringRadius, 0, Math.PI*2);
+      ctx.stroke();
+      const arcEnd = -Math.PI/2 + Math.max(0.05, ratio * Math.PI * 2);
+      ctx.strokeStyle = colorWithAlpha(ringHighlight, 0.85);
+      ctx.lineWidth = Math.max(radius * 0.28, 2.6);
+      ctx.beginPath();
+      ctx.arc(0, 0, ringRadius, -Math.PI/2, arcEnd, false);
+      ctx.stroke();
+      if(chargeState.ready){
+        const pulse = clamp(chargeState.glow || 0, 0, 1.2);
+        ctx.globalCompositeOperation = 'lighter';
+        const glowRadius = ringRadius + radius * 0.28;
+        const glow = ctx.createRadialGradient(0, 0, ringRadius * 0.55, 0, 0, glowRadius);
+        glow.addColorStop(0, colorWithAlpha(ringHighlight, Math.min(0.9, 0.55 + pulse * 0.35)));
+        glow.addColorStop(1, colorWithAlpha(ringHighlight, 0));
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
     const gradient = ctx.createLinearGradient(tailOffset, 0, tailOffset + totalLength, 0);
     gradient.addColorStop(0, colorWithAlpha(fill, pressed ? 0.85 : 0.55));
     gradient.addColorStop(0.55, colorWithAlpha(fill, 0.95));
@@ -19838,6 +20336,21 @@
     ctx.moveTo(tailOffset + radius * 0.24, 0);
     ctx.lineTo(tailOffset + baseLength + Math.max(radius * 0.22, headLength * 0.35), 0);
     ctx.stroke();
+    if(chargeState?.active){
+      const gaugeRatio = clamp(chargeState.ratio || 0, 0, 1);
+      if(gaugeRatio>0){
+        const gaugeLength = totalLength * gaugeRatio;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = colorWithAlpha(chargeState.highlightColor || highlight, 0.85);
+        ctx.lineWidth = Math.max(radius * 0.32, 2.6);
+        ctx.beginPath();
+        ctx.moveTo(tailOffset + radius * 0.18, 0);
+        ctx.lineTo(tailOffset + Math.min(totalLength, gaugeLength), 0);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
     if(shotState.justChangedDir){
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
