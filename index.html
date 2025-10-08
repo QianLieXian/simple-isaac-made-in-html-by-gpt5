@@ -362,6 +362,23 @@
         glow: '#fcd34d',
       },
     },
+    red: {
+      keyCost: 0,
+      mass: 2.2,
+      openDuration: 0.58,
+      minDrops: 0,
+      maxDrops: 0,
+      scatter: 28,
+      dropOptions: [],
+      palette: {
+        base: '#b91c1c',
+        shadow: '#7f1d1d',
+        trim: '#fecaca',
+        accent: '#f87171',
+        hinge: '#450a0a',
+        glow: '#fb7185',
+      },
+    },
   };
 
   // ======= 基础工具 =======
@@ -1859,6 +1876,26 @@
     return combined;
   }
   const LIFE_TRADE_POOL = buildLifeTradePool();
+  function buildSecretRoomPool(){
+    const sources = [ITEM_POOL, SHOP_ITEM_POOL, SHOP_RARE_ITEM_POOL, BOSS_ITEM_POOL, BOSS_RARE_ITEM_POOL, LIFE_TRADE_EXTRA_POOL];
+    const unique = new Map();
+    for(const pool of sources){
+      if(!Array.isArray(pool)) continue;
+      for(const item of pool){
+        if(!item || !item.slug) continue;
+        if(unique.has(item.slug)) continue;
+        unique.set(item.slug, {...item});
+      }
+    }
+    return Array.from(unique.values());
+  }
+  const SECRET_ROOM_POOL = buildSecretRoomPool();
+  function rollSecretRoomItem(){
+    if(!SECRET_ROOM_POOL.length){
+      return rollItem();
+    }
+    return weightedRoll(SECRET_ROOM_POOL, {poolKey:'secret-room', minWeight:0.0005, pityStep:0.08, pityCap:0.85});
+  }
   const CARD_POOL = [
     {
       slug:'seer-card',
@@ -2713,10 +2750,15 @@
       this.isItemRoom=false; this.itemData=null; this.itemClaimed=false; this.itemSpawned=false;
       this.isShop=false; this.shopInventory=[]; this.shopPrepared=false; this.locked=false;
       this.isSafeRoom=false;
+      this.isSpikeRoom=false;
+      this.isSecretRoom=false;
       this.portal=null;
       this.extraPortals=[];
       this.combatRoom=false;
       this.chargeGranted=false;
+      this.secretDoors=[];
+      this.spikePrepared=false;
+      this.secretPrepared=false;
     }
     center(){ return {x: CONFIG.roomW/2, y: CONFIG.roomH/2}; }
     spawnEnemies(depth){
@@ -2726,6 +2768,22 @@
         this.cleared = true;
         this.combatRoom = false;
         this.chargeGranted = true;
+        return this.enemies;
+      }
+      if(this.isSecretRoom){
+        this.enemies = [];
+        this.cleared = true;
+        this.combatRoom = false;
+        this.chargeGranted = true;
+        this.ensureSecretRewards();
+        return this.enemies;
+      }
+      if(this.isSpikeRoom){
+        this.enemies = [];
+        this.cleared = true;
+        this.combatRoom = false;
+        this.chargeGranted = true;
+        this.ensureSpikeLayout();
         return this.enemies;
       }
       if(this.isItemRoom){
@@ -2788,7 +2846,19 @@
     ensureObstacles(){
       if(this.obstaclesGenerated) return;
       this.obstaclesGenerated = true;
-      if(this.isBoss || this.isItemRoom || this.isShop) return;
+      if(this.isBoss || this.isItemRoom || this.isShop){
+        return;
+      }
+      if(this.isSpikeRoom){
+        this.obstacles = [];
+        this.ensureSpikeLayout();
+        return;
+      }
+      if(this.isSecretRoom){
+        this.obstacles = [];
+        this.ensureSecretRewards();
+        return;
+      }
       const targetClusters = Math.floor(randRange(CONFIG.obstacles.min, CONFIG.obstacles.max+1));
       const tileSize = CONFIG.player.radius * 2 * CONFIG.obstacles.tileSizePlayerRatio;
       const created=[];
@@ -2942,10 +3012,19 @@
     }
     collidesDoorCorridor(rect){
       const corridors = [];
-      if(this.doors.up) corridors.push({x:CONFIG.roomW/2-60,y:0,w:120,h:180});
-      if(this.doors.down) corridors.push({x:CONFIG.roomW/2-60,y:CONFIG.roomH-180,w:120,h:180});
-      if(this.doors.left) corridors.push({x:0,y:CONFIG.roomH/2-70,w:180,h:140});
-      if(this.doors.right) corridors.push({x:CONFIG.roomW-180,y:CONFIG.roomH/2-70,w:180,h:140});
+      for(const dirKey of ['up','down','left','right']){
+        if(this.doors?.[dirKey]){
+          const base = computeDoorCorridorRect(dirKey);
+          if(base) corridors.push(base);
+        }
+      }
+      if(Array.isArray(this.secretDoors)){
+        for(const secret of this.secretDoors){
+          if(!secret) continue;
+          const base = computeDoorCorridorRect(secret.dir);
+          if(base) corridors.push(base);
+        }
+      }
       corridors.push({x:CONFIG.roomW/2-80,y:CONFIG.roomH/2-200,w:160,h:400});
       corridors.push({x:CONFIG.roomW/2-220,y:CONFIG.roomH/2-80,w:440,h:160});
       return corridors.some(c=>rectOverlap(c, rect));
@@ -3003,6 +3082,55 @@
         x: clamp(center.x, marginX, CONFIG.roomW - marginX),
         y: clamp(center.y, marginY, CONFIG.roomH - marginY)
       };
+    }
+    ensureSpikeLayout(){
+      if(!this.isSpikeRoom || this.spikePrepared) return;
+      this.spikePrepared = true;
+      if(!Array.isArray(this.pickups)) this.pickups = [];
+      this.pickups = this.pickups.filter(p=>!(p && p.type==='chest' && p.variant==='red'));
+      const center = this.center();
+      const baseY = clamp(center.y + 10, 120, CONFIG.roomH - 140);
+      const offsets = [-150, 0, 150];
+      for(const offset of offsets){
+        const posX = clamp(center.x + offset, 120, CONFIG.roomW - 120);
+        const chest = makeChest('red', posX, baseY, {radius: 18, openDuration: 0.6});
+        chest.spawnGrace = 0;
+        chest.locked = false;
+        chest.glowPhase = rand()*Math.PI*2;
+        this.pickups.push(chest);
+      }
+    }
+    ensureSecretRewards(){
+      if(!this.isSecretRoom || this.secretPrepared) return;
+      this.secretPrepared = true;
+      if(!Array.isArray(this.pickups)) this.pickups = [];
+      const center = this.center();
+      const slots = [
+        {x: clamp(center.x - 90, 100, CONFIG.roomW - 100), y: clamp(center.y + 12, 120, CONFIG.roomH - 150)},
+        {x: clamp(center.x + 90, 100, CONFIG.roomW - 100), y: clamp(center.y + 12, 120, CONFIG.roomH - 150)},
+      ];
+      const count = rand() < 0.35 ? 2 : 1;
+      const used = new Set();
+      for(let i=0;i<count;i++){
+        let item = null;
+        for(let attempt=0; attempt<6; attempt++){
+          const candidate = rollSecretRoomItem();
+          if(!candidate) break;
+          if(used.has(candidate.slug)) continue;
+          item = candidate;
+          break;
+        }
+        if(!item) continue;
+        used.add(item.slug);
+        const clone = {...item};
+        if(clone.lifeTradeCost) delete clone.lifeTradeCost;
+        const slot = slots[i] || slots[slots.length-1];
+        const pickup = makeLooseItemPickup(slot.x, slot.y, clone);
+        if(pickup){
+          pickup.spawnGrace = 0.25;
+          this.pickups.push(pickup);
+        }
+      }
     }
     prepareShop(){
       if(!this.isShop || this.shopPrepared) return;
@@ -3109,7 +3237,7 @@
     const minHits = Math.max(1, Math.floor(cfg.minHits ?? 3));
     const maxHits = Math.max(minHits, Math.floor(cfg.maxHits ?? minHits));
     const hits = randInt(minHits, maxHits);
-    return {
+    const obs = {
       type:'choco-tower',
       x,
       y,
@@ -3128,7 +3256,14 @@
       rareItemChance: clamp(cfg.rareItemChance ?? 0.001, 0, 1),
       itemSlug: cfg.itemSlug || 'hot-chocolate',
       hitFlash:0,
+      fullHeight:h,
+      fullY:y,
+      baseHeight: h * 0.32,
+      minHeightFraction: clamp(cfg.minHeightFraction ?? 0.18, 0, 1),
+      integrity:1,
     };
+    updateObstacleIntegrity(obs);
+    return obs;
   }
 
   function makeFlameObstacle(x, y, w, h, cfg={}){
@@ -3136,7 +3271,7 @@
     const maxHits = Math.max(minHits, Math.floor(cfg.maxHits ?? minHits));
     const hits = randInt(minHits, maxHits);
     const intervalFrames = Math.max(1, Math.floor(cfg.enemyIntervalFrames ?? 20));
-    return {
+    const obs = {
       type:'flame',
       x,
       y,
@@ -3158,7 +3293,35 @@
       hitFlash:0,
       flickerPhase: rand()*Math.PI*2,
       enemyDamageMap: null,
+      fullHeight:h,
+      fullY:y,
+      baseHeight: h * 0.3,
+      minHeightFraction: clamp(cfg.minHeightFraction ?? 0, 0, 1),
+      integrity:1,
     };
+    updateObstacleIntegrity(obs);
+    return obs;
+  }
+
+  function updateObstacleIntegrity(obs){
+    if(!obs) return;
+    const maxHits = Math.max(1, Math.floor(obs.maxHits || 1));
+    const remaining = clamp(Number.isFinite(obs.hitsRemaining) ? obs.hitsRemaining : maxHits, 0, maxHits);
+    const integrity = maxHits>0 ? remaining / maxHits : 0;
+    obs.integrity = integrity;
+    if(obs.destroyed) return;
+    if(obs.type === 'choco-tower' || obs.type === 'flame'){
+      const fullHeight = Number.isFinite(obs.fullHeight) ? obs.fullHeight : obs.h;
+      const baseHeight = clamp(Number.isFinite(obs.baseHeight) ? obs.baseHeight : fullHeight * 0.25, 0, fullHeight);
+      const extra = Math.max(0, fullHeight - baseHeight);
+      const minFraction = clamp(obs.minHeightFraction ?? 0, 0, 1);
+      const extraHeight = Math.max(extra * minFraction, extra * integrity);
+      const newHeight = baseHeight + extraHeight;
+      const delta = fullHeight - newHeight;
+      const baseY = Number.isFinite(obs.fullY) ? obs.fullY : obs.y;
+      obs.h = newHeight;
+      obs.y = baseY + delta;
+    }
   }
 
   class Dungeon{
@@ -3202,6 +3365,8 @@
       this.itemRooms = this.setupItemRooms(mid);
       this.shopRoom = this.setupShopRoom(mid);
       this.setupLifeTradePickup();
+      this.spikeRoom = this.setupSpikeRoom();
+      this.secretRoom = this.setupSecretRoom();
       if((typeof currentFloor === 'number' ? currentFloor : 1) <= 1){
         const alreadyHasSoul = start.pickups.some(p=>p && p.type==='heart' && p.kind==='soul');
         if(!alreadyHasSoul){
@@ -3222,9 +3387,20 @@
           for(const dir of DIRS){
             const ni = i + dir.di, nj = j + dir.dj;
             if(ni<0 || nj<0 || ni>=this.gridN || nj>=this.gridN) continue;
-            if(this.rooms[ni][nj]){
-              r.doors[dir.key] = true;
-              this.rooms[ni][nj].doors[dir.opp] = true;
+            const neighbor = this.rooms[ni][nj];
+            if(neighbor){
+              const secret = Array.isArray(r.secretDoors) ? r.secretDoors.find(s=>s.dir===dir.key) : null;
+              const backSecret = Array.isArray(neighbor.secretDoors) ? neighbor.secretDoors.find(s=>s.dir===dir.opp) : null;
+              if(secret){
+                r.doors[dir.key] = !!secret.open;
+              } else {
+                r.doors[dir.key] = true;
+              }
+              if(backSecret){
+                neighbor.doors[dir.opp] = !!backSecret.open;
+              } else {
+                neighbor.doors[dir.opp] = true;
+              }
             }
           }
         }
@@ -3371,6 +3547,75 @@
         }
       }
       return null;
+    }
+
+    setupSpikeRoom(){
+      const candidates = [];
+      for(const room of this.allRooms){
+        if(!room) continue;
+        if(room.isBoss || room.isItemRoom || room.isShop || room.isSpikeRoom || room.isSecretRoom || room.isSafeRoom) continue;
+        const options = DIRS.map(dir=>({dir, ni:room.i + dir.di, nj:room.j + dir.dj}))
+          .filter(opt=>opt.ni>=0 && opt.nj>=0 && opt.ni<this.gridN && opt.nj<this.gridN && !this.rooms[opt.ni][opt.nj]);
+        if(options.length){
+          candidates.push({room, options});
+        }
+      }
+      if(!candidates.length) return null;
+      const choice = candidates[Math.floor(rand()*candidates.length)];
+      const target = choice.options[Math.floor(rand()*choice.options.length)];
+      const spike = new Room(target.ni, target.nj);
+      spike.isSpikeRoom = true;
+      spike.cleared = true;
+      spike.locked = false;
+      spike.combatRoom = false;
+      spike.chargeGranted = true;
+      spike.sceneVariant = 'trap';
+      this.rooms[target.ni][target.nj] = spike;
+      choice.room.doors[target.dir.key] = true;
+      spike.doors[target.dir.opp] = true;
+      this.allRooms.push(spike);
+      spike.ensureSpikeLayout();
+      return spike;
+    }
+
+    setupSecretRoom(){
+      const candidates = [];
+      for(const room of this.allRooms){
+        if(!room) continue;
+        if(room.isBoss || room.isItemRoom || room.isShop || room.isSecretRoom || room.isSpikeRoom) continue;
+        if(room === this.start) continue;
+        const options = DIRS.map(dir=>({dir, ni:room.i + dir.di, nj:room.j + dir.dj}))
+          .filter(opt=>opt.ni>=0 && opt.nj>=0 && opt.ni<this.gridN && opt.nj<this.gridN && !this.rooms[opt.ni][opt.nj]);
+        if(options.length){
+          const distance = Math.abs(room.i - this.start.i) + Math.abs(room.j - this.start.j);
+          candidates.push({room, options, distance});
+        }
+      }
+      if(!candidates.length) return null;
+      candidates.sort((a,b)=>b.distance - a.distance || rand() - 0.5);
+      const choice = candidates[0];
+      if(!choice) return null;
+      const target = choice.options[Math.floor(rand()*choice.options.length)];
+      const secret = new Room(target.ni, target.nj);
+      secret.isSecretRoom = true;
+      secret.isSafeRoom = true;
+      secret.cleared = true;
+      secret.locked = false;
+      secret.combatRoom = false;
+      secret.chargeGranted = true;
+      secret.sceneVariant = 'void';
+      secret.secretOrigin = choice.room;
+      this.rooms[target.ni][target.nj] = secret;
+      const dirKey = target.dir.key;
+      const secretDoor = Object.assign(
+        {open:false, target: secret, glow: rand()*Math.PI*2, revealTimer: 0},
+        computeDoorRectForRoom(dirKey)
+      );
+      choice.room.secretDoors.push(secretDoor);
+      secret.doors[target.dir.opp] = true;
+      this.allRooms.push(secret);
+      secret.ensureSecretRewards();
+      return secret;
     }
 
     updateBounds(room){
@@ -3780,6 +4025,11 @@
   }
   function spawnChestLoot(chest, room){
     if(!room || !chest || chest.lootSpawned) return;
+    if(chest.variant === 'red'){
+      spawnRedChestLoot(chest, room);
+      chest.lootSpawned = true;
+      return;
+    }
     const config = getChestConfig(chest.variant);
     const dropOptions = chest.dropOptions && chest.dropOptions.length ? chest.dropOptions : (config.dropOptions || []);
     const minDrops = Math.max(1, Math.floor(Number.isFinite(chest.minDrops) ? chest.minDrops : (config.minDrops || 1)));
@@ -3835,6 +4085,57 @@
       }
     }
     chest.lootSpawned = true;
+  }
+  function spawnRedChestLoot(chest, room){
+    if(!room || !chest) return;
+    const roll = rand();
+    if(roll < 0.3){
+      const item = rollLifeTradeItem();
+      if(item){
+        const clone = {...item};
+        if(clone.lifeTradeCost) delete clone.lifeTradeCost;
+        const pickup = makeLooseItemPickup(chest.x, chest.y - 10, clone);
+        if(pickup){
+          pickup.spawnGrace = 0.25;
+          room.pickups.push(pickup);
+        }
+        if(runtime && runtime.itemPickupTimer<=0){
+          runtime.itemPickupName = '红箱献祭馈赠';
+          runtime.itemPickupDesc = `${clone.name}：${clone.description || '来自献祭池的回响。'}`;
+          runtime.itemPickupTimer = 2;
+        }
+      }
+      return;
+    }
+    if(roll < 0.6){
+      if(!Array.isArray(room.bombs)) room.bombs = [];
+      const fuse = Math.max(0.6, CONFIG.bomb.fuse * 0.45);
+      const bomb = new Bomb(chest.x, chest.y, {owner:'red-chest', fuse, shakeStrength:0.25});
+      bomb.spawnGrace = 0.05;
+      const angle = rand()*Math.PI*2;
+      bomb.applyImpulse(Math.cos(angle), Math.sin(angle), 90);
+      room.bombs.push(bomb);
+      if(runtime && runtime.itemPickupTimer<=0){
+        runtime.itemPickupName = '红箱点燃';
+        runtime.itemPickupDesc = '一枚点燃的炸弹掉在脚边。';
+        runtime.itemPickupTimer = 1.5;
+      }
+      return;
+    }
+    if(roll < 0.9){
+      if(runtime && runtime.itemPickupTimer<=0){
+        runtime.itemPickupName = '红箱空空如也';
+        runtime.itemPickupDesc = '只有微弱的硫磺味。';
+        runtime.itemPickupTimer = 1.2;
+      }
+      return;
+    }
+    if(enterExchangeRoom(room, null)){ return; }
+    if(runtime && runtime.itemPickupTimer<=0){
+      runtime.itemPickupName = '红箱传送失效';
+      runtime.itemPickupDesc = '空间裂隙摇晃，却没有将你卷走。';
+      runtime.itemPickupTimer = 1.4;
+    }
   }
   function maybeSpawnChest(room){
     if(!room) return null;
@@ -4326,6 +4627,7 @@
       if(!Number.isFinite(obs.hitsRemaining)){ obs.hitsRemaining = maxHits; }
       obs.hitsRemaining = Math.max(0, (obs.hitsRemaining ?? maxHits) - 1);
       obs.hitFlash = Math.max(obs.hitFlash || 0, 0.4);
+      updateObstacleIntegrity(obs);
       bullet.destroy({glowStrength:0.35});
       if(obs.hitsRemaining<=0){
         obs.destroyed = true;
@@ -10639,6 +10941,15 @@
         }
       }
     }
+    if(Array.isArray(room.secretDoors)){
+      for(const door of room.secretDoors){
+        if(!door || door.open) continue;
+        const rect = door;
+        if(circleRectOverlap(circle, rect)){
+          openSecretDoor(room, door);
+        }
+      }
+    }
     for(const other of room.bombs){
       if(other===bomb || other.done || other.exploded) continue;
       const db = dist(other, bomb);
@@ -16520,6 +16831,10 @@
 
   function enterExchangeRoom(sourceRoom, portal){
     if(!dungeon || !player) return false;
+    if(sourceRoom?.isSpikeRoom){
+      applySpikeRoomExitPenalty(sourceRoom);
+      if(state === STATE.OVER) return false;
+    }
     const entry = {
       room: sourceRoom,
       x: player.x,
@@ -16594,6 +16909,10 @@
       player.y = baseY;
     }
     player.snapFollowersToPlayer();
+    if(targetRoom.isSpikeRoom){
+      applySpikeRoomEntryPenalty(targetRoom);
+      if(state === STATE.OVER) return false;
+    }
     player.knockVel.x = 0; player.knockVel.y = 0; player.knockTimer = 0;
     if(player.vel){ player.vel.x = 0; player.vel.y = 0; }
     player.moveDir.x = 0; player.moveDir.y = 0;
@@ -16807,6 +17126,17 @@
       player.entryLockTimer = Math.max(player.entryLockTimer || 0, runtime.roomEntryLock);
       if(runtime.roomEntryLock<=0){
         player.entryLockActive = false;
+      }
+    }
+  }
+
+  function updateSecretDoors(room, dt){
+    if(!room || !Array.isArray(room.secretDoors)) return;
+    for(const door of room.secretDoors){
+      if(!door) continue;
+      door.glow = (door.glow || 0) + dt * 2.2;
+      if(door.revealTimer){
+        door.revealTimer = Math.max(0, door.revealTimer - dt);
       }
     }
   }
@@ -17226,17 +17556,85 @@
   }
 
   // ======= 门与换房 =======
+  function computeDoorRectForRoom(dir){
+    const w=CONFIG.roomW, h=CONFIG.roomH;
+    const doorW=60, doorH=10, offset=22;
+    switch(dir){
+      case 'up':
+        return {dir, x:w/2-doorW/2, y:offset, w:doorW, h:doorH};
+      case 'down':
+        return {dir, x:w/2-doorW/2, y:h-offset-doorH, w:doorW, h:doorH};
+      case 'left':
+        return {dir, x:offset, y:h/2-doorW/2, w:doorH, h:doorW};
+      case 'right':
+        return {dir, x:w-offset-doorH, y:h/2-doorW/2, w:doorH, h:doorW};
+      default:
+        return {dir, x:w/2-doorW/2, y:offset, w:doorW, h:doorH};
+    }
+  }
+
+  function computeDoorCorridorRect(dir){
+    const w=CONFIG.roomW, h=CONFIG.roomH;
+    switch(dir){
+      case 'up':
+        return {x:w/2-60, y:0, w:120, h:180};
+      case 'down':
+        return {x:w/2-60, y:h-180, w:120, h:180};
+      case 'left':
+        return {x:0, y:h/2-70, w:180, h:140};
+      case 'right':
+        return {x:w-180, y:h/2-70, w:180, h:140};
+      default:
+        return null;
+    }
+  }
+  function oppositeDir(dir){
+    switch(dir){
+      case 'up': return 'down';
+      case 'down': return 'up';
+      case 'left': return 'right';
+      case 'right': return 'left';
+      default: return dir;
+    }
+  }
   function roomDoors(r){
     if(!r) return [];
     const state = r.doors || {up:false, down:false, left:false, right:false};
     const doors = [];
-    const w=CONFIG.roomW, h=CONFIG.roomH;
-    const doorW=60, doorH=10, offset=22;
-    if(state.up) doors.push({dir:'up',   x:w/2-doorW/2, y:offset,      w:doorW, h:doorH});
-    if(state.down) doors.push({dir:'down', x:w/2-doorW/2, y:h-offset-doorH, w:doorW, h:doorH});
-    if(state.left) doors.push({dir:'left', x:offset,      y:h/2-doorW/2, w:doorH, h:doorW});
-    if(state.right) doors.push({dir:'right',x:w-offset-doorH, y:h/2-doorW/2, w:doorH, h:doorW});
+    for(const dir of ['up','down','left','right']){
+      if(state[dir]){
+        doors.push(computeDoorRectForRoom(dir));
+      }
+    }
     return doors;
+  }
+  function openSecretDoor(room, door){
+    if(!room || !door || door.open) return false;
+    door.open = true;
+    door.revealed = true;
+    door.glow = (door.glow || 0) + Math.PI;
+    door.revealTimer = Math.max(door.revealTimer ?? 0, 2.8);
+    if(room.doors){ room.doors[door.dir] = true; }
+    const target = door.target;
+    if(target && target.doors){
+      const opp = oppositeDir(door.dir);
+      target.doors[opp] = true;
+    }
+    if(runtime && runtime.itemPickupTimer<=0){
+      runtime.itemPickupName = '隐藏门被炸开';
+      runtime.itemPickupDesc = '墙壁崩裂露出暗室。';
+      runtime.itemPickupTimer = 1.6;
+    }
+    return true;
+  }
+  function applySpikeRoomExitPenalty(room){
+    if(!room || !room.isSpikeRoom || !player) return;
+    player.hurt(1, {cause:'spike-room-exit', bypassIFrames:true, ifr:0.4});
+  }
+  function applySpikeRoomEntryPenalty(room){
+    if(!room || !room.isSpikeRoom || !player) return;
+    if(player.flying) return;
+    player.hurt(1, {cause:'spike-room-entry', bypassIFrames:true, ifr:0.4});
   }
   function isRoomReadyForExit(room){
     if(!room) return false;
@@ -17246,6 +17644,7 @@
 
   function enterRoom(nextRoom, direction, options={}){
     if(!nextRoom) return;
+    const previousRoom = options?.fromRoom || dungeon.current;
     dungeon.current = nextRoom;
     if(Array.isArray(nextRoom.pickups)){
       nextRoom.pickups = nextRoom.pickups.filter(p => !(p && p.type==='chest' && p.opened && p.removeOnExit));
@@ -17276,6 +17675,11 @@
     runtime.pendingEnemySpawns.length = 0;
     runtime.beams = [];
 
+    if(previousRoom && previousRoom !== nextRoom){
+      applySpikeRoomExitPenalty(previousRoom);
+      if(state === STATE.OVER) return;
+    }
+
     if(nextRoom.isBoss && !nextRoom.introPlayed){
       runtime.bossIntroText = nextRoom.bossName;
       runtime.bossIntroTimer = 3.2;
@@ -17287,6 +17691,10 @@
     let spawnSet = null;
     if(!nextRoom.cleared || nextRoom.isBoss){
       spawnSet = nextRoom.spawnEnemies(dungeon.depth);
+    }
+    if(nextRoom.isSpikeRoom){
+      applySpikeRoomEntryPenalty(nextRoom);
+      if(state === STATE.OVER) return;
     }
     const enemiesForEntry = Array.isArray(spawnSet) ? spawnSet : nextRoom.enemies;
     const entryOptions = Object.assign({}, options, {enemies: enemiesForEntry});
@@ -17330,7 +17738,8 @@
       const bossOptions = (nr.isBoss && !nr.cleared)
         ? {bossRumbleVolume: 0.85, transitionVolume: 0.58, spawnSoundVolume: 0.62}
         : {};
-      enterRoom(nr, d.dir, bossOptions);
+      const transitionOptions = Object.assign({}, bossOptions, {fromRoom: r});
+      enterRoom(nr, d.dir, transitionOptions);
       break;
     }
   }
@@ -17520,6 +17929,7 @@
     updatePickups(worldDt);
     updateRoomObstacles(worldDt);
     updateRoomPortal(dungeon.current, worldDt);
+    updateSecretDoors(dungeon.current, worldDt);
     if(!timeStopActive){
       for(const b of bombs){
         if(b.done || b.exploded || b.spawnGrace>0) continue;
@@ -17712,9 +18122,19 @@
               player.recalculateDamage?.();
             }
             if(runtime.itemPickupTimer<=0){
-              runtime.itemPickupName = p.variant==='gold' ? '金箱子开启' : '银箱子开启';
-              runtime.itemPickupDesc = '宝物洒落在地面。';
-              runtime.itemPickupTimer = 1.3;
+              if(p.variant==='gold'){
+                runtime.itemPickupName = '金箱子开启';
+                runtime.itemPickupDesc = '宝物洒落在地面。';
+                runtime.itemPickupTimer = 1.3;
+              } else if(p.variant==='red'){
+                runtime.itemPickupName = '红箱颤动';
+                runtime.itemPickupDesc = '未知的气息溢出。';
+                runtime.itemPickupTimer = 1.4;
+              } else {
+                runtime.itemPickupName = '银箱子开启';
+                runtime.itemPickupDesc = '宝物洒落在地面。';
+                runtime.itemPickupTimer = 1.3;
+              }
             }
           }
         } else if(p.type==='card'){
@@ -17901,7 +18321,10 @@
     const isBoss = dungeon.current.isBoss && !dungeon.current.cleared;
     const variant = dungeon.current.sceneVariant || null;
     const g = ctx.createLinearGradient(0,0,0,h);
-    if(variant === 'void'){
+    if(variant === 'trap'){
+      g.addColorStop(0,'#1d0f12');
+      g.addColorStop(1,'#150a0d');
+    } else if(variant === 'void'){
       g.addColorStop(0,'#0b1120');
       g.addColorStop(1,'#020617');
     } else if(isBoss){
@@ -17917,7 +18340,22 @@
     if(variant === 'void'){ borderColor = '#f97316aa'; }
     ctx.strokeStyle = borderColor; ctx.lineWidth=14; ctx.strokeRect(10,10,w-20,h-20);
     // 裂纹/污渍
-    if(variant === 'void'){
+    if(variant === 'trap'){
+      ctx.globalAlpha = 0.08;
+      ctx.fillStyle = '#f97316';
+      for(let i=0;i<18;i++){
+        ctx.beginPath();
+        ctx.ellipse(randRange(40,w-40), randRange(40,h-40), randRange(12,36), randRange(6,20), randRange(0,Math.PI), 0, Math.PI*2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 0.1;
+      ctx.fillStyle = '#7f1d1d';
+      for(let i=0;i<8;i++){
+        ctx.beginPath();
+        ctx.ellipse(randRange(30,w-30), randRange(50,h-50), randRange(30,120), randRange(8,30), randRange(0,Math.PI), 0, Math.PI*2);
+        ctx.fill();
+      }
+    } else if(variant === 'void'){
       ctx.globalAlpha = 0.16;
       ctx.fillStyle = '#fbbf24';
       for(let i=0;i<26;i++){
@@ -17979,6 +18417,49 @@
       ctx.fillStyle = fill;
       ctx.fillRect(d.x,d.y,d.w,d.h);
       ctx.restore();
+    }
+    if(Array.isArray(r.secretDoors)){
+      for(const door of r.secretDoors){
+        if(!door || door.open) continue;
+        const rect = computeDoorRectForRoom(door.dir);
+        if(!rect) continue;
+        const pulseTime = performance.now()/520 + (door.glow || 0);
+        const reveal = clamp01((door.revealTimer || 0)/2.8);
+        ctx.save();
+        ctx.fillStyle = '#141823';
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        if(reveal>0){
+          const cx = rect.x + rect.w/2;
+          const cy = rect.y + rect.h/2;
+          const span = Math.max(rect.w, rect.h) * (1.1 + reveal*0.7);
+          const core = Math.max(6, Math.min(rect.w, rect.h) * 0.3);
+          const gradient = ctx.createRadialGradient(cx, cy, core, cx, cy, span);
+          gradient.addColorStop(0, colorWithAlpha('#f472b6', 0.35 + 0.35*reveal));
+          gradient.addColorStop(1, colorWithAlpha('#f472b6', 0));
+          ctx.globalAlpha = 0.45 * reveal;
+          ctx.fillStyle = gradient;
+          ctx.fillRect(cx - span, cy - span, span*2, span*2);
+          ctx.globalAlpha = 1;
+        }
+        const basePulse = 0.16 + 0.12*Math.sin(pulseTime);
+        const alpha = clamp(0.18 + basePulse*0.6 + reveal*0.45, 0, 0.78);
+        ctx.strokeStyle = colorWithAlpha('#be123c', alpha);
+        ctx.lineWidth = 1.4 + reveal*0.8;
+        ctx.beginPath();
+        if(rect.w > rect.h){
+          ctx.moveTo(rect.x + rect.w*0.15, rect.y + rect.h*0.2);
+          ctx.lineTo(rect.x + rect.w*0.35, rect.y + rect.h*0.8);
+          ctx.moveTo(rect.x + rect.w*0.55, rect.y + rect.h*0.3);
+          ctx.lineTo(rect.x + rect.w*0.78, rect.y + rect.h*0.7);
+        } else {
+          ctx.moveTo(rect.x + rect.w*0.2, rect.y + rect.h*0.18);
+          ctx.lineTo(rect.x + rect.w*0.8, rect.y + rect.h*0.36);
+          ctx.moveTo(rect.x + rect.w*0.3, rect.y + rect.h*0.62);
+          ctx.lineTo(rect.x + rect.w*0.78, rect.y + rect.h*0.82);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
     }
   }
   function drawObstacles(){
@@ -18153,39 +18634,57 @@
     const shadowH = Math.max(4, h * 0.28);
     drawObstacleShadow(centerX, y + h + 6, shadowW, shadowH, 0.32);
     const flash = clamp(obs.hitFlash || 0, 0, 1);
-    const baseColor = shadeColor('#7c3f16', flash*0.4);
-    const bodyGrad = ctx.createLinearGradient(x, y, x, y + h);
-    bodyGrad.addColorStop(0, shadeColor(baseColor, 0.32));
-    bodyGrad.addColorStop(1, shadeColor('#4a220c', flash*0.35 - 0.15));
+    const integrity = clamp(obs.integrity ?? 1, 0, 1);
+    const bodyTop = y + h * 0.12;
+    const bodyHeight = h - (bodyTop - y);
+    const baseColor = shadeColor('#7c3f16', flash*0.4 + (1-integrity)*0.25);
+    const bodyGrad = ctx.createLinearGradient(x, bodyTop, x, bodyTop + bodyHeight);
+    bodyGrad.addColorStop(0, shadeColor(baseColor, 0.32 + (1-integrity)*0.1));
+    bodyGrad.addColorStop(1, shadeColor('#4a220c', flash*0.35 - 0.15 + (1-integrity)*0.2));
     ctx.save();
-    ctx.beginPath();
-    if(typeof ctx.roundRect === 'function') ctx.roundRect(x, y + h*0.12, w, h*0.88, Math.min(w,h)*0.28);
-    else ctx.rect(x, y + h*0.12, w, h*0.88);
+    if(typeof ctx.roundRect === 'function') ctx.roundRect(x, bodyTop, w, bodyHeight, Math.min(w,h)*0.28);
+    else ctx.rect(x, bodyTop, w, bodyHeight);
     ctx.fillStyle = bodyGrad;
     ctx.fill();
     ctx.lineWidth = 2;
-    ctx.strokeStyle = colorWithAlpha('#2d1306', 0.85);
+    ctx.strokeStyle = colorWithAlpha('#2d1306', 0.85 - (1-integrity)*0.25);
     ctx.stroke();
-    const topHeight = h * 0.35;
+    const lipOffset = y + h*0.2 + (1-integrity)*h*0.08;
+    const topHeight = Math.max(h * 0.22, h * 0.32 * integrity);
     ctx.beginPath();
-    ctx.moveTo(x, y + h*0.2);
-    ctx.lineTo(centerX, y);
-    ctx.lineTo(x + w, y + h*0.2);
+    ctx.moveTo(x, lipOffset);
+    ctx.quadraticCurveTo(centerX - w*0.2*(1-integrity*0.9), lipOffset - topHeight*0.45, centerX, lipOffset - topHeight);
+    ctx.quadraticCurveTo(centerX + w*0.2*(1-integrity*0.9), lipOffset - topHeight*0.45, x + w, lipOffset);
     ctx.closePath();
-    const topGrad = ctx.createLinearGradient(centerX, y, centerX, y + topHeight);
-    topGrad.addColorStop(0, shadeColor('#a95a2a', 0.3 + flash*0.3));
-    topGrad.addColorStop(1, shadeColor('#6b3014', flash*0.2 - 0.1));
+    const topGrad = ctx.createLinearGradient(centerX, lipOffset - topHeight, centerX, lipOffset + topHeight*0.6);
+    topGrad.addColorStop(0, shadeColor('#a95a2a', 0.3 + flash*0.3 + (1-integrity)*0.2));
+    topGrad.addColorStop(1, shadeColor('#6b3014', flash*0.2 - 0.1 + (1-integrity)*0.2));
     ctx.fillStyle = topGrad;
     ctx.fill();
-    ctx.strokeStyle = colorWithAlpha('#2d1306', 0.8);
+    ctx.strokeStyle = colorWithAlpha('#2d1306', 0.78);
     ctx.lineWidth = 1.6;
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(x + w*0.25, y + h*0.55);
-    ctx.quadraticCurveTo(centerX, y + h*0.3, x + w*0.75, y + h*0.48);
-    ctx.strokeStyle = colorWithAlpha('#f8c28d', 0.6 + flash*0.35);
+    ctx.moveTo(x + w*0.24, bodyTop + bodyHeight*0.45);
+    ctx.quadraticCurveTo(centerX, bodyTop + bodyHeight*0.18, x + w*0.76, bodyTop + bodyHeight*0.4);
+    ctx.strokeStyle = colorWithAlpha('#f8c28d', 0.55 + flash*0.35 + (1-integrity)*0.15);
     ctx.lineWidth = Math.max(1.5, w*0.08);
     ctx.stroke();
+    const lost = Math.max(0, Math.floor((obs.maxHits || 1) - (obs.hitsRemaining ?? (obs.maxHits || 1))));
+    if(lost>0){
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      const maxChunks = Math.max(1, obs.maxHits || 1);
+      const chunkHeight = Math.max(6, bodyHeight / (maxChunks + 2));
+      for(let i=0;i<lost;i++){
+        const sway = (i%2===0 ? -1 : 1) * w * (0.22 + 0.08*(1-integrity));
+        const biteY = bodyTop + chunkHeight * (i + 0.8);
+        ctx.beginPath();
+        ctx.ellipse(centerX + sway, biteY, w*0.16, chunkHeight*0.6, 0, 0, Math.PI*2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
     ctx.restore();
   }
 
@@ -18195,35 +18694,39 @@
     const shadowW = Math.max(6, w * 0.65);
     const shadowH = Math.max(4, h * 0.28);
     drawObstacleShadow(centerX, y + h + 4, shadowW, shadowH, 0.3);
-    const baseHeight = h * 0.28;
+    const flash = clamp(obs.hitFlash || 0, 0, 1);
+    const integrity = clamp(obs.integrity ?? 1, 0, 1);
+    const baseHeight = Math.min(Math.max(6, obs.baseHeight || h * 0.3), h * 0.8);
+    const baseY = y + h - baseHeight;
     ctx.save();
-    if(typeof ctx.roundRect === 'function') ctx.roundRect(x, y + h - baseHeight, w, baseHeight, baseHeight*0.5);
-    else ctx.rect(x, y + h - baseHeight, w, baseHeight);
-    ctx.fillStyle = '#291d12';
+    if(typeof ctx.roundRect === 'function') ctx.roundRect(x, baseY, w, baseHeight, Math.min(baseHeight*0.5, 16));
+    else ctx.rect(x, baseY, w, baseHeight);
+    ctx.fillStyle = shadeColor('#291d12', -(1-integrity)*0.25);
     ctx.fill();
-    ctx.strokeStyle = colorWithAlpha('#110a05', 0.8);
+    ctx.strokeStyle = colorWithAlpha('#110a05', 0.8 - (1-integrity)*0.3);
     ctx.stroke();
     ctx.restore();
-    const flameHeight = h * 0.9;
-    const flameWidth = w * 0.6;
-    const flash = clamp(obs.hitFlash || 0, 0, 1);
+    const extraHeight = Math.max(0, h - baseHeight);
+    const flameHeight = Math.max(6, extraHeight * (0.55 + 0.45*integrity));
+    const flameWidth = w * (0.4 + 0.22*integrity);
     const phase = obs.flickerPhase || 0;
-    const flicker = Math.sin(phase) * 0.15 + 1;
+    const flicker = Math.sin(phase) * 0.18 + 1;
     ctx.save();
-    ctx.translate(centerX, y + h - baseHeight*0.6);
+    ctx.translate(centerX, baseY + baseHeight*0.35);
     ctx.beginPath();
-    ctx.moveTo(0, -flameHeight*0.9);
-    ctx.quadraticCurveTo(flameWidth*0.5, -flameHeight*0.45, flameWidth*0.25, 0);
-    ctx.quadraticCurveTo(0, flameHeight*0.2, -flameWidth*0.25, 0);
-    ctx.quadraticCurveTo(-flameWidth*0.5, -flameHeight*0.45, 0, -flameHeight*0.9);
+    ctx.moveTo(0, -flameHeight*0.95);
+    ctx.quadraticCurveTo(flameWidth*0.6, -flameHeight*0.45, flameWidth*0.32, -flameHeight*0.05);
+    ctx.quadraticCurveTo(0, flameHeight*0.22, -flameWidth*0.32, -flameHeight*0.05);
+    ctx.quadraticCurveTo(-flameWidth*0.6, -flameHeight*0.45, 0, -flameHeight*0.95);
+    const glowStrength = 0.45 + integrity*0.35 + flash*0.1;
     const bodyGrad = ctx.createRadialGradient(0, -flameHeight*0.5, flameWidth*0.1, 0, -flameHeight*0.3, flameWidth*0.7*flicker);
-    bodyGrad.addColorStop(0, colorWithAlpha('#fff1b9', 0.88 + flash*0.08));
-    bodyGrad.addColorStop(1, colorWithAlpha('#fb923c', 0.45 + flash*0.25));
+    bodyGrad.addColorStop(0, colorWithAlpha('#fff1b9', Math.min(1, 0.7 + glowStrength*0.45)));
+    bodyGrad.addColorStop(1, colorWithAlpha('#fb923c', Math.max(0, glowStrength * 0.85)));
     ctx.fillStyle = bodyGrad;
     ctx.fill();
-    const innerGrad = ctx.createRadialGradient(0, -flameHeight*0.65, flameWidth*0.05, 0, -flameHeight*0.25, flameWidth*0.45);
-    innerGrad.addColorStop(0, colorWithAlpha('#ffffff', 0.9));
-    innerGrad.addColorStop(1, colorWithAlpha('#facc15', 0));
+    const innerGrad = ctx.createRadialGradient(0, -flameHeight*0.72, flameWidth*0.04, 0, -flameHeight*0.25, flameWidth*0.45);
+    innerGrad.addColorStop(0, colorWithAlpha('#ffffff', Math.min(1, 0.85 + integrity*0.1)));
+    innerGrad.addColorStop(1, colorWithAlpha('#facc15', Math.max(0, 0.05 + integrity*0.35)));
     ctx.fillStyle = innerGrad;
     ctx.fill();
     ctx.restore();
@@ -18256,7 +18759,8 @@
     const hingeColor = palette.hinge || shadeColor(baseColor, -0.3);
     const glowColor = palette.glow || colorWithAlpha('#fef3c7',0.8);
     const progress = clamp01(p.openProgress || 0);
-    const wobble = Math.sin(performance.now()/780 + (p.glowPhase || 0))*1.4;
+    const isRed = p.variant === 'red';
+    const wobble = Math.sin(performance.now()/(isRed?620:780) + (p.glowPhase || 0))*(isRed?2.2:1.4);
     const w = p.r * 2.4;
     const h = p.r * 1.55;
     const bodyTop = -h*0.18;
@@ -18271,6 +18775,19 @@
     ctx.beginPath();
     ctx.ellipse(0, bodyBottom+4, p.r*1.55, p.r*0.55, 0, 0, Math.PI*2);
     ctx.fill();
+    if(isRed){
+      ctx.save();
+      const auraPulse = 0.35 + 0.2*Math.sin(performance.now()/340 + (p.glowPhase || 0));
+      const aura = ctx.createRadialGradient(0, bodyBottom - h*0.1, w*0.15, 0, bodyBottom - h*0.1, w*0.85);
+      aura.addColorStop(0, colorWithAlpha('#fb7185', 0.75));
+      aura.addColorStop(1, colorWithAlpha('#7f1d1d', 0));
+      ctx.globalAlpha = auraPulse;
+      ctx.fillStyle = aura;
+      ctx.beginPath();
+      ctx.ellipse(0, bodyBottom - h*0.1, w*0.85, h*0.6, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
     if(p.variant==='gold' && progress<0.05){
       const pulse = 0.35 + Math.sin(performance.now()/420 + (p.glowPhase || 0))*0.15;
       ctx.save();
