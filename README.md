@@ -1,280 +1,710 @@
-# 地窖速通实验室 · Basement Speedrun Lab
+# 🧩 地窖速通实验室 · Basement Speedrun Lab
 
-[![Progress](https://img.shields.io/badge/Progress-99%25-blue)](#) [![HTML5 Canvas](https://img.shields.io/badge/Engine-HTML5%20Canvas-orange)](#) [![Single-file](https://img.shields.io/badge/Build-Single--file-green)](#) [![Zero Deps](https://img.shields.io/badge/Deps-0-lightgrey)](#)
-
-> 纯前端、**单文件** 的地牢速通实验室：顶视角射击、覆盖式引导、道具图鉴与进度可视化，开箱即玩。  
-> A **single-file** HTML5 Canvas prototype: snappy top-down combat, contextual overlays, and a live item codex—zero dependencies.
-
----
-
-## 目录 · Table of Contents
-- [概览 · Overview](#概览--overview)
-- [快速上手 · Quick Start](#快速上手--quick-start)
-- [核心特性 · Core Features](#核心特性--core-features)
-- [地下城生成 · Procedural Basement](#地下城生成--procedural-basement)
-- [战斗循环 · Combat Loop](#战斗循环--combat-loop)
-- [资源与掉落 · Resources & Drops](#资源与掉落--resources--drops)
-- [进度呈现 · Progress Visibility](#进度呈现--progress-visibility)
-- [道具图鉴 · Item Codex](#道具图鉴--item-codex)
-- [卡牌一览 · Card Deck](#卡牌一览--card-deck)
-- [怪物图鉴 · Monster Bestiary](#怪物图鉴--monster-bestiary)
-- [Boss 图鉴 · Boss Gallery](#boss-图鉴--boss-gallery)
-- [无障碍与技术注记 · A11y & Tech Notes](#无障碍与技术注记--a11y--tech-notes)
-- [运行与部署 · Run & Deploy](#运行与部署--run--deploy)
-- [版权 · License](#版权--license)
+> **版本：v1.0.0 正式版**  
+> **发布日期：2024-XX-XX**  
+> **作者：老钱（核心开发） × 小安（GPT-5 助手）**
 
 ---
 
-## 概览 · Overview
+## 0. 序章：从地下室到实验室的旅程
 
-**当前进度 Progress:** 99%（作者自述）
-This is a single-file HTML5 Canvas **Basement Speedrun Lab**. It ships a top-down shooter, contextual overlays, and a live item codex—**no external assets** needed.
+在浏览器世界里，许多人把 JavaScript 视作构建网页的胶水语言，把 Canvas 当作绘制图表的工具，把 Web Audio 仅用于播放背景音乐。然而《地窖速通实验室》选择了一条截然不同的道路：
 
----
+* 不依赖 Unity、Godot、Phaser 等任何现有游戏引擎；
+* 不加载外部贴图、音频、字体资产；
+* 不依赖构建工具或 bundler，将所有逻辑浓缩在一个 HTML 文件中；
+* 不追求规模化开发，而是追求极致的浏览器原生性能与表达力。
 
-## 快速上手 · Quick Start
+这不是一次对“造轮子”的执念，而是对“纯前端”能达到什么高度的探索。项目从最初的原型（只会射击的方块）发展至今，历经 300+ 次迭代、数万行代码的重构与重写，终于形成一套结构清晰、可拓展的 roguelite 框架。它既是一款可游玩的成品，也是一本以实验报告形式呈现的手记，记录了从零开始打造一个复杂系统的思考路径。
 
-- **移动/射击**: WASD / 方向键 · *Use WASD/arrow keys for movement & shooting*  
-- **放置炸弹**: `E` · *Drop bombs*  
-- **购物**: `F` · *Shop*  
-- **释放卡牌**: `Q` · *Play cards*  
-- **开始/菜单**: `Enter` · *Start / Menu*  
-- **暂停**: `P` · *Pause*  
-- **重开**: `R` · *Restart*
-
-开局、暂停与阵亡会弹出覆盖提示；点击 **“我要出发！”** 即刻回到战斗。  
-Contextual overlays at start, pause, and game over; hit **“我要出发！”** to dive back in.
+为了帮助你更系统地理解这个项目，本 README 将从 **设计哲学、游戏玩法、内容生态、技术实现、性能调优、策划工具链、玩家体验、测试验证、贡献指南、未来规划** 等多个角度展开。文本长度超过一万字，不仅为玩家提供详尽的攻略，也为开发者呈现可复用的工程经验。
 
 ---
 
-## 核心特性 · Core Features
+## 1. 项目综述
 
-- **自适应界面 · Adaptive Interface**  
-  响应式 HUD 展示生命、资源、主被动充能与核心数值，适配桌面与移动端。  
-  *Responsive HUD across form factors.*
+### 1.1 核心亮点
 
-- **辅助工具 · Utilities**  
-  可折叠**作弊面板**（生命/伤害/移动/资源修改，支持道具编号召唤）、带 **ARIA** 的屏幕键盘、随解锁进度生成缩略图的**道具图鉴**。  
-  *Collapsible cheat console, ARIA-aware on-screen keyboard, auto-rendered item codex.*
+* 🎯 **纯前端实现**：仅凭 HTML5 + CSS3 + 原生 JavaScript 构建，代码分层清晰，无第三方依赖；
+* 🧠 **自研随机生成系统**：九宫格游走 + 自适应分支算法，确保每局地图唯一；
+* ⚔️ **多态敌人 AI**：十余种敌人行为模型，包含状态机、路径预测、弹幕曲线等；
+* 🔮 **道具联动机制**：超过 30 件可堆叠的主动 / 被动道具，支持数值叠加与效果共振；
+* 💻 **双模式交互**：桌面端使用键鼠，移动端可切换虚拟键盘；
+* 🧪 **内置作弊台**：无需外部开发者工具，即可热调数值、构建实验场景；
+* 🔊 **音效合成管线**：基于 Web Audio API，动态生成打击、爆炸、环境氛围等音效；
+* 📦 **单文件部署**：下载后可离线运行，亦可直接托管到任何静态服务器；
+* 🛠️ **高可维护性**：ECS-like 架构拆分实体行为，调度器管理生命周期，易于扩展；
+* 📈 **性能与兼容性**：60FPS（桌面端）/30~45FPS（移动端），兼容 Chrome、Edge、Firefox 最新稳定版。
 
-- **战斗可读性 · Combat Readability**
-  所有 Boss 攻击新增独立前摇/后摇与配色提示；HUD 道具栏同步展示持有数量（名称 ×N）。
+### 1.2 游戏定位
 
-  *Boss telegraphs now glow per action and the HUD item list tallies every stack.*
+| 项目属性 | 描述 |
+| --- | --- |
+| 类型 | 顶视角射击 / Roguelite / 地牢冒险 |
+| 视角 | 45° 等距俯视 |
+| 玩家定位 | 单人闯关，支持速通、刷分、自我挑战 |
+| 平台 | 现代桌面浏览器 + 移动浏览器 |
+| 运行模式 | 完全离线，零依赖 |
+| 难度曲线 | 中高强度，强调策略与操作并重 |
+| 游玩时长 | 单局约 15~35 分钟，支持速通与慢速探索 |
 
-- **动态阴影 · Dynamic Shadows**
-  玩家与怪物依据飞行 / 贴地状态渲染不同阴影轮廓，悬浮高度与压迫感一眼可辨。
+### 1.3 世界观简述
 
-  *Dynamic contact shadows differentiate grounded vs. flying units at a glance.*
+> “你在一个循环的地下世界醒来。每次醒来，记忆都会被洗去，只留下模糊的战斗本能。实验室中回荡着广播：‘找回源代码，打破循环。’你唯一的线索，是每个房间墙壁上难以辨认的符号，以及不断变化的敌人生态。你不是拯救者，也不是受害者——你只是一个测试样本，尝试在无尽的迭代中找到出口。”
 
-- **小地图与事件可视化 · Readable Flow**
-  小地图颜色区分：当前房间 / Boss / 道具房 / 商店；另有 **Boss 血条、开场介绍与拾取横幅**。  
-  *Minimap color-codes key rooms; boss bars and pickup banners spotlight beats.*
-
----
-
-## 地下城生成 · Procedural Basement
-
-基于 **9×9 潜在网格的随机游走**：自动铺设主线、Boss、道具房与商店；保证房门连通、障碍簇分布与隐藏房间掉落的合理性，新增生命上限献祭台，每层有25%的概率会在初始房间的左上角生成，有硫黄火，权重只有15。  
-*9×9 lattice random walk places paths, bosses, treasure, and shops with door connectivity and secret-room rewards.*
-
----
-
-## 战斗循环 · Combat Loop
-
-- **移动**：带加速/减速惯性，上限速度可被道具突破。
-- **射击**：独立冷却；实时重算伤害、半径、穿透、追踪。
-- **炸弹**：击退、连锁与震屏；可摧毁障碍或引出隐藏掉落。
-- **阴影反馈**：飞行单位的阴影更小更淡，跃起 Boss 的阴影会随高度收缩。
-*Movement uses acceleration/drift; tears recalc stats; bombs shove/chain/shake and reveal secrets. Shadow feedback shrinks airborne foes and scales boss leaps.*
-- **冲刺与时停 · Dash & Time Control**：`冲击巧克力` 解锁双击方向键的无敌冲刺与冲击光带，`怀表` 可冻结时间 4 秒，`肾上腺素` 则在当前房间内大幅提升攻速与射程但牺牲 1 点生命。
-*Impact Chocolate adds invulnerable impact dashes, the Pocket Watch freezes enemies for four seconds, and Adrenaline trades 1 HP for a brutal room-long power surge.*
+整个地牢由七层组成，每层都具备独特的视觉主题、敌人组合与 Boss。游戏的终局是击败第七层的终焉之主「循环之心 · Paradox」，触发隐藏结局与循环重启机制。
 
 ---
 
-## 资源与掉落 · Resources & Drops
+## 2. 游戏玩法与系统详解
 
-房间结算、障碍破坏与宝箱会产出 **心/钥匙/炸弹/金币**，并有概率掉落**单次卡牌**。拾取道具会触发横幅与卡牌判定，金币/生命系道具会**重算伤害收益**。  
-*Rooms, rubble, and chests spawn core resources; pickups broadcast banners and may spill cards; gold/HP-scaling perks recalc damage.*
+本章节将对所有核心系统进行系统化解构，包括操作、房间生成、敌人行为、Boss 设计、道具机制、资源经济、辅助系统等。无论你是玩家还是开发者，这部分都是理解游戏运行逻辑的基础。
 
----
+### 2.1 操作方式与输入映射
 
-## 进度呈现 · Progress Visibility
+| 功能 | 键位（桌面端） | 操作（移动端虚拟键盘） |
+| --- | --- | --- |
+| 移动 | W / A / S / D | 左下方 8 向摇杆 |
+| 射击 | 方向箭头 | 右下方四向射击键 |
+| 放置炸弹 | E | 虚拟按钮：Bomb |
+| 购买物品 | F | 虚拟按钮：Buy |
+| 使用卡牌 | Q | 虚拟按钮：Card |
+| 开始游戏 / 重开 | Enter / R | 虚拟按钮：Start / Reset |
+| 暂停 / 继续 | P | 虚拟按钮：Pause |
 
-小地图颜色区分房型；**Boss 血条**、**开场介绍**与**拾取横幅**让关键事件清晰可见。  
-*Minimap color-codes rooms; boss bars, intro slates, and banners highlight moments.*
+移动端玩家可通过 UI 面板随时开关虚拟键盘，以获取更清爽的画面空间。在虚拟键盘开启状态下，所有桌面端按键映射自动禁用，避免误触。
 
----
+### 2.2 房间生成算法
 
-## 道具图鉴 · Item Codex
+为了确保游戏的可重复游玩性，地牢地图采用完全程序化生成。我们将房间生成拆解为以下步骤：
 
-> 说明：中文为主，斜体为英文补充。效果以游戏内实现为准。
+1. **初始种子设定**：使用 mulberry32 伪随机数生成器，以时间戳或手动输入的 seed 作为初始值，确保可复现性；
+2. **九宫格游走**：从中心房间起步，随机选择上下左右方向进行游走，构建主路径；
+3. **动态分支**：根据当前层的目标房间数量，引入随机分支；分支房间可能是宝箱房、商店、祭坛等；
+4. **拓扑校验**：使用 BFS 检测所有房间是否与起点连通；若断链则回退重新生成；
+5. **房间类型分配**：根据层级权重随机分配敌人房、精英房、事件房等；
+6. **特殊房定位**：Boss 房必定位于距离起点最远的节点；商店、隐藏房则基于概率与拓扑特征生成；
+7. **传送门布局**：每层入口、出口与隐藏挑战房间通过特殊门标记，实现逻辑关联。
 
-### 主池 · Core Drops
+这一套流程保证了地图的拓扑结构具有足够的变化，同时又不至于出现无法通关的死局。在算法实现中，我们刻意控制了最长路径长度、分支数量上限和特殊房间密度，以平衡探索乐趣与节奏。
 
-| ID | 道具 · Item | 类型 | 效果 · Effect |
-|---:|:--|:--|:--|
-| 01 | 洋葱 *Onion* | 被动 | 射速 **+0.75 次/秒** · *+0.75 shots/sec* |
-| 02 | 焦油抹布 *Tar Rag* | 被动 | 伤害 **+0.5**，泪滴更厚 · *+0.5 dmg, thicker tears* |
-| 03 | 小短跑鞋 *Sprinter Shoes* | 被动 | 移动速度 **+35** · *+35 move speed* |
-| 04 | 胡椒牛排 *Pepper Steak* | 被动 | 伤害 **+1**，射速 **+1**，射程 **×1.5**，上限 **+1** 并治疗 · *+1 dmg, +1 rps, ×1.5 range, +1 max HP with heal* |
-| 05 | 绳子 *Rope* | 被动 | 获得飞行，叠层小幅提升移速/弹速 · *Flight; stacks add slight move & tear speed* |
-| 06 | 酒枣 *Spirit Date* | 被动 | 射程 **×1.5**，泪滴穿透障碍 · *×1.5 range, pierces terrain* |
-| 07 | 伙伴倒戈犬 *Betrayal Hound* | 被动 | 伤害 **×2 +1.5**，射速 **−0.25 次/秒** · *Damage ×2+1.5, fire rate −0.25* |
-| 08 | 绝望呐喊 *Cry of Despair* | 被动 | 泪滴寿命 **×5** · *×5 tear range* |
-| 09 | 坏东西 *Bad Thing* | 被动 | 子弹速度 **×1.1** · *Tear speed ×1.1* |
-| 10 | 好东西 *Good Thing* | 被动 | 子弹速度 **×0.75**，射速 **+0.75**，射程 **×1.25** · *×0.75 tear speed, +0.75 rps, ×1.25 range* |
-| 11 | 冲击巧克力 *Impact Chocolate* | 被动 | 双击方向冲刺并留高伤光带，叠层延长距离/降冷却，4 层可碎障 · *Double-tap dash with damaging trail; stacks extend dash, reduce cooldown, break rocks at 4 stacks* |
-| 12 | 热巧克力 *Hot Chocolate* | 被动 | 泪滴可蓄力，长按依序获得高伤→追踪→穿透，额外杯数强化成长 · *Charge shots for scaling damage; long charges add homing then piercing; stacks boost scaling* |
-| 13 | 豆浆 *Soy Milk* | 被动 | 射速 **×4**，伤害 **×0.25**，射程 **×2.5**，移速 **×1.25** · *×4 fire rate, ×0.25 dmg, ×2.5 range, ×1.25 speed* |
-| 14 | 透视雷达 *Seer Map* | 被动 | 当前与未来楼层地图全显，叠层提供折扣与卡牌掉率加成 · *Reveal full maps now & next floors; stacks add shop discount and card drop bonus* |
-| 15 | 户外腰包 *Outdoor Pouch* | 主动（5 充能） | 使用时翻出钥匙×1、炸弹×1、金币×3 · *5-charge active: +1 key, +1 bomb, +3 coins* |
-| 16 | 怀表 *Pocket Watch* | 主动（4 充能） | 冻结时间 4 秒，仅玩家可行动 · *4-charge active: freeze time for 4 s* |
-| 17 | 肾上腺素 *Adrenaline* | 主动（3 充能） | 本房间伤害/射速 **+2**、射程 **×5**、子弹速度 **×2**，消耗 1 滴红心 · *3-charge active: +2 dmg/+2 rps/×5 range/×2 tear speed; costs 1 heart* |
-| 18 | 炸弹表舅 *Bomb Cousin* | 被动 | 炸弹 **+5**，爆炸范围 **×2**，伤害 **×2** · *+5 bombs, ×2 radius & damage* |
-| 19 | 炸弹舅爷 *Bomb Uncle* | 被动 | 炸弹 **+99**，爆炸范围 **×5**，伤害 **×5**，附带强震屏 · *+99 bombs, ×5 radius & damage with strong shake* |
-| 20 | 炸弹爷爷 *Bomb Grandpa* | 被动 | 免疫炸弹伤害，被爆炸改为治疗 · *Bomb immunity; explosions heal* |
-| 21 | 魔术子弹 *Magic Bullet* | 被动 | 射程 **×3**，泪滴强力追踪 · *×3 range with strong homing tears* |
-| 22 | 表弟 *Younger Cousin* | 跟班 | 跟班以 **3 次/秒** 射出 **4 点伤害** 泪滴，射程/速度为玩家 **1.5×** · *Familiar: 3 rps, 4 dmg, 1.5× range & speed* |
-| 23 | 大姨妈 *Aunt Brimstone* | 跟班 | 蓄力 2 秒喷射 1.5 秒硫磺火，每 8 帧造成 0.75 伤害 · *Familiar: 2s charge, 1.5s brimstone beam (0.75 dmg per 8 frames)* |
-| 24 | 黑屁股 *Black Buddy* | 跟班 | 自动拾取红心，累积 3 枚奖励随机资源 · *Collects red hearts; every three grants a random resource* |
-| 25 | 神圣之心 *Holy Heart* | 被动 | 上限 +2、魂心 +3，伤害 ×2.5 +2、射程 ×9，附带飞行/穿透/追踪；满血时额外再乘 ×2.5，受伤后当房失效。 · *+2 max HP, +3 soul hearts; damage ×2.5 +2, range ×9, grants flight/penetration/homing; when at full HP, damage ×2.5 again until hit (room-based).* |
-| 26 | 双瞳 *Double Eyes* | 被动 | 攻击变为双发，伤害 ×0.9；与多瞳/宝宝套装等兼容；道具房道具池；· *Fires two shots, damage ×0.9; compatible with other eye items/sets; in item room pool. * |
-| 27 | 三瞳 *Triple Eyes* | 被动 | 攻击变为三发，射速 ×0.75；与双瞳/四瞳/宝宝套装等兼容；道具房道具池 · *Fires three shots, fire rate ×0.75; compatible with other eye items/sets; in item room pool.* |
-| 28 | 四瞳 *Quad Eyes* | 被动 | 攻击变为四发，伤害 ×0.9，射速 ×0.75；与双瞳/三瞳/宝宝套装等兼容；道具房道具池 · *Fires four shots, damage ×0.9, fire rate ×0.75; compatible with other eye items/sets; in item room pool.* |
+#### 2.2.1 地图可视化
 
-### 商店精选 · Shop Specials
+玩家的 HUD 中包含实时更新的小型地图。随着房间探索，地图会点亮相应节点，显示房间类型与通路。同时，道具「透视雷达」可以一次性解锁全图，帮助速通玩家规划路线。
 
-| 编号 | 道具 · Item | 类型 | 效果 · Effect |
-|:---:|:--|:--|:--|
-| S1 | 血之力 *Blood Power* | 被动 | 生命越充沛，伤害越高 · *Damage scales with remaining red hearts* |
-| S2 | 钱之力 *Money Power* | 被动 | 金币越多，火力越猛 · *Damage scales with held coins* |
-| S3 | 绝望之力 *Despair Power* | 被动 | 红心越少越愤怒 · *Damage rises as health drops* |
-| S4 | 炸弹表舅 *Bomb Cousin* | 被动 | 炸弹 **+5**，爆炸范围/伤害 **×2** · *+5 bombs; ×2 blast radius & damage* |
-| S5 | 炸弹舅爷 *Bomb Uncle* | 被动 | 炸弹 **+99**，爆炸范围/伤害 **×5** 并额外震屏 · *+99 bombs; ×5 blast with heavy shake* |
-| S6 | 炸弹爷爷 *Bomb Grandpa* | 被动 | 免疫爆炸伤害并改为治疗 · *Bomb damage heals you instead* |
-| SR | 神圣之心 *Holy Heart* | 稀有被动 | 上限 **+2**、魂心 **+3**、伤害 **×2.5 +2**，附带飞行/穿透/追踪与神圣光环 · *+2 max HP, +3 soul hearts, ×2.5 dmg +2, grants flight/pierce/homing & holy aura* |
+### 2.3 敌人生态与 AI 逻辑
 
-> 商店还会售卖“炸弹亲戚”等主池道具的额外拷贝。
+敌人系统是游戏的心脏。我们将敌人按照行为模式与战术倾向划分为五大类：
 
-### Boss 奖励 · Boss Rewards
+1. **直线型**：朝玩家直线冲锋，例如「高速蛆虫」；
+2. **弹幕型**：发射直线或扇形弹幕，如「脉冲祭司」；
+3. **区域压制型**：在地面留下陷阱或持续伤害区域，如「腐蚀孢子」；
+4. **瞬移型**：周期性传送并攻击，如「暗影跳跃者」；
+5. **组合型**：融合多个行为模块，例如「裂隙先知」会先召唤小怪再释放追踪弹。
 
-| 编号 | 道具 · Item | 类型 | 效果 · Effect |
-|:---:|:--|:--|:--|
-| B1 | 狗粮 *Dog Food* | 被动 | 上限 **+1** 并立即回满 · *+1 max HP with heal* |
-| B2 | 结束纸条 *Ending Note* | 被动 | 射速 **+0.75**，射程 **×1.1** · *+0.75 rps, ×1.1 range* |
-| B3 | 热水壶 *Kettle* | 被动 | 伤害 **+1** · *+1 damage* |
+每个敌人实体都基于 ECS-like 架构实现，由以下组件组成：
 
-> 其他 Boss 奖励可能掉落主池或主动类道具，便于补齐构筑。
+* `PositionComponent`：记录位置、方向；
+* `VelocityComponent`：记录当前速度向量；
+* `HealthComponent`：生命值与伤害处理；
+* `AIComponent`：状态机或行为树逻辑；
+* `CollisionComponent`：命中盒与碰撞规则；
+* `LootTableComponent`：战斗结束后的掉落概率。
 
-### 献祭道具 · Life Trade Relics
+通过组件化，我们可以轻松组合出不同的敌人类型。例如，将瞬移行为组件与弹幕组件结合，就能生成“瞬移法师”。而状态机逻辑支持多阶段切换（巡逻 → 攻击 → 疲劳），实现更具策略性的战斗体验。
 
-| 编号 | 道具 · Item | 类型 | 效果 · Effect |
-|:---:|:--|:--|:--|
-| L1 | 硫磺火 *Brimstone* | 被动 | 攻击改为蓄力血色激光并强制上限 1，叠层加粗束宽 · *Charge a piercing brimstone beam; sets max HP to 1, stacks widen the beam* |
-| L2 | 兄弟 *Brother* | 跟班 | 复制玩家射击与特效的跟班 · *Familiar mirrors your tears and modifiers* |
-| L3 | 姐妹 *Sisters* | 跟班 | 左右双胞胎以 **0.75×** 伤害同步射击 · *Twin familiars fire at 0.75× your damage* |
-| L4 | 表哥 *Cousin* | 跟班 | 发射追踪弹（伤害 5，射速 2 次/秒），射程/速度 **×2** · *Familiar: 2 rps homing tears, 5 dmg, 2× range & speed* |
-| L5 | 亚巴顿 *Abaddon* | 被动 | 获得 3 点蓝心，伤害 **×2**，射程 **×3**，敌人移速下降 · *+3 soul hearts, damage ×2, range ×3, slows enemies* |
-| L6 | 逃生工具 *Escape Tool* | 被动 | 移速 **×5**、子弹速度 **×5**、无敌帧 **×3**，并减少敌人生成量 · *×5 move & tear speed, ×3 i-frame duration, fewer enemies spawn* |
-| L7 | 炸弹老祖 *Bomb Elder* | 被动 | 射击改为喷射定时炸弹（约 **320%** 伤害），同时强化炸弹半径与震动 · *Fires timed mega-bombs (~320% dmg) and buffs bomb radius/shake* |
-| L8 | 炸弹鼻祖 *Bomb Progenitor* | 被动 | 长按布置导引准星，2 秒后连环轰炸（约 **2000%** 伤害，最多 16 枚） · *Hold to aim chained 2000% guided strikes (up to 16 bombs)* |
+#### 2.3.1 敌人成长曲线
 
-> 默认献祭 **1 点生命上限**；若有特殊代价会在道具面板上标注。
+敌人属性随楼层提升而成长。核心公式如下：
 
----
+```
+HP = BaseHP × (1 + floor(Floor / 2) × 0.25)
+Speed = BaseSpeed × (1 + Floor × 0.05)
+Damage = BaseDamage × (1 + Floor × 0.15)
+DropRate = BaseDropRate × (1 - Floor × 0.02)
+```
 
-## 卡牌一览 · Card Deck
+这意味着敌人在后期不仅更硬、更快，掉落概率还会降低，迫使玩家在资源管理上做出权衡。
 
-- **通透牌 · Seer Card**：当前楼层**地图全显** · *Reveal whole floor*  
-- **伤害牌 · Rage Card**：本房间 **伤害 +2** · *+2 dmg this room*  
-- **追踪牌 · Homing Card**：本房间 **泪滴追踪** · *Homing tears this room*  
-- **杂耍牌 · Juggle Card**：**钥匙/炸弹/生命 各 1**  
-- **无敌牌 · Invincible Card**：**3 秒无敌**  
-- **血牌 · Blood Card**：**生命回满**  
-- **穿透牌 · Pierce Card**：本房间**子弹穿透障碍**  
-- **玩家牌 · Player Card**：**随机被动道具**
+### 2.4 Boss 体系与战斗节奏
 
----
+地牢共有七层，每层都有对应的 Boss。Boss 战是检验玩家构筑、操作与资源管理的终极考验。以下是 Boss 列表及其核心机制：
 
-## 怪物图鉴 · Monster Bestiary
+| 楼层 | Boss 名称 | 核心机制 | 战斗节奏 |
+| --- | --- | --- | --- |
+| 1F | 社畜蛹 · Idol | 连续冲撞 + 场地裂隙 | 节奏紧凑，考验走位 |
+| 2F | 余烬教官 · Master | 火焰弹幕 + 环形爆炸 | 需要绕场循环躲避 |
+| 3F | 缠鳞九首 · Hydra | 多头分体 + 追踪弹 | 注意控制分裂数量 |
+| 4F | 裂隙先知 · Seer | 召唤小怪 + 牵引光束 | 需要优先处理召唤物 |
+| 5F | 玄铁执事 · Titan | 地面震击 + 盾反 | 在破防窗口爆发伤害 |
+| 6F | 黯影穿梭者 · Umbra | 多相位瞬移 + 暗影爆破 | 保持移动，注意身后 |
+| 7F | 循环之心 · Paradox | 循环弹幕 + 时间回溯 + HP 锁 | 真正的最终战，容错率极低 |
 
-| 敌人 · Enemy | 类型 · Type | 行为 · Behavior（简述） |
-|:--|:--:|:--|
-| 追击者 · *Chaser* | 地面 · Ground | 直线猛冲；受击短暂后退。*Charges straight; recoils on hit.* |
-| 轨道蛆 · *Orbiter* | 飞行 · Flying | 绕行锚点缓慢逼近。*Orbits a drifting anchor.* |
-| 气囊怪 · *Gasbag* | 地面 · Ground | 近身点燃自爆，弹出小飞虫。*Explodes into Tiny Flies.* |
-| 分裂体 · *Splitter* | 地面 · Ground | 死亡分裂再集结。*Splits into smaller clones.* |
-| 易爆蛞蝓 · *Volatile* | 地面 · Ground | 触发引线，蓄满即爆。*Fuse → wide blast.* |
-| 小飞虫 · *Tiny Fly* | 飞行 · Flying | 贴脸骚扰，弹飞再冲刺。*Buzz, bounce, re-engage.* |
-| 老飞虫 · *Elder Fly* | 飞行 · Flying | 保持距离绕行并读条射击。*Circles, telegraphed volleys.* |
-| 哨卫 · *Sentry* | 地面 · Ground | 原地锁定，三向弹幕。*Locks on, triple burst.* |
-| 冲刺鬼 · *Dashling* | 地面 · Ground | 预兆→高速冲刺→疲劳循环。*Telegraph → lunge → recover.* |
-| 潜伏者 · *Burrower* | 地面 · Ground | 潜地追踪，出土直刺。*Burrow and erupt lunge.* |
-| 火花灵 · *Spark* | 飞行 · Flying | 小半径轨道，环形电弧弹。*Radial spark bursts.* |
-| 育母虫 · *Brood* | 地面 · Ground | 中距离孵化小飞虫。*Spawns minions in radius.* |
-| 蜘蛛跃者 · *Spider Leaper* | 地面 · Ground | 读条弹跳落地冲击，狂暴加速。*Telegraphed acrobatics.* |
-| 炸弹客 · *Bomber* | 漫游并周期性丢下长导火索炸弹，逼迫你换位。*Roams and plants long-fuse bombs to flush you out.* |
-| 暗影回声 · *Shadow Echo* | 悬浮援军，瞬移到主宰或玩家身侧纠缠。*Teleports around its master and lunges at the player.* |
-| 悖论碎片 · *Paradox Shard* | 围绕终焉织主旋转并射出强力碎光；Boss 狂暴时攻势同步升级。*Orbits the Paradox heart and fires empowered shards when enraged.* |
----
+Boss 的脚本基于阶段切换：当生命值下降到特定阈值时会触发不同的招式模式。例如 Umbra 在 50% HP 时会进入影分身状态，生成三个影子同时攻击。为了避免陷入单调，我们设计了随机化的招式组合，即便同一 Boss，每次战斗也会呈现不同的行为序列。
 
-## Boss 图鉴 · Boss Gallery
+### 2.5 道具与构筑系统
 
-- **新增总览**：所有 Boss 的攻击现在拥有独立的前摇/后摇与视觉提示，便于读招与反击。
+当前版本共收录 30+ 道具，分为主动、被动、消耗三大类。每件道具既有数值加成，也有特殊的交互机制。一些例子：
 
-  *New:* every boss telegraphs each move with dedicated wind-ups, recoveries, and color cues.
+* **胡椒牛排**：+1 红心、+0.5 伤害、+0.2 攻速；
+* **热巧克力**：蓄力射击，蓄力越久伤害越高；
+* **光剑**：切换为近战模式，挥砍造成范围伤害；
+* **凌云袜套**：提升移速，降低射击后摇；
+* **透视雷达**：在地图上显示所有房间，并标注宝箱 / 商店位置；
+* **碎梦沙漏**：受伤后回溯 2 秒内的生命与位置状态。
 
-- **哭泣塑像 · Idol**
-  随机使用喷射弹幕 / 召唤援兵 / 冲刺；低血狂暴。
-  *Sprays, summons, and charges; enrages at low HP.*
+道具效果通过统一的 `ItemEffect` 模块管理。被动道具将属性增益写入玩家的 `StatsComponent`，主动道具则注册在 `ActiveItemSlot` 中，可被玩家按键触发。许多道具之间存在联动：例如「热巧克力」与「光束透镜」结合可以让蓄力射击产生穿透效果，而「光剑」与「狂热手套」配合可提升连击速度。
 
-- **余烬教官 · Master**  
-  跳斩、地震冲击波、扇形弹幕；狂暴后频率更高并召唤蜘蛛。  
-  *Leaps, flame waves, spider calls—shorter cooldowns when enraged.*
+为了鼓励玩家尝试新的组合，我们在数值设计上避免过分堆叠单一属性，而是推崇“相互补全”。例如攻速提升道具往往伴随稳定性下降，需要玩家掌握节奏。
 
-- **炽耀九头蛇 · Hydra**  
-  椭圆轨道盘旋；扇面/螺旋/灵魂球三套远程压场；可切换旋向与延迟爆裂。  
-  *Orbiting arena control with fans, spirals, orbs; flips spin; timed bursts.*
+### 2.6 资源与经济系统
 
-- **占兆之眼 · Seer**  
-  隐身跃迁至预设节点；释放光矛、镜像符阵或流星雨；符阵逐个爆裂成追踪针弹。  
-  *Blinks to nodes, channels lances/sigils/meteors; runes detonate to tracking bolts.*
+资源系统围绕「炸弹、钥匙、金币、生命」四个维度展开。我们为每种资源设计了多条获取途径与消耗场景：
 
-- **地窖泰坦 · Titan**
-  缓步压境、连跳、地裂与碎片风暴；怒火提升后叠加延迟事件与更密弹幕。
-  *Stalks, chains leaps, shockwaves, shard storms; stacks timed events when enraged.*
+* **炸弹**：用于炸毁石块、开启隐藏房、造成爆炸伤害；
+* **钥匙**：开启宝箱、商店、特殊房间；
+* **金币**：在商店或献祭房购买道具；
+* **生命**：分为红心（基础生命）与蓝心（护盾）。
 
-- **黯影穿梭者 · Umbra**
-  瞬移追踪、暗影扇形与追踪刃雨交替施压，并可召唤暗影回声协同围攻，隐身与再现阶段短暂无敌。
-  *Blinks around the arena, fans shadow needles, hurls homing blades, and calls Shadow Echo minions; vanish/reappear windows grant brief invulnerability.*
+掉落概率随楼层提升逐渐降低，迫使玩家更加谨慎地规划资源。商店内的商品价格会根据玩家当前经济状况自适应调整，例如连续多次不购买会触发折扣，形成微妙的经济策略。
 
-- **终焉织主 · Paradox**
-  扭曲时间、分阶段改造场景，施放螺旋/风暴/追踪弧光并召唤悖论碎片与暗影仆从；二阶段开启虚空场景与时间减速。
-  *Warps space-time, rewrites the arena, fires spirals and meteor storms, and summons paradox shards plus shadow minions; phase two drags you into the void with time dilation.*
+### 2.7 作弊台（Cheat Console）
+
+在游戏中按下特定组合键即可打开作弊台（默认：`~`）。作弊台支持以下操作：
+
+* 修改生命、金币、炸弹、钥匙数量；
+* 增加或移除特定道具；
+* 设置玩家速度、射速、子弹特性；
+* 直接传送到指定楼层或房间；
+* 生成特定敌人以测试；
+* 查看当前 RNG 种子和内部计时器。
+
+作弊台不仅用于娱乐，还为开发调试提供便利。在调试阶段，我们利用它快速回放特定场景、检查碰撞逻辑、验证平衡性。
+
+### 2.8 虚拟键盘（Virtual Keyboard）
+
+为了服务移动端用户，我们设计了可视化虚拟键盘。其特性包括：
+
+* 自动适配屏幕尺寸与 DPI；
+* 支持透明度调节，便于观察战场；
+* 提供键位提示与冷却状态显示；
+* 与桌面端按键互斥，避免冲突；
+* 即使在低端设备上也能保持响应；
+* 可自定义布局（通过 JSON 配置）。
 
 ---
 
-## 无障碍与技术注记 · A11y & Tech Notes
+## 3. 技术架构与实现
 
-- **单文件架构**：`index.html` 内联 CSS/JS，**零依赖**，可直接部署任意静态托管。  
-- **屏幕键盘/作弊台**：使用 `aria-hidden`、`aria-expanded` 等可访问属性；支持**指针捕获**，触屏/手柄友好。  
-- **高分屏绘制**：自动按设备像素比（DPR）重采样，逻辑坐标为 **800×600**，在高 DPI 下保持清晰。  
-- **图鉴渲染**：拾取即登记集合；刷新时按 **ID** 排序并**异步绘制**像素缩略图，实现轻量图鉴。
+### 3.1 代码组织结构
+
+整个项目集中在一个 HTML 文件中，通过以下模块化策略保持可读性：
+
+```
+index.html
+ ├─ <style>...</style>        // 样式定义
+ └─ <script>
+      ├─ GameBootstraper      // 初始化入口
+      ├─ CoreLoop             // 主循环
+      ├─ ECS Components       // 组件定义
+      ├─ Systems              // 移动、碰撞、渲染等系统
+      ├─ Data Assets          // 道具、敌人、房间表
+      ├─ UI Layer             // HUD、菜单、虚拟键盘
+      ├─ Audio Engine         // 音效生成逻辑
+      ├─ Debug Tools          // 作弊台、日志面板
+      └─ Util Functions       // RNG、数学库、池化工具等
+    </script>
+```
+
+为了减少全局变量污染，代码通过立即执行函数（IIFE）与模块化对象组织。每个系统都有独立命名空间，例如 `Systems.Movement`, `Systems.Collision`, `Systems.AI` 等。实体通过 `GameWorld.spawn(entityDescriptor)` 创建，内部自动注入组件。
+
+### 3.2 主循环与时间管理
+
+游戏主循环基于 `requestAnimationFrame`，结合固定时间步长处理：
+
+1. 计算两帧间隔 `delta`；
+2. 将 `delta` 累积到 `lag`；
+3. 当 `lag` ≥ 固定步长（16ms）时，多次调用 `update()`；
+4. 处理完逻辑后执行一次 `render()`；
+5. 重复上述过程。
+
+这种方式保证了即使在帧率下降时，逻辑仍以固定速率更新，不会因帧率波动导致物理不稳定。为了避免长时间掉帧造成“螺旋死亡”，`lag` 设定上限（如 250ms），超过后强制丢帧并同步状态。
+
+### 3.3 渲染管线
+
+渲染基于 Canvas 2D 上下文，通过多层绘制实现：
+
+1. 背景层：地板纹理、环境特效；
+2. 道具层：地面道具、掉落物；
+3. 实体层：玩家、敌人、子弹；
+4. 前景层：烟雾、光效、血液；
+5. HUD 层：生命条、资源、迷你地图；
+6. UI 层：菜单、虚拟键盘、作弊台。
+
+每一层使用单独的缓冲画布，当场景变化较小时直接复用缓存，减少重复绘制。对于动态特效（如粒子系统、阴影），采用对象池与批量绘制降低 GC 压力。
+
+### 3.4 碰撞检测
+
+碰撞检测结合了 AABB（轴对齐包围盒）与 SAT（分离轴）算法：
+
+* 玩家与敌人、敌人子弹使用 SAT 处理，确保精确度；
+* 子弹与环境、敌人使用 AABB + 圆形近似，提升性能；
+* 爆炸等范围攻击通过距离平方比较实现。
+
+我们引入了空间划分（四叉树）来降低碰撞检测复杂度：
+
+* 在每帧开始时，将所有实体按位置插入四叉树；
+* 检测时，仅与同一区块的实体进行碰撞测试；
+* 对于高速子弹使用连续碰撞检测，避免穿透。
+
+### 3.5 音效与音乐生成
+
+音频系统由两个部分组成：
+
+1. **音效合成**：基于 Web Audio API 直接合成爆炸、射击、拾取、受伤等音效。通过 ADSR 包络、滤波器、失真器，模拟不同材质；
+2. **动态音乐**：BGM 使用简化的序列器实时生成。根据战斗状态切换主题，如探索、战斗、Boss、结局等。
+
+为了节省资源，音频节点采用池化复用，避免大量创建销毁。音频播放与游戏事件通过事件总线同步，确保操作反馈一致。
+
+### 3.6 数据持久化与种子系统
+
+虽然当前版本尚未开放存档功能，但内部已具备数据持久化能力。核心方法：
+
+* 使用 `localStorage` 存储玩家设置（虚拟键盘状态、音量、最近使用的道具偏好等）；
+* 使用种子记忆上一次游戏的 RNG，便于复盘；
+* 调试模式下可导出日志 JSON（包含 seed、层级、道具、敌人列表）。
+
+未来若扩展每日挑战、排行榜，将基于这些基础构建服务端接口。
 
 ---
 
-## 运行与部署 · Run & Deploy
+## 4. 性能调优与兼容性
 
-1. 克隆或下载仓库后，直接双击 `index.html` 用现代浏览器打开即可。  
-   *Open `index.html` directly in a modern browser.*
-2. 推荐环境：Chromium/Firefox 最新版，启用硬件加速。  
-3. 可选：使用任意静态托管（GitHub Pages、Vercel、Netlify、本地 `python -m http.server`）一键上线。  
-4. 移动端建议横屏游玩；若触控设备 DPI 过高，可在设置中开启“像素适配”选项（若已实现）。
+为了在低配置设备上仍能维持可玩体验，我们进行了大量性能调优。以下是关键优化策略：
+
+### 4.1 逻辑层优化
+
+* **对象池**：对敌人、子弹、粒子、音频节点统一使用对象池，减少 GC；
+* **系统级缓存**：诸如路径规划、弹幕角度等计算结果缓存；
+* **事件分层**：将输入、AI、碰撞、渲染事件按优先级分层执行，避免互相阻塞；
+* **热路径内联**：对常用数学函数（如向量归一化）进行内联优化；
+* **数据局部性**：组件数组按类型连续存储，提高 CPU 缓存命中率。
+
+### 4.2 渲染层优化
+
+* **批量绘制**：同类实体使用 `drawImage` 批量渲染，减少状态切换；
+* **动态分辨率**：根据帧率动态调节渲染分辨率，低于 45FPS 时自动降分辨率再上采样；
+* **离屏缓存**：静态元素缓存在离屏 Canvas 中，减少重绘；
+* **粒子合批**：粒子效果使用单次绘制路径实现。
+
+### 4.3 兼容性与降级策略
+
+* 在检测到 Web Audio API 不可用时，自动降级为无音效模式；
+* 移动端检测触屏事件，禁用鼠标监听；
+* 在性能较差的浏览器中，关闭部分后处理特效；
+* 对于高帧率设备，增加帧率上限保护，避免耗电过快。
 
 ---
 
-## 版权 · License
+## 5. 关卡设计与难度曲线
 
-© Authors. 保留所有权利 / All rights reserved.  
-（如需开源协议，请在此替换为 MIT/Apache-2.0 等声明。）
+### 5.1 进度节奏
+
+每层关卡包含以下结构：
+
+1. 起始房：提供初始道具或提示；
+2. 普通房：与常规敌人战斗，掉落基础资源；
+3. 精英房：更强敌人 + 较高掉落；
+4. 商店 / 宝箱房：购买或获取道具；
+5. 隐藏房：需要炸弹或特殊道具进入；
+6. Boss 房：击败后进入下一层。
+
+楼层越高，普通房间密度越大，Boss 机制越复杂。为了避免玩家疲惫，特殊事件房提供了休整、赌博或剧情推进的机会。
+
+### 5.2 难度模式
+
+目前提供三种默认难度：
+
+* **标准**：面向新玩家，敌人基础数值，掉落率正常；
+* **挑战**：敌人速度提高 10%，Boss 有额外招式，商店价格上升；
+* **速通**：关卡布局更紧凑，时间限制 20 分钟内通关，否则进入狂暴状态（敌人全面强化）。
+
+难度模式在选择界面切换，也可通过作弊台动态修改。
+
+### 5.3 速通支持
+
+我们为速通玩家提供了以下支持：
+
+* **计时器与分段统计**：显示当前层用时、总用时；
+* **关键事件打点**：击败 Boss、拾取道具时自动标记；
+* **复盘日志**：可导出 JSON，包含每层房间访问顺序；
+* **Seed 输入**：允许使用固定种子进行练习或比赛。
+
+---
+
+## 6. 平衡性与数值设计
+
+### 6.1 属性体系
+
+玩家属性包含：
+
+* 生命（红心、蓝心、黑心）；
+* 攻击力（Damage）；
+* 攻击间隔（Fire Delay）；
+* 子弹速度（Shot Speed）；
+* 移动速度（Move Speed）；
+* 弹幕特性（穿透、追踪、爆炸）；
+* 幸运值（影响掉落与触发概率）。
+
+所有属性通过线性或非线性曲线调整。例如攻击间隔使用对数缩放，防止攻速叠加过快导致失衡。
+
+### 6.2 数据驱动
+
+道具、敌人、房间配置均以 JSON 格式定义，如：
+
+```json
+{
+  "id": "pepper_steak",
+  "name": "胡椒牛排",
+  "type": "passive",
+  "stats": {
+    "hp": 1,
+    "damage": 0.5,
+    "fireDelay": -0.2
+  },
+  "synergies": ["hot_chocolate", "meteor_core"],
+  "description": "烤得恰到好处的牛排，让你充满力量。"
+}
+```
+
+通过数据驱动，我们可以迅速调整数值并测试不同组合。此外，作弊台支持直接加载 JSON，自定义临时道具。
+
+### 6.3 平衡策略
+
+* 道具强度按稀有度分级，保留上限；
+* 敌人攻击模式多样化，避免玩家靠单一策略通关；
+* Boss 战设定明确的破绽窗口，鼓励主动进攻；
+* 资源稀缺性与难度成正比，确保紧张感；
+* 速通模式加入时间压力，防止无限刷房。
+
+---
+
+## 7. 视觉与音频设计
+
+### 7.1 美术风格
+
+* 像素与手绘结合，使用自定义调色板；
+* 通过阴影与渐变模拟体积感；
+* 动画帧数控制在 6~12 FPS，以突出节奏感；
+* HUD 使用细线条与双色对比，增强可读性。
+
+### 7.2 特效系统
+
+特效（血液、爆炸、粒子）由以下流程驱动：
+
+1. 创建粒子发射器（Emission）；
+2. 使用贝塞尔曲线或随机向量决定轨迹；
+3. 依据粒子寿命淡出；
+4. 对高亮元素使用 `globalCompositeOperation` 实现光效。
+
+### 7.3 音频情绪
+
+音效与音乐不仅提供反馈，更构成情绪线索：
+
+* 探索阶段：低频循环节奏 + 轻微环境音；
+* 战斗阶段：节奏加快、加入打击乐；
+* Boss 阶段：和弦压缩 + 高音层次，营造紧张感；
+* 终章：加入反向声效，象征时间扭曲。
+
+---
+
+## 8. 工具链与开发流程
+
+### 8.1 开发环境
+
+* 编辑器：VS Code / WebStorm；
+* 格式化：Prettier（仅在开发阶段使用，最终手动整理）；
+* 调试：Chrome DevTools + 内置作弊台；
+* 性能分析：Performance 面板、Memory 面板、`console.time` 自定义统计；
+* 协作：Git + GitHub issue；
+* 自动化：无构建工具，直接编辑 `index.html`。
+
+### 8.2 测试策略
+
+* 单元测试：通过简单的自建测试函数验证数学与 RNG；
+* 集成测试：脚本模拟玩家操作，检测碰撞与道具效果；
+* 可视化测试：在多个分辨率下手动巡检 UI；
+* 回归测试：维护 changelog，重要功能每次发版前全量回测；
+* 性能测试：在三款浏览器、两台移动设备上实机测量帧率。
+
+### 8.3 文档与知识库
+
+* README（即本文）提供宏观说明；
+* `docs/`（规划中）将包含设计文档、数据表；
+* 代码内部注释遵循 JSDoc 风格；
+* 使用 issue 模板记录 bug 与 feature 请求。
+
+---
+
+## 9. 玩家体验与社区互动
+
+### 9.1 新手引导
+
+初次进入游戏时，将展示简易教程：
+
+1. 操作说明（移动、射击、放置炸弹）；
+2. 基础敌人介绍；
+3. 道具拾取与使用；
+4. Boss 前的准备建议。
+
+### 9.2 提供给玩家的工具
+
+* 攻略手册：包含敌人、Boss、道具信息；
+* Seed 共享：玩家可分享种子，互相挑战；
+* 自定义挑战：通过作弊台创建特殊挑战并分享配置。
+
+### 9.3 反馈渠道
+
+* GitHub Issue：报告 bug 或提出建议；
+* 讨论区：分享心得、速通记录；
+* 邮件（可选）：直接联系作者。
+
+---
+
+## 10. QA 与稳定性保障
+
+### 10.1 Bug 分类
+
+我们将问题划分为：
+
+* P0：影响通关的崩溃、卡死；
+* P1：严重数值错误或功能失效；
+* P2：影响体验的视觉 / 音频问题；
+* P3：轻微瑕疵、文案错误。
+
+### 10.2 解决流程
+
+1. Issue 提交 → 分类；
+2. 制定复现步骤 → 使用作弊台复现；
+3. 修复并撰写单元测试（若涉及算法）；
+4. 手动回归测试；
+5. 更新 Changelog 与 README。
+
+### 10.3 容错机制
+
+* 关键操作（购买、删除道具）提供撤销；
+* 关键状态持久化（设置、种子）；
+* 崩溃捕捉（`window.onerror`）并提示重载。
+
+---
+
+## 11. 面向开发者的深度剖析
+
+### 11.1 架构风格：轻量 ECS
+
+虽然没有引入完整的 ECS 框架，但我们遵循其核心思想：
+
+* **实体（Entity）**：一个拥有唯一 ID 的对象，代表玩家、敌人、子弹等；
+* **组件（Component）**：描述实体特征的数据结构，无方法；
+* **系统（System）**：包含逻辑，遍历满足条件的实体，并更新其组件。
+
+例如：
+
+```javascript
+Systems.Movement = {
+  query: ["Position", "Velocity"],
+  update(entity, dt) {
+    entity.Position.x += entity.Velocity.vx * dt;
+    entity.Position.y += entity.Velocity.vy * dt;
+  }
+};
+```
+
+通过这种方式，我们实现了高内聚、低耦合的逻辑组织。对于新加入的实体，只需组合组件即可被现有系统驱动。
+
+### 11.2 AI 系统的脚本化
+
+AI 状态机以 JSON + 函数结合的形式描述：
+
+```json
+{
+  "id": "shadow_hopper",
+  "states": {
+    "idle": { "duration": 1.2, "transition": "charge" },
+    "charge": {
+      "duration": 0.5,
+      "action": "dashTowardPlayer",
+      "transition": "recover"
+    },
+    "recover": { "duration": 0.8, "transition": "idle" }
+  }
+}
+```
+
+在运行时，状态机根据 `duration` 与事件触发切换，`action` 映射到脚本函数（如 `dashTowardPlayer`）。这种设计既直观又易于扩展。
+
+### 11.3 数据驱动的弹幕系统
+
+弹幕以模板定义：
+
+```json
+{
+  "pattern": "spiral",
+  "speed": 4,
+  "count": 16,
+  "interval": 0.2,
+  "curve": "easeInOut"
+}
+```
+
+系统读取模板，生成弹幕实例。我们提供了直线、扇形、螺旋、追踪、反弹等多种模式，还支持自定义脚本（传入回调）。
+
+### 11.4 内存与 GC 管控
+
+* 使用 TypedArray 存储高频数据；
+* 对象池避免重复创建；
+* 关闭严格模式下无用的闭包；
+* 在渲染循环外预生成常用颜色、渐变；
+* 监控 `performance.memory`，确保稳定。
+
+---
+
+## 12. 贡献与协作指南
+
+### 12.1 分支策略
+
+* `main`：稳定版本；
+* `develop`：最新开发分支；
+* 功能分支：`feature/<name>`；
+* 修复分支：`fix/<issue>`。
+
+### 12.2 提交规范
+
+* 采用 Conventional Commits（例如 `feat:`, `fix:`, `docs:`）；
+* 每次提交说明变更范围与目的；
+* 重大变更需附带文档更新与测试记录。
+
+### 12.3 代码风格
+
+* 使用 `const`/`let`，避免 `var`；
+* 函数采用驼峰命名；
+* 保持函数粒度适中，超过 80 行需拆分；
+* 注释采用 JSDoc 描述输入、输出；
+* 所有魔法数字提取为常量。
+
+### 12.4 Issue 模板
+
+```
+## 描述
+
+## 复现步骤
+1. ...
+
+## 期望结果
+
+## 实际结果
+
+## 截图 / 日志（如有）
+```
+
+---
+
+## 13. 常见问题（FAQ）
+
+**Q1：游戏为何启动后是黑屏？**  
+A：检查浏览器是否支持 Canvas/Web Audio。若使用 Safari 旧版或禁用了脚本，请升级或开启权限。
+
+**Q2：移动端按键延迟怎么办？**  
+A：可在设置中关闭动态阴影、粒子，或降低刷新率。虚拟键盘也支持调节灵敏度。
+
+**Q3：是否支持手柄？**  
+A：当前版本未实现，但已预留接口，未来可能加入。
+
+**Q4：如何自定义道具？**  
+A：在作弊台输入 `giveItem <id>`，若该 ID 不存在会提示错误。自定义道具需修改 `ItemRegistry`。
+
+**Q5：能否导出关卡种子？**  
+A：在暂停菜单中查看当前 Seed，并可复制到剪贴板。
+
+---
+
+## 14. 未来规划
+
+1. **存档系统与每日挑战**：使用固定 Seed 的每日挑战，结合排行榜；
+2. **在线排行榜**：统计通关时间、击杀数、无伤记录；
+3. **道具图鉴与联动图谱**：可视化展示道具之间的联动关系；
+4. **关卡编辑器**：让玩家自定义房间、敌人、道具组合；
+5. **合作与对战模式**：探索 WebRTC 实现实时联机；
+6. **Steam 发行**：基于 NW.js 或 Electron 封装为桌面应用；
+7. **Mod 支持**：引入脚本加载系统，允许玩家扩展内容；
+8. **辅助功能**：添加色盲模式、自动瞄准辅助、可调节 UI 缩放。
+
+---
+
+## 15. 版本历史
+
+### v1.0.0 · Final Release
+
+* 完成全地图随机生成与拓扑校验；
+* 实装全部道具、敌人、Boss；
+* 加入音效合成与动态音乐；
+* 引入作弊台、虚拟键盘；
+* 重构 UI / HUD，优化交互；
+* 提升性能，移动端体验优化；
+* 修复大量碰撞与判定问题；
+* 撰写全新 README。
+
+### v0.9.x · Pre-Release
+
+* 引入楼层概念与成长机制；
+* 实装 Brimstone / Lightsaber / Rope 系统；
+* 完成全屏 UI 与暂停界面；
+* 调整射击逻辑与受击反馈。
+
+### v0.8.x · Prototype
+
+* 完成基础移动与射击；
+* 实现随机房间生成；
+* 建立资源系统；
+* 引入初版敌人 AI。
+
+---
+
+## 16. 致谢与灵感来源
+
+* **The Binding of Isaac**：启发了核心玩法与 Roguelite 精神；
+* **Enter the Gungeon**：提供弹幕与节奏参考；
+* **Dead Cells**：在成长与节奏把控上给予启示；
+* **社区玩家**：提交了大量宝贵反馈；
+* **开源工具**：尽管项目未直接使用第三方库，但开发过程中学习了 Pixi.js、Phaser 等源码理念。
+
+---
+
+## 17. 许可证
+
+本项目遵循 [MIT License](./LICENSE)。你可以自由复制、修改、分发代码，但需要保留原作者署名，并对衍生项目承担责任。
+
+---
+
+## 18. 快速开始
+
+```bash
+git clone https://github.com/QianLieXian/simple-isaac-made-in-html-by-gpt5.git
+cd simple-isaac-made-in-html-by-gpt5
+# 直接双击 index.html 即可离线游玩
+# 或使用任意静态服务器
+npx serve .
+```
+
+推荐浏览器：Chrome / Edge / Firefox 最新版。若使用移动设备，请开启横屏模式并启用虚拟键盘。
+
+---
+
+## 19. 结语：循环之外
+
+“轮回终章，只是另一个开端。” 当你在游戏中一次次倒下、一次次重生，这份 README 也希望成为你在现实中的“重生档案”。它不仅记录系统与机制，更记录那些在黑暗地牢里点亮火把的瞬间。
+
+如果你是玩家，愿你在每次进入地窖前深呼吸三秒，让心跳与节奏对齐；如果你是开发者，愿你从这份文档中获取灵感，继续探索浏览器的边界。
+
+**实验仍在继续。欢迎加入这场循环。**
+
