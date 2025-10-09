@@ -4422,7 +4422,8 @@
     const cause = options.cause || 'melee';
     const hitAmount = Math.max(1, Math.floor(options.hitAmount || 1));
     const result = {applied:false, destroyed:false, needsCooldown:false};
-    if(obs.type === 'choco-tower' || obs.type === 'flame'){
+    const tieredObstacle = obs.type === 'choco-tower' || obs.type === 'flame';
+    if(tieredObstacle){
       const maxHits = Math.max(1, obs.maxHits || 1);
       if(!Number.isFinite(obs.hitsRemaining)) obs.hitsRemaining = maxHits;
       const before = obs.hitsRemaining;
@@ -4440,10 +4441,12 @@
       }
       return result;
     }
-    obs.destroyed = true;
-    onObstacleDestroyed(room, obs, {cause});
-    result.applied = true;
-    result.destroyed = true;
+    if(options.allowGenericBreak === true){
+      obs.destroyed = true;
+      onObstacleDestroyed(room, obs, {cause});
+      result.applied = true;
+      result.destroyed = true;
+    }
     return result;
   }
 
@@ -7176,7 +7179,10 @@
       const maxRange = baseLength * (1.45 + speedRatio * 0.35 + speedExcess * 0.4);
       const softCap = baseLength * (2.4 + Math.min(1.1, speedExcess * 0.85));
       const capMultiplier = Math.max(1, Math.min(1.75, rangeMultiplier * 1.05));
-      const absoluteCap = Math.max(minRange, Math.min(softCap * capMultiplier, CONFIG.roomW * 0.55));
+      const playerRange = computePlayerRange(this);
+      const naturalCap = Math.max(minRange, playerRange * 0.85);
+      const roomCap = Number.isFinite(CONFIG.roomW) ? CONFIG.roomW * 0.5 : Infinity;
+      const absoluteCap = Math.max(minRange, Math.min(softCap * capMultiplier, naturalCap, roomCap));
       let throwRange = lerp(minRange, maxRange, chargeCurve);
       throwRange = clamp(throwRange * rangeMultiplier, minRange, absoluteCap);
       const launchSpeed = Math.max(150, tearSpeed * (0.75 + chargeRatio * 0.85) * speedMultiplier);
@@ -11001,6 +11007,11 @@
       this.baseDamage = Math.max(0.05, Number(options.baseDamage) || this.damage);
       this.synergy = options.synergy || {};
       this.rangeLimit = Math.max(this.maxDistance, Number(options.rangeLimit) || this.maxDistance);
+      this.launchDirX = this.dirX;
+      this.launchDirY = this.dirY;
+      this.spawnX = this.x;
+      this.spawnY = this.y;
+      this.returnInitialized = false;
       this.phase = 'out';
       this.alpha = 1;
       this.tailX = Number.isFinite(options.baseX) ? options.baseX : this.x - this.dirX * this.length;
@@ -11023,6 +11034,7 @@
       this.phase = 'return';
       this.homingDelay = 0;
       this.homingTarget = null;
+      this.returnInitialized = false;
     }
     update(dt, enemies){
       if(!this.alive) return;
@@ -11058,30 +11070,41 @@
         this.travelled += step;
         if(this.travelled >= this.maxDistance || remaining <= 0.5){
           this.phase = 'return';
+          this.returnInitialized = false;
         }
       } else if(this.phase === 'return'){
-        const owner = this.owner;
+        if(!this.returnInitialized){
+          const baseX = Number.isFinite(this.launchDirX) ? this.launchDirX : this.dirX;
+          const baseY = Number.isFinite(this.launchDirY) ? this.launchDirY : this.dirY;
+          const len = Math.hypot(baseX, baseY) || 1;
+          this.dirX = -(baseX / len);
+          this.dirY = -(baseY / len);
+          this.returnInitialized = true;
+        }
         const speed = this.returnSpeed * (1 + this.chargeRatio * 0.6);
+        const step = speed * dt;
+        this.x += this.dirX * step;
+        this.y += this.dirY * step;
+        const owner = this.owner;
         if(owner){
-          const toOwnerX = owner.x - this.x;
-          const toOwnerY = owner.y - this.y;
-          const distance = Math.hypot(toOwnerX, toOwnerY) || 1;
-          const ndx = toOwnerX / distance;
-          const ndy = toOwnerY / distance;
-          const turn = clamp((12 + this.chargeRatio * 10) * dt, 0, 1);
-          this.dirX = this.dirX * (1 - turn) + ndx * turn;
-          this.dirY = this.dirY * (1 - turn) + ndy * turn;
-          const dirLen = Math.hypot(this.dirX, this.dirY) || 1;
-          this.dirX /= dirLen;
-          this.dirY /= dirLen;
-          const step = speed * dt;
-          this.x += this.dirX * step;
-          this.y += this.dirY * step;
-          if(distance <= (owner.r || 12) + this.length * 0.35){
+          const ownerDistance = Math.hypot(owner.x - this.x, owner.y - this.y);
+          if(ownerDistance <= (owner.r || 12) + this.length * 0.35){
             this.attachToOwner();
             return;
           }
-        } else {
+        }
+        const originX = Number.isFinite(this.spawnX) ? this.spawnX : this.x - this.dirX * this.length;
+        const originY = Number.isFinite(this.spawnY) ? this.spawnY : this.y - this.dirY * this.length;
+        const toOriginX = originX - this.x;
+        const toOriginY = originY - this.y;
+        if(toOriginX * this.dirX + toOriginY * this.dirY < 0){
+          if(owner){
+            const ownerDistance = Math.hypot(owner.x - this.x, owner.y - this.y);
+            if(ownerDistance <= (owner.r || 12) + this.length * 0.6){
+              this.attachToOwner();
+              return;
+            }
+          }
           this.phase = 'fade';
         }
       } else if(this.phase === 'fade'){
