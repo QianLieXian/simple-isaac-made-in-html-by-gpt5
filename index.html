@@ -11032,6 +11032,9 @@
       this.trailTimer = 0;
       this.glintPhase = 0;
       this.obstacleCooldowns = new Map();
+      this.returnTime = 0;
+      this.returnAimX = this.spawnX;
+      this.returnAimY = this.spawnY;
     }
     forceReturn(){
       if(!this.alive) return;
@@ -11039,6 +11042,16 @@
       this.homingDelay = 0;
       this.homingTarget = null;
       this.returnInitialized = false;
+      this.returnTime = 0;
+      if(this.owner){
+        const ownerVel = this.owner.lastVelocity || this.owner.vel;
+        const preview = clamp(0.08 + this.chargeRatio * 0.05, 0.05, 0.2);
+        this.returnAimX = this.owner.x + (ownerVel?.x || 0) * preview;
+        this.returnAimY = this.owner.y + (ownerVel?.y || 0) * preview;
+      } else {
+        this.returnAimX = Number.isFinite(this.spawnX) ? this.spawnX : this.x;
+        this.returnAimY = Number.isFinite(this.spawnY) ? this.spawnY : this.y;
+      }
     }
     update(dt, enemies){
       if(!this.alive) return;
@@ -11077,6 +11090,7 @@
           this.returnInitialized = false;
         }
       } else if(this.phase === 'return'){
+        const owner = this.owner;
         if(!this.returnInitialized){
           const baseX = Number.isFinite(this.launchDirX) ? this.launchDirX : this.dirX;
           const baseY = Number.isFinite(this.launchDirY) ? this.launchDirY : this.dirY;
@@ -11084,49 +11098,69 @@
           this.dirX = -(baseX / len);
           this.dirY = -(baseY / len);
           this.returnInitialized = true;
+          this.returnTime = 0;
+          if(owner){
+            const preview = clamp(0.08 + this.chargeRatio * 0.05, 0.05, 0.2);
+            const ownerVel = owner.lastVelocity || owner.vel;
+            this.returnAimX = owner.x + (ownerVel?.x || 0) * preview;
+            this.returnAimY = owner.y + (ownerVel?.y || 0) * preview;
+          } else {
+            this.returnAimX = Number.isFinite(this.spawnX) ? this.spawnX : this.x;
+            this.returnAimY = Number.isFinite(this.spawnY) ? this.spawnY : this.y;
+          }
         }
-        const speed = this.returnSpeed * (1 + this.chargeRatio * 0.6);
+        this.returnTime = (this.returnTime || 0) + dt;
+        const aimFollow = owner ? (8 + this.chargeRatio * 5 + Math.min(12, this.returnTime * 18)) : 6;
+        if(owner){
+          const preview = clamp(0.08 + this.chargeRatio * 0.05, 0.05, 0.2);
+          const ownerVel = owner.lastVelocity || owner.vel;
+          let targetX = owner.x + (ownerVel?.x || 0) * preview;
+          let targetY = owner.y + (ownerVel?.y || 0) * preview;
+          const blend = clamp(dt * aimFollow, 0, 1);
+          this.returnAimX = lerp(this.returnAimX, targetX, blend);
+          this.returnAimY = lerp(this.returnAimY, targetY, blend);
+        } else {
+          const fallbackX = Number.isFinite(this.spawnX) ? this.spawnX : this.x;
+          const fallbackY = Number.isFinite(this.spawnY) ? this.spawnY : this.y;
+          const blend = clamp(dt * aimFollow, 0, 1);
+          this.returnAimX = lerp(this.returnAimX, fallbackX, blend);
+          this.returnAimY = lerp(this.returnAimY, fallbackY, blend);
+        }
+        const toAimX = this.returnAimX - this.x;
+        const toAimY = this.returnAimY - this.y;
+        const aimDistance = Math.hypot(toAimX, toAimY);
+        if(aimDistance > 1e-4){
+          const ndx = toAimX / aimDistance;
+          const ndy = toAimY / aimDistance;
+          const steer = owner ? (10 + this.chargeRatio * 6 + Math.min(16, this.returnTime * 18)) : 8;
+          const turn = clamp(dt * steer, 0, 1);
+          this.dirX = this.dirX * (1 - turn) + ndx * turn;
+          this.dirY = this.dirY * (1 - turn) + ndy * turn;
+          const dirLen = Math.hypot(this.dirX, this.dirY) || 1;
+          this.dirX /= dirLen;
+          this.dirY /= dirLen;
+        }
+        const speedRamp = 1 + Math.min(0.8, this.returnTime * 0.9);
+        const speed = this.returnSpeed * (1 + this.chargeRatio * 0.6) * speedRamp;
         const step = speed * dt;
         this.x += this.dirX * step;
         this.y += this.dirY * step;
-        const owner = this.owner;
-        let ownerDistance = Infinity;
-        const ownerRadius = owner ? (owner.r || 12) : 12;
         if(owner){
-          ownerDistance = Math.hypot(owner.x - this.x, owner.y - this.y);
-          const catchRadius = ownerRadius + this.length * 0.35;
-          if(ownerDistance <= catchRadius){
+          const ownerRadius = owner.r || 12;
+          const distNow = Math.hypot(owner.x - this.x, owner.y - this.y);
+          const distPrev = Math.hypot(owner.x - this.prevX, owner.y - this.prevY);
+          const baseCatch = ownerRadius + Math.max(this.length * 0.28, 14);
+          const expandedCatch = baseCatch + Math.min(60, step * 2.2 + this.returnTime * 120);
+          if(distNow <= baseCatch || (distNow <= expandedCatch && distNow <= distPrev + 0.5)){
             this.attachToOwner();
             return;
           }
-          if(ownerDistance > 1e-3){
-            const toOwnerX = owner.x - this.x;
-            const toOwnerY = owner.y - this.y;
-            const toOwnerLen = Math.hypot(toOwnerX, toOwnerY) || 1;
-            const turn = clamp(dt * 8, 0, 1);
-            this.dirX = this.dirX * (1 - turn) + (toOwnerX / toOwnerLen) * turn;
-            this.dirY = this.dirY * (1 - turn) + (toOwnerY / toOwnerLen) * turn;
-            const dirLen = Math.hypot(this.dirX, this.dirY) || 1;
-            this.dirX /= dirLen;
-            this.dirY /= dirLen;
+        } else {
+          const originX = Number.isFinite(this.spawnX) ? this.spawnX : this.x - this.dirX * this.length;
+          const originY = Number.isFinite(this.spawnY) ? this.spawnY : this.y - this.dirY * this.length;
+          if(Math.hypot(originX - this.x, originY - this.y) <= Math.max(this.length * 0.2, step * 1.1)){
+            this.phase = 'fade';
           }
-        }
-        const originX = Number.isFinite(this.spawnX) ? this.spawnX : this.x - this.dirX * this.length;
-        const originY = Number.isFinite(this.spawnY) ? this.spawnY : this.y - this.dirY * this.length;
-        const toOriginX = originX - this.x;
-        const toOriginY = originY - this.y;
-        if(toOriginX * this.dirX + toOriginY * this.dirY < 0){
-          if(owner){
-            ownerDistance = Math.hypot(owner.x - this.x, owner.y - this.y);
-            const fallbackRadius = ownerRadius + this.length * 0.8;
-            if(ownerDistance <= fallbackRadius){
-              this.attachToOwner();
-              return;
-            }
-            this.attachToOwner();
-            return;
-          }
-          this.phase = 'fade';
         }
       } else if(this.phase === 'fade'){
         this.alpha = Math.max(0, this.alpha - dt * 2.4);
