@@ -7104,7 +7104,7 @@
     applyShortSwordContactDamage(state, dt, geometry){
       if(!state || !state.attached || !geometry) return;
       const room = dungeon?.current;
-      if(!room || !Array.isArray(room.enemies) || !room.enemies.length) return;
+      if(!room) return;
       const baseX = geometry.baseX;
       const baseY = geometry.baseY;
       const tipX = geometry.tipX;
@@ -7114,20 +7114,23 @@
       const damageMultiplier = Math.max(0.4, Number(state.synergy?.damageMultiplier) || 1);
       const contactMultiplier = Math.max(0.4, Number(state.synergy?.contactDamageMultiplier) || 1);
       const damageValue = Math.max(0.05, (this.damage || this.baseDamage || 1) * 2 * damageMultiplier * contactMultiplier * dtFactor);
-      for(const enemy of room.enemies){
-        if(!enemy || enemy.dead) continue;
-        const reach = (enemy.r || 12) + halfWidth;
-        const sample = pointSegmentDistance(enemy.x, enemy.y, baseX, baseY, tipX, tipY);
-        if(sample.distance > reach) continue;
-        const killed = enemy.damage ? enemy.damage(damageValue) : false;
-        applyEnemyKnockback(enemy, geometry.dirX, geometry.dirY, {power: 220 + damageValue * 18, duration:0.18, slowFactor:0.65, slowDuration:0.32, maxSpeed:320});
-        if(killed){
-          handleEnemyDeath(enemy, room);
-        } else {
-          enemy.damageFlashTimer = Math.max(enemy.damageFlashTimer || 0, 0.12);
+      const enemyList = Array.isArray(room.enemies) ? room.enemies : [];
+      if(enemyList.length){
+        for(const enemy of enemyList){
+          if(!enemy || enemy.dead) continue;
+          const reach = (enemy.r || 12) + halfWidth;
+          const sample = pointSegmentDistance(enemy.x, enemy.y, baseX, baseY, tipX, tipY);
+          if(sample.distance > reach) continue;
+          const killed = enemy.damage ? enemy.damage(damageValue) : false;
+          applyEnemyKnockback(enemy, geometry.dirX, geometry.dirY, {power: 220 + damageValue * 18, duration:0.18, slowFactor:0.65, slowDuration:0.32, maxSpeed:320});
+          if(killed){
+            handleEnemyDeath(enemy, room);
+          } else {
+            enemy.damageFlashTimer = Math.max(enemy.damageFlashTimer || 0, 0.12);
+          }
+          const pulseBoost = contactMultiplier>1 ? (contactMultiplier - 1) * 0.35 : 0;
+          state.contactPulse = Math.max(state.contactPulse || 0, 0.55 + pulseBoost);
         }
-        const pulseBoost = contactMultiplier>1 ? (contactMultiplier - 1) * 0.35 : 0;
-        state.contactPulse = Math.max(state.contactPulse || 0, 0.55 + pulseBoost);
       }
       if(Array.isArray(room.obstacles)){
         const padding = Math.max(halfWidth, state.width * 0.3);
@@ -10850,9 +10853,7 @@
         this.prevAngle = this.currentAngle;
         this.currentAngle = angleLerp(this.startAngle, this.endAngle, eased);
         this.alpha = 1;
-        if(Array.isArray(enemies) && enemies.length){
-          this.applyDamage(enemies, this.prevAngle, this.currentAngle);
-        }
+        this.applyDamage(enemies, this.prevAngle, this.currentAngle);
         if(raw >= 1 - 1e-4){
           this.state = 'fade';
           this.fadeTimer = this.fadeDuration;
@@ -10877,32 +10878,35 @@
       const thickness = this.width * 0.5;
       const angleDiff = normalizeAngle(currentAngle - prevAngle);
       const steps = Math.max(2, Math.ceil(Math.abs(angleDiff) / (Math.PI / 18)));
-      for(const enemy of enemies){
-        if(!enemy || enemy.dead) continue;
-        if(this.hitEnemies && this.hitEnemies.has(enemy)) continue;
-        const threshold = (enemy.r || 12) + thickness;
-        let hit=false;
-        for(let i=0;i<=steps;i++){
-          const t = steps===0 ? 1 : i/steps;
-          const angle = angleLerp(prevAngle, currentAngle, t);
-          const tipX = base.x + Math.cos(angle) * this.length;
-          const tipY = base.y + Math.sin(angle) * this.length;
-          const segmentSample = pointSegmentDistance(enemy.x, enemy.y, base.x, base.y, tipX, tipY);
-          if(segmentSample.distance <= threshold){ hit=true; break; }
+      const enemyList = Array.isArray(enemies) ? enemies : [];
+      if(enemyList.length){
+        for(const enemy of enemyList){
+          if(!enemy || enemy.dead) continue;
+          if(this.hitEnemies && this.hitEnemies.has(enemy)) continue;
+          const threshold = (enemy.r || 12) + thickness;
+          let hit=false;
+          for(let i=0;i<=steps;i++){
+            const t = steps===0 ? 1 : i/steps;
+            const angle = angleLerp(prevAngle, currentAngle, t);
+            const tipX = base.x + Math.cos(angle) * this.length;
+            const tipY = base.y + Math.sin(angle) * this.length;
+            const segmentSample = pointSegmentDistance(enemy.x, enemy.y, base.x, base.y, tipX, tipY);
+            if(segmentSample.distance <= threshold){ hit=true; break; }
+          }
+          if(!hit) continue;
+          this.hitEnemies.add(enemy);
+          const damageValue = this.damage;
+          const killed = enemy.damage ? enemy.damage(damageValue) : false;
+          const dirX = Math.cos(currentAngle);
+          const dirY = Math.sin(currentAngle);
+          applyEnemyKnockback(enemy, dirX, dirY, {power: 240 + damageValue*12, duration:0.24, slowFactor:0.6, slowDuration:0.35, maxSpeed:360});
+          if(killed){
+            handleEnemyDeath(enemy, room);
+          } else {
+            enemy.damageFlashTimer = Math.max(enemy.damageFlashTimer || 0, 0.2);
+          }
+          this.spawnImpactSpark(enemy, dirX, dirY);
         }
-        if(!hit) continue;
-        this.hitEnemies.add(enemy);
-        const damageValue = this.damage;
-        const killed = enemy.damage ? enemy.damage(damageValue) : false;
-        const dirX = Math.cos(currentAngle);
-        const dirY = Math.sin(currentAngle);
-        applyEnemyKnockback(enemy, dirX, dirY, {power: 240 + damageValue*12, duration:0.24, slowFactor:0.6, slowDuration:0.35, maxSpeed:360});
-        if(killed){
-          handleEnemyDeath(enemy, room);
-        } else {
-          enemy.damageFlashTimer = Math.max(enemy.damageFlashTimer || 0, 0.2);
-        }
-        this.spawnImpactSpark(enemy, dirX, dirY);
       }
       if(room && Array.isArray(room.obstacles)){
         const padding = Math.max(thickness, this.width * 0.4);
@@ -11086,11 +11090,25 @@
         this.x += this.dirX * step;
         this.y += this.dirY * step;
         const owner = this.owner;
+        let ownerDistance = Infinity;
+        const ownerRadius = owner ? (owner.r || 12) : 12;
         if(owner){
-          const ownerDistance = Math.hypot(owner.x - this.x, owner.y - this.y);
-          if(ownerDistance <= (owner.r || 12) + this.length * 0.35){
+          ownerDistance = Math.hypot(owner.x - this.x, owner.y - this.y);
+          const catchRadius = ownerRadius + this.length * 0.35;
+          if(ownerDistance <= catchRadius){
             this.attachToOwner();
             return;
+          }
+          if(ownerDistance > 1e-3){
+            const toOwnerX = owner.x - this.x;
+            const toOwnerY = owner.y - this.y;
+            const toOwnerLen = Math.hypot(toOwnerX, toOwnerY) || 1;
+            const turn = clamp(dt * 8, 0, 1);
+            this.dirX = this.dirX * (1 - turn) + (toOwnerX / toOwnerLen) * turn;
+            this.dirY = this.dirY * (1 - turn) + (toOwnerY / toOwnerLen) * turn;
+            const dirLen = Math.hypot(this.dirX, this.dirY) || 1;
+            this.dirX /= dirLen;
+            this.dirY /= dirLen;
           }
         }
         const originX = Number.isFinite(this.spawnX) ? this.spawnX : this.x - this.dirX * this.length;
@@ -11099,11 +11117,14 @@
         const toOriginY = originY - this.y;
         if(toOriginX * this.dirX + toOriginY * this.dirY < 0){
           if(owner){
-            const ownerDistance = Math.hypot(owner.x - this.x, owner.y - this.y);
-            if(ownerDistance <= (owner.r || 12) + this.length * 0.6){
+            ownerDistance = Math.hypot(owner.x - this.x, owner.y - this.y);
+            const fallbackRadius = ownerRadius + this.length * 0.8;
+            if(ownerDistance <= fallbackRadius){
               this.attachToOwner();
               return;
             }
+            this.attachToOwner();
+            return;
           }
           this.phase = 'fade';
         }
@@ -11200,7 +11221,6 @@
       }
     }
     applyDamage(enemies, dt){
-      if(!Array.isArray(enemies) || !enemies.length) return;
       const baseX = this.tailX;
       const baseY = this.tailY;
       const tipX = this.x;
@@ -11211,16 +11231,19 @@
       const contactMultiplier = Math.max(0.4, Number(this.synergy?.projectileContactMultiplier) || Number(this.synergy?.contactDamageMultiplier) || 1);
       const damageValue = Math.max(this.baseDamage, this.damage) * (2 + distanceRatio * 3.5 + this.chargeRatio * 2.5) * dtFactor * contactMultiplier;
       const room = dungeon?.current;
-      for(const enemy of enemies){
-        if(!enemy || enemy.dead) continue;
-        const reach = (enemy.r || 12) + halfWidth;
-        const sample = pointSegmentDistance(enemy.x, enemy.y, baseX, baseY, tipX, tipY);
-        if(sample.distance > reach) continue;
-        const killed = enemy.damage ? enemy.damage(damageValue) : false;
-        const knockScale = contactMultiplier>1 ? Math.min(1.8, 1 + (contactMultiplier - 1) * 0.6) : 1;
-        applyEnemyKnockback(enemy, this.dirX, this.dirY, {power: (260 + damageValue * 18) * knockScale, duration:0.2, slowFactor:0.6, slowDuration:0.32, maxSpeed:360});
-        if(killed){ handleEnemyDeath(enemy, room); }
-        else { enemy.damageFlashTimer = Math.max(enemy.damageFlashTimer || 0, 0.16); }
+      const enemyList = Array.isArray(enemies) ? enemies : [];
+      if(enemyList.length){
+        for(const enemy of enemyList){
+          if(!enemy || enemy.dead) continue;
+          const reach = (enemy.r || 12) + halfWidth;
+          const sample = pointSegmentDistance(enemy.x, enemy.y, baseX, baseY, tipX, tipY);
+          if(sample.distance > reach) continue;
+          const killed = enemy.damage ? enemy.damage(damageValue) : false;
+          const knockScale = contactMultiplier>1 ? Math.min(1.8, 1 + (contactMultiplier - 1) * 0.6) : 1;
+          applyEnemyKnockback(enemy, this.dirX, this.dirY, {power: (260 + damageValue * 18) * knockScale, duration:0.2, slowFactor:0.6, slowDuration:0.32, maxSpeed:360});
+          if(killed){ handleEnemyDeath(enemy, room); }
+          else { enemy.damageFlashTimer = Math.max(enemy.damageFlashTimer || 0, 0.16); }
+        }
       }
       if(room && Array.isArray(room.obstacles)){
         const padding = Math.max(halfWidth, this.width * 0.25);
