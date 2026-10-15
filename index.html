@@ -912,7 +912,7 @@
     ensureEnemyKnockState(enemy);
     const nx = dx / len;
     const ny = dy / len;
-    const power = Number.isFinite(options.power) ? options.power : 150;
+    const power = (Number.isFinite(options.power) ? options.power : 150) / Math.sqrt(actorMass(enemy));
     enemy.hitKnockVx += nx * power;
     enemy.hitKnockVy += ny * power;
     const maxSpeed = Number.isFinite(options.maxSpeed) ? options.maxSpeed : (enemy.maxKnockSpeed || 280);
@@ -924,15 +924,6 @@
     }
     const duration = Number.isFinite(options.duration) ? Math.max(0.05, options.duration) : 0.2;
     enemy.hitKnockTimer = Math.max(enemy.hitKnockTimer, duration);
-    if(typeof enemy.knock === 'number'){
-      enemy.knock = Math.max(enemy.knock, duration);
-    }
-    if(enemy.knockVx !== undefined){
-      enemy.knockVx += nx * power;
-    }
-    if(enemy.knockVy !== undefined){
-      enemy.knockVy += ny * power;
-    }
     if(options.slowFactor && options.slowFactor < 1){
       enemy.hitSlowFactor = Math.min(enemy.hitSlowFactor || 1, options.slowFactor);
       const slowDuration = Number.isFinite(options.slowDuration) ? Math.max(0, options.slowDuration) : duration;
@@ -943,10 +934,10 @@
   function resolveEnemyKnockback(enemy, dt){
     if(!enemy) return false;
     ensureEnemyKnockState(enemy);
+    if(enemy._motionStep) return enemy.hitKnockTimer>0;
     let active = false;
     if(enemy.hitKnockTimer>0){
-      enemy.x += enemy.hitKnockVx * dt;
-      enemy.y += enemy.hitKnockVy * dt;
+      moveBody(enemy,enemy.hitKnockVx*dt,enemy.hitKnockVy*dt);
       const damping = Math.max(0.1, enemy.knockDamping || 6.5);
       const decay = Math.exp(-dt * damping);
       enemy.hitKnockVx *= decay;
@@ -3937,6 +3928,337 @@
     overlayManager.setActive('over');
   }
 
+  // Shared body motion: AI chooses direction; inertia and impacts move the body once.
+  function actorMass(actor){
+    if(actor===player) return 1;
+    return actor.isBossEntity ? 6 : clamp(((actor.r || 12)/12)**2, 0.5, 3.5);
+  }
+  function isPhasedActor(actor){
+    return actor.dead || actor.hidden || actor.spawnGrace>0 || actor.state==='leap' || actor.state==='burrow' || actor.state==='vanish'
+      || actor.state==='warp-out' || actor.state==='warp-in';
+  }
+  function constrainActor(actor){
+    const inset = Math.max(actor===player ? 30 : 24, (actor.r || 12) + 14);
+    const oldX=actor.x, oldY=actor.y;
+    actor.x=clamp(actor.x,inset,CONFIG.roomW-inset);
+    actor.y=clamp(actor.y,inset,CONFIG.roomH-inset);
+    resolveEntityObstacles(actor);
+    if(actor!==player && actor.base){actor.base.x+=actor.x-oldX;actor.base.y+=actor.y-oldY;}
+    if(Math.abs(actor.x-oldX)>0.01){
+      if(actor===player){ actor.vel.x=0; actor.knockVel.x=0; }
+      else { actor.bodyVx=0; actor.hitKnockVx=0; actor.contactVx=0; }
+    }
+    if(Math.abs(actor.y-oldY)>0.01){
+      if(actor===player){ actor.vel.y=0; actor.knockVel.y=0; }
+      else { actor.bodyVy=0; actor.hitKnockVy=0; actor.contactVy=0; }
+    }
+  }
+  function moveBody(actor, dx, dy){
+    actor.x+=dx; actor.y+=dy;
+    // Orbiting creatures use a moving anchor; impulses must move that anchor too.
+    if(actor!==player && actor.base && Number.isFinite(actor.base.x) && Number.isFinite(actor.base.y)){
+      actor.base.x+=dx; actor.base.y+=dy;
+    }
+  }
+  function updateEnemyMotion(enemy, dt){
+    if(!(dt>0) || enemy.dead) return;
+    prepareEnemy(enemy);
+    const x=enemy.x, y=enemy.y;
+    enemy.previousX=x; enemy.previousY=y;
+    // Convert the older flying-enemy impulse channel into the shared channel.
+    if(enemy.knock>0){
+      enemy.hitKnockVx+=(enemy.knockVx || 0);
+      enemy.hitKnockVy+=(enemy.knockVy || 0);
+      enemy.hitKnockTimer=Math.max(enemy.hitKnockTimer,enemy.knock);
+    }
+    enemy.knock=0; enemy.knockVx=0; enemy.knockVy=0;
+    const wasKnocked=enemy.hitKnockTimer>0;
+    enemy._motionStep=true;
+    try { enemy.update(dt); } finally { enemy._motionStep=false; }
+    const dx=enemy.x-x, dy=enemy.y-y;
+    const scripted=enemy.isBossEntity || !!enemy.base || isPhasedActor(enemy)
+      || ['dash','charge','leap','emerge','reappear'].includes(enemy.state)
+      || Math.hypot(dx,dy)>Math.max(40,(enemy.speed || 100)*dt*5);
+    if(Math.hypot(dx,dy)>40){enemy.previousX=enemy.x;enemy.previousY=enemy.y;}
+    if(!scripted){
+      const targetX=wasKnocked ? 0 : dx/dt;
+      const targetY=wasKnocked ? 0 : dy/dt;
+      const moving=Math.hypot(targetX,targetY)>1;
+      const blend=1-Math.exp(-dt/(moving ? 0.095 : 0.16));
+      enemy.bodyVx=(enemy.bodyVx || 0)+(targetX-(enemy.bodyVx || 0))*blend;
+      enemy.bodyVy=(enemy.bodyVy || 0)+(targetY-(enemy.bodyVy || 0))*blend;
+      enemy.x=x+enemy.bodyVx*dt;
+      enemy.y=y+enemy.bodyVy*dt;
+    } else {
+      enemy.bodyVx=dx/dt; enemy.bodyVy=dy/dt;
+    }
+    if(!isPhasedActor(enemy)){
+      resolveEnemyKnockback(enemy,dt);
+      moveBody(enemy,(enemy.contactVx || 0)*dt,(enemy.contactVy || 0)*dt);
+    }
+    enemy.contactVx=(enemy.contactVx || 0)*Math.exp(-dt*9);
+    enemy.contactVy=(enemy.contactVy || 0)*Math.exp(-dt*9);
+    constrainActor(enemy);
+    enemy.motionVx=(enemy.x-x)/dt;
+    enemy.motionVy=(enemy.y-y)/dt;
+    enemy.stepDustTimer=Math.max(0,(enemy.stepDustTimer || 0)-dt);
+    if(!enemy.flying && !isPhasedActor(enemy) && Math.hypot(enemy.motionVx,enemy.motionVy)>25 && enemy.stepDustTimer===0){
+      emitRoomDust(enemy.x,enemy.y+(enemy.r || 12)*0.6,-enemy.motionVx*0.12,-enemy.motionVy*0.12,2);
+      enemy.stepDustTimer=0.2;
+    }
+  }
+  function addBodyImpulse(actor, vx, vy){
+    if(Math.hypot(vx,vy)<1e-6) return;
+    if(actor===player){
+      actor.knockVel.x=clamp(actor.knockVel.x+vx,-320,320);
+      actor.knockVel.y=clamp(actor.knockVel.y+vy,-320,320);
+      actor.knockTimer=Math.max(actor.knockTimer,0.2);
+    } else {
+      // Contact momentum must not reset hit stun on every touching frame.
+      actor.contactVx=clamp((actor.contactVx || 0)+vx,-320,320);
+      actor.contactVy=clamp((actor.contactVy || 0)+vy,-320,320);
+    }
+  }
+  function resolveActorContacts(enemies, dt){
+    if(!(dt>0)) return;
+    const actors=[player,...enemies.filter(e=>!isPhasedActor(e))];
+    // Two short separation passes keep crowds from pinning bodies inside one another.
+    for(let pass=0;pass<2;pass++){
+      for(let i=0;i<actors.length;i++) for(let j=i+1;j<actors.length;j++){
+        const a=actors[i], b=actors[j];
+        const dx=b.x-a.x, dy=b.y-a.y, radius=(a.r || 12)+(b.r || 12);
+        const d2=dx*dx+dy*dy;
+        if(d2>=radius*radius) continue;
+        const distance=Math.sqrt(d2);
+        const nx=distance>0.001 ? dx/distance : 1;
+        const ny=distance>0.001 ? dy/distance : 0;
+        const invA=1/actorMass(a), invB=1/actorMass(b), total=invA+invB;
+        const separation=Math.max(0,radius-distance-0.05)*0.85;
+        moveBody(a,-nx*separation*invA/total,-ny*separation*invA/total);
+        moveBody(b,nx*separation*invB/total,ny*separation*invB/total);
+        if(pass===0){
+          const avx=a===player ? a.vel.x+a.knockVel.x : (a.motionVx || 0);
+          const avy=a===player ? a.vel.y+a.knockVel.y : (a.motionVy || 0);
+          const bvx=(b.motionVx || 0), bvy=(b.motionVy || 0);
+          const closing=Math.min(0,(bvx-avx)*nx+(bvy-avy)*ny);
+          const impulse=-closing*1.05/total;
+          addBodyImpulse(a,-nx*impulse*invA,-ny*impulse*invA);
+          addBodyImpulse(b,nx*impulse*invB,ny*impulse*invB);
+          // Damage immunity does not disable physical contact or momentum transfer.
+          if(a===player) player.hurt(1,{cause:'contact'});
+          if(impulse>35) emitRoomDust((a.x+b.x)/2,(a.y+b.y)/2,-nx*20,-ny*20,3);
+        }
+      }
+    }
+    for(const actor of actors) constrainActor(actor);
+  }
+  function projectileHitTime(projectile, target){
+    const px=projectile.prevX ?? projectile.x, py=projectile.prevY ?? projectile.y;
+    const tx=target.previousX ?? target.x, ty=target.previousY ?? target.y;
+    const dx=px-tx, dy=py-ty;
+    const vx=(projectile.x-px)-(target.x-tx), vy=(projectile.y-py)-(target.y-ty);
+    const radius=(projectile.r || 0)+(target.r || 0);
+    const c=dx*dx+dy*dy-radius*radius;
+    if(c<=0) return 0;
+    const a=vx*vx+vy*vy;
+    if(a<1e-9) return null;
+    const b=dx*vx+dy*vy, discriminant=b*b-a*c;
+    if(discriminant<0) return null;
+    const time=(-b-Math.sqrt(discriminant))/a;
+    return time>=0 && time<=1 ? time : null;
+  }
+
+  function applyProjectileContact(target,projectile){
+    let vx=projectile.vx || 0, vy=projectile.vy || 0;
+    if(Math.hypot(vx,vy)<1){vx=target.x-projectile.x;vy=target.y-projectile.y;}
+    const speed=Math.hypot(vx,vy) || 1;
+    addBodyImpulse(target,vx/speed*65,vy/speed*65);
+    emitRoomDust(projectile.x,projectile.y,vx/speed*25,vy/speed*25,4,projectile.color || '#c6b49a');
+  }
+  function damageEnemyAtImpact(enemy, damage, vx, vy){
+    const previousHp=enemy.hp;
+    const oldKnock={x:enemy.hitKnockVx || 0,y:enemy.hitKnockVy || 0,t:enemy.hitKnockTimer || 0};
+    const killed=enemy.damage(damage);
+    if(enemy.hp<previousHp){
+      // Replace the legacy "away from player" impulse with actual projectile momentum.
+      enemy.hitKnockVx=oldKnock.x; enemy.hitKnockVy=oldKnock.y; enemy.hitKnockTimer=oldKnock.t;
+      enemy.knock=0; enemy.knockVx=0; enemy.knockVy=0;
+      if(!killed) applyEnemyKnockback(enemy,vx,vy,{power:90+Math.min(12,damage)*18,duration:0.24,slowFactor:0.7,slowDuration:0.25,maxSpeed:300});
+      const length=Math.hypot(vx,vy) || 1;
+      emitRoomDust(enemy.x,enemy.y,vx/length*60,vy/length*60,5,'#c6b49a');
+    }
+    return killed;
+  }
+
+  // Everything is procedural and inline: each visited room owns a cached floor and
+  // a bounded population of purely decorative life. Its RNG never advances gameplay RNG.
+  function getRoomAtmosphere(room=dungeon?.current){
+    if(!room) return null;
+    if(room.atmosphere) return room.atmosphere;
+    const seed=new Uint32Array(1);
+    if(globalThis.crypto?.getRandomValues) crypto.getRandomValues(seed);
+    else seed[0]=(Date.now() ^ ((room.i || 0)*73856093) ^ ((room.j || 0)*19349663))>>>0;
+    let value=seed[0];
+    const random=()=>{
+      value+=0x6D2B79F5;
+      let t=Math.imul(value ^ value>>>15,1|value);
+      t^=t+Math.imul(t ^ t>>>7,61|t);
+      return ((t ^ t>>>14)>>>0)/4294967296;
+    };
+    const roll=(lo,hi)=>lo+(hi-lo)*random();
+    const theme=room.sceneVariant==='void' ? 'void' : room.isBoss || room.isSpikeRoom || room.sceneVariant==='trap' ? 'blood'
+      : room.isItemRoom || room.isShop ? 'gold' : room.isSecretRoom ? 'infested' : ['damp','dust','infested'][Math.floor(random()*3)];
+    const texture=document.createElement('canvas');
+    texture.width=CONFIG.roomW; texture.height=CONFIG.roomH;
+    const c=texture.getContext('2d');
+    const colors={void:['#0d1723','#080b14'],blood:['#21171c','#100e16'],gold:['#25231f','#111419'],damp:['#19252a','#10171d'],dust:['#25231f','#11151b'],infested:['#20251e','#11161a']}[theme];
+    const bg=c.createLinearGradient(0,0,0,CONFIG.roomH);
+    bg.addColorStop(0,colors[0]); bg.addColorStop(1,colors[1]);
+    c.fillStyle=bg; c.fillRect(0,0,CONFIG.roomW,CONFIG.roomH);
+    // Uneven dirt, worn slabs, hairline cracks and chipped pits are generated once.
+    for(let i=0;i<90;i++){
+      const x=roll(25,775),y=roll(25,575),r=roll(4,32);
+      c.fillStyle=i%3 ? '#00000014' : '#c5b69a06';
+      c.beginPath();c.ellipse(x,y,r,roll(2,15),roll(0,Math.PI),0,Math.PI*2);c.fill();
+    }
+    c.lineWidth=1;
+    for(let y=54;y<570;y+=49) for(let x=32;x<770;x+=68){
+      if(random()<0.38) continue;
+      c.strokeStyle='#b6c0b009';c.strokeRect(x+roll(-3,3),y+roll(-2,2),65,46);
+    }
+    for(let i=0;i<82;i++){
+      const x=roll(30,770),y=roll(30,570),angle=roll(0,Math.PI*2),length=roll(4,35);
+      c.strokeStyle=i%4 ? '#070b1199' : '#a4a08c24';
+      c.beginPath();c.moveTo(x,y);c.lineTo(x+Math.cos(angle)*length*.6,y+Math.sin(angle)*length*.6);
+      c.lineTo(x+Math.cos(angle+.25)*length,y+Math.sin(angle+.25)*length);c.stroke();
+    }
+    for(let i=0;i<260;i++){
+      const x=Math.floor(roll(26,774)),y=Math.floor(roll(26,574));
+      c.fillStyle=random()<.5 ? '#b49c7030' : '#0205096b';
+      c.fillRect(x,y,roll(1,3),roll(1,2));
+    }
+    for(let i=0;i<28;i++){
+      const x=roll(30,770),y=roll(30,570),r=roll(1,5);
+      c.fillStyle='#00000050';c.beginPath();c.ellipse(x,y,r,r*.5,0,0,Math.PI*2);c.fill();
+      c.strokeStyle='#acb7ae1a';c.beginPath();c.ellipse(x,y+1,r,r*.5,0,0,Math.PI);c.stroke();
+    }
+    if(theme==='damp') for(let i=0;i<9;i++){
+      const x=roll(60,740),y=roll(70,530),r=roll(12,45);
+      c.fillStyle='#81b5bd0c';c.beginPath();c.ellipse(x,y,r,r*.32,-.15,0,Math.PI*2);c.fill();
+      c.strokeStyle='#acd5d91c';c.stroke();
+    }
+    const light=c.createRadialGradient(roll(200,600),100,5,400,200,420);
+    light.addColorStop(0,theme==='gold' ? '#dfc68a14' : '#c0d2c909');light.addColorStop(1,'#00000000');
+    c.fillStyle=light;c.fillRect(0,0,800,600);
+    const vignette=c.createRadialGradient(400,300,130,400,300,470);
+    vignette.addColorStop(0,'#00000000');vignette.addColorStop(1,'#00000099');
+    c.fillStyle=vignette;c.fillRect(0,0,800,600);
+    c.lineWidth=14;c.strokeStyle=theme==='blood' ? '#5a3544' : theme==='gold' ? '#514634' : '#303c3d';c.strokeRect(10,10,780,580);
+    c.lineWidth=1;c.strokeStyle='#bfcbb32b';c.strokeRect(19.5,19.5,761,561);
+    const particles=Array.from({length:theme==='damp' ? 54 : 36},()=>({
+      x:roll(26,774),y:roll(26,574),speed:roll(3,16),phase:roll(0,Math.PI*2),size:roll(.5,1.4),
+      rain:theme==='damp' && random()<.6,glow:(theme==='gold' || theme==='void') && random()<.45
+    }));
+    const critters=Array.from({length:theme==='infested' ? 16 : theme==='gold' ? 3 : 7},(_,i)=>({
+      x:roll(35,765),y:roll(40,560),angle:roll(0,Math.PI*2),phase:roll(0,Math.PI*2),
+      type:i%3===0 ? 'fly' : i%3===1 ? 'ant' : 'larva',speed:roll(3,8),flee:0
+    }));
+    room.atmosphere={texture,theme,random,particles,critters,time:0,dust:[],tracks:[],stepTimer:0};
+    return room.atmosphere;
+  }
+  function emitRoomDust(x,y,vx=0,vy=0,count=3,color='#9e9176'){
+    const a=getRoomAtmosphere();
+    if(!a) return;
+    for(let i=0;i<count && a.dust.length<96;i++){
+      const life=.22+a.random()*.35;
+      a.dust.push({x,y,vx:vx+(a.random()-.5)*40,vy:vy+(a.random()-.5)*30,life,ttl:life,color});
+    }
+  }
+  function updateRoomAtmosphere(dt){
+    if(!(dt>0)) return;
+    const a=getRoomAtmosphere();if(!a) return;
+    a.time+=dt;
+    for(const p of a.particles){
+      p.x+=(p.rain ? -12 : Math.sin(a.time*.5+p.phase)*5)*dt;
+      p.y+=(p.rain ? 110+p.speed*3 : -p.speed*.4)*dt;
+      if(p.x<25)p.x=774;if(p.x>775)p.x=26;
+      if(p.y>575)p.y=26;if(p.y<25)p.y=574;
+    }
+    for(const b of a.critters){
+      const dx=b.x-player.x,dy=b.y-player.y,d=Math.hypot(dx,dy);
+      if(d<62 && Math.hypot(player.vel.x,player.vel.y)>15){
+        b.angle=Math.atan2(dy,dx);b.flee=.8;
+      }
+      b.flee=Math.max(0,b.flee-dt);
+      const speed=(b.type==='fly' ? 18 : b.speed)*(b.flee>0 ? 3 : 1);
+      b.angle+=Math.sin(a.time*.7+b.phase)*dt*.8;
+      b.x+=Math.cos(b.angle)*speed*dt;b.y+=Math.sin(b.angle)*speed*dt;
+      if(b.x<28 || b.x>772 || b.y<28 || b.y>572){b.angle+=Math.PI;b.x=clamp(b.x,28,772);b.y=clamp(b.y,28,572);}
+    }
+    for(const p of a.dust){
+      p.x+=p.vx*dt;p.y+=p.vy*dt;
+      p.vx*=Math.exp(-dt*5);p.vy*=Math.exp(-dt*5);p.life-=dt;
+    }
+    a.dust=a.dust.filter(p=>p.life>0);
+    for(const p of a.tracks)p.life-=dt;
+    a.tracks=a.tracks.filter(p=>p.life>0);
+    a.stepTimer=Math.max(0,a.stepTimer-dt);
+    const speed=Math.hypot(player.vel.x,player.vel.y);
+    if(!player.flying && speed>40 && a.stepTimer===0){
+      emitRoomDust(player.x,player.y+player.r*.6,-player.vel.x*.1,-player.vel.y*.1,3);
+      if(a.tracks.length<48)a.tracks.push({x:player.x,y:player.y+player.r*.6,life:4,wet:a.theme==='damp'});
+      a.stepTimer=.13;
+    }
+  }
+  function drawRoomGroundLife(){
+    const a=getRoomAtmosphere();if(!a)return;
+    ctx.save();
+    for(const p of a.tracks){
+      ctx.globalAlpha=p.life/4*.16;
+      ctx.strokeStyle=p.wet ? '#a3cad0' : '#a8936b';ctx.lineWidth=1;
+      ctx.beginPath();ctx.ellipse(p.x,p.y,p.wet ? 8-p.life : 2,p.wet ? (8-p.life)*.35 : 1,0,0,Math.PI*2);ctx.stroke();
+    }
+    ctx.globalAlpha=.65;
+    for(const b of a.critters){
+      if(b.type==='fly')continue;
+      ctx.save();ctx.translate(Math.round(b.x),Math.round(b.y));ctx.rotate(b.angle);
+      if(b.type==='ant'){
+        ctx.fillStyle='#827665';ctx.fillRect(-2,-.5,3,1);ctx.fillRect(2,-.5,1,1);
+        ctx.fillStyle='#4b463b';const leg=Math.sin(a.time*18+b.phase)>.0 ? 1 : -1;
+        ctx.fillRect(-1,-1.5,1,1);ctx.fillRect(leg,1,1,1);
+      }else{
+        ctx.fillStyle='#a8a186';
+        for(let i=0;i<4;i++)ctx.fillRect(-i*1.5,Math.sin(a.time*5+b.phase+i)*.6,1.5,1.2);
+      }
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+  function drawRoomAir(){
+    const a=getRoomAtmosphere();if(!a)return;
+    ctx.save();ctx.beginPath();ctx.rect(22,22,756,556);ctx.clip();
+    for(const p of a.particles){
+      ctx.globalAlpha=p.rain ? .12 : .1+.12*(.5+.5*Math.sin(a.time+p.phase));
+      ctx.fillStyle=p.glow ? '#e6d794' : '#b2c2bd';
+      if(p.rain){
+        ctx.strokeStyle='#a1c9ce';ctx.lineWidth=.7;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x-1.4,p.y+7);ctx.stroke();
+      }else{
+        ctx.fillRect(p.x,p.y,p.size,p.size);
+        if(p.glow){ctx.globalAlpha=.035;ctx.beginPath();ctx.arc(p.x,p.y,4,0,Math.PI*2);ctx.fill();}
+      }
+    }
+    for(const b of a.critters){
+      if(b.type!=='fly')continue;
+      const wing=Math.sin(a.time*80+b.phase)>0 ? 1.8 : .7;
+      ctx.globalAlpha=.4;ctx.fillStyle='#c3c7b8';ctx.fillRect(b.x-wing,b.y-1,wing*2,.7);
+      ctx.globalAlpha=.75;ctx.fillStyle='#676b5a';ctx.fillRect(b.x,b.y,1.5,1.5);
+    }
+    for(const p of a.dust){
+      ctx.globalAlpha=p.life/p.ttl*.5;ctx.fillStyle=p.color;ctx.fillRect(p.x,p.y,1.4,1.4);
+    }
+    ctx.restore();
+  }
+
   // ======= 地图/房间生成 =======
   class Room{
     constructor(i,j){
@@ -6425,8 +6747,8 @@
       if(this.knockTimer>0 && !dashing){
         this.x += this.knockVel.x * moveDt;
         this.y += this.knockVel.y * moveDt;
-        this.knockVel.x *= 0.86;
-        this.knockVel.y *= 0.86;
+        this.knockVel.x *= Math.exp(-moveDt*9);
+        this.knockVel.y *= Math.exp(-moveDt*9);
         this.knockTimer = Math.max(0, this.knockTimer - moveDt);
       } else if(dashing){
         this.knockTimer = 0;
@@ -6748,6 +7070,9 @@
         firedCount = shots.length;
       }
       if(firedCount>0){
+        // A short recoil blends into the same friction used by contact impulses.
+        const recoil=Math.min(9,3+Math.sqrt(firedCount)*2);
+        addBodyImpulse(this,-dirX*recoil,-dirY*recoil);
         const volume = Math.min(0.75, 0.42 + firedCount*0.04);
         audio.play('playerShoot', {volume});
         this.triggerAimIndicatorFlash?.('shoot', {intensity: Math.min(1.15, 0.6 + firedCount * 0.18)});
@@ -10527,6 +10852,7 @@
       });
     }
     update(dt){
+      this.prevX=this.x; this.prevY=this.y;
       if(this.homing){
         const room = dungeon?.current;
         if(room){
@@ -13020,7 +13346,7 @@
       // 碰撞到玩家
       if(dist(this, player) < this.r + player.r){
         player.hurt(1);
-        applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:160, duration:0.2, slowFactor:0.75, slowDuration:0.25});
+
       }
       resolveEntityObstacles(this);
     }
@@ -13071,7 +13397,7 @@
       // 慢慢靠近玩家（弱追踪）
       if(dist(this, player) < this.r + player.r){
         player.hurt(1);
-        applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:130, duration:0.16, slowFactor:0.8, slowDuration:0.2});
+
       }
       resolveEntityObstacles(this);
     }
@@ -13146,7 +13472,7 @@
       resolveEntityObstacles(this);
       if(dist(this, player) < this.r + player.r){
         player.hurt(1);
-        applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:160, duration:0.22, slowFactor:0.7, slowDuration:0.3});
+
       }
     }
     damage(d){
@@ -13279,7 +13605,7 @@
       resolveEntityObstacles(this);
       if(dist(this, player) < this.r + player.r){
         player.hurt(1);
-        applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:180, duration:0.18, slowFactor:0.7, slowDuration:0.3});
+
       }
     }
     damage(d){
@@ -13364,7 +13690,7 @@
       resolveEntityObstacles(this);
       if(this.spawnGrace<=0 && this.reengageTimer<=0 && dist(this, player) < this.r + player.r){
         player.hurt(1);
-        applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:170, duration:0.2, slowFactor:0.75, slowDuration:0.25});
+
         this.reengageTimer = Math.max(this.reengageTimer, 0.35);
       }
     }
@@ -14060,7 +14386,7 @@
         this.dashTimer -= dt;
         if(dist(this, player) < this.r + player.r){
           player.hurt(1);
-          applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:220, duration:0.2, slowFactor:0.7, slowDuration:0.32});
+
           this.enterRecover();
         }
         if(this.dashTimer<=0){
@@ -14081,7 +14407,7 @@
       resolveEntityObstacles(this);
       if(this.state!=='dash' && dist(this, player) < this.r + player.r){
         player.hurt(1);
-        applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:200, duration:0.18, slowFactor:0.7, slowDuration:0.28});
+
         this.enterRecover();
       }
     }
@@ -14315,7 +14641,7 @@
       resolveEntityObstacles(this);
       if(this.state!=='lunge' && dist(this, player) < this.r + player.r){
         player.hurt(1);
-        applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:210, duration:0.2, slowFactor:0.72, slowDuration:0.3});
+
         this.enterEscape();
       }
     }
@@ -14515,7 +14841,7 @@
         this.strikeTimer -= dt;
         if(dist(this, player) < this.r + player.r){
           player.hurt(1);
-          applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:220, duration:0.2, slowFactor:0.7, slowDuration:0.3});
+
           this.enterRecover();
         }
         if(this.strikeTimer<=0){
@@ -14535,7 +14861,7 @@
       resolveEntityObstacles(this);
       if(this.state!=='strike' && dist(this, player) < this.r + player.r){
         player.hurt(1);
-        applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:200, duration:0.18, slowFactor:0.7, slowDuration:0.28});
+
         this.enterRecover();
       }
     }
@@ -14738,7 +15064,7 @@
       resolveEntityObstacles(this);
       if(dist(this, player) < this.r + player.r){
         player.hurt(1);
-        applyEnemyKnockback(this, this.x - player.x, this.y - player.y, {power:210, duration:0.2, slowFactor:0.72, slowDuration:0.28});
+
       }
     }
     draw(){
@@ -16741,8 +17067,9 @@
     }
     checkHit(target){
       if(!this.alive) return false;
-      if(dist(this,target) < this.r + target.r){
+      if(projectileHitTime(this,target)!==null){
         target.hurt(this.damage);
+        applyProjectileContact(target,this);
         this.alive=false;
         return true;
       }
@@ -16801,8 +17128,9 @@
     }
     checkHit(target){
       if(!this.alive) return false;
-      if(dist(this,target) < this.r + target.r){
+      if(projectileHitTime(this,target)!==null){
         target.hurt(this.damage);
+        applyProjectileContact(target,this);
         this.triggerImpact();
         return true;
       }
@@ -16845,7 +17173,7 @@
       if(!this.alive) return false;
       const d = dist(this, target);
       if(d >= this.inner && d <= this.inner + this.width){
-        if(!this.hit){ target.hurt(this.damage); this.hit = true; }
+        if(!this.hit){ target.hurt(this.damage); applyProjectileContact(target,this); this.hit = true; }
       }
       return false;
     }
@@ -16905,8 +17233,9 @@
     }
     checkHit(target){
       if(!this.alive) return false;
-      if(dist(this,target) < this.r + target.r){
+      if(projectileHitTime(this,target)!==null){
         target.hurt(this.damage);
+        applyProjectileContact(target,this);
         this.explode();
         return true;
       }
@@ -19872,6 +20201,7 @@
     updateRoomTransition(dt);
     const worldDt = timeStopActive ? 0 : dt;
     const entryLocked = runtime.roomEntryLock>0;
+    player.previousX=player.x; player.previousY=player.y;
     player.update(dt, {entryLocked, entryLockTime: runtime.roomEntryLock});
 
     const bombs = dungeon.current.bombs;
@@ -19914,7 +20244,7 @@
     const enemies = dungeon.current.enemies;
     const enemyDt = entryLocked ? 0 : worldDt;
     for(const e of enemies){
-      e.update(enemyDt);
+      updateEnemyMotion(e,enemyDt);
       resolveEnemyBombBlocking(e);
       if(typeof e.damageFlashTimer === 'number' && e.damageFlashTimer>0){
         e.damageFlashTimer = Math.max(0, e.damageFlashTimer - worldDt);
@@ -19942,34 +20272,41 @@
         }
       }
     }
+    resolveActorContacts(enemies,enemyDt);
+    updateRoomAtmosphere(worldDt);
     updateBeams(dt);
     updateShortSwordProjectiles(entryLocked ? 0 : dt, enemies);
     updateLightsaberSwings(entryLocked ? 0 : dt, enemies);
 
     // 敌方弹幕
     const enemyProjectileDt = entryLocked ? 0 : worldDt;
-    for(const eb of runtime.enemyProjectiles){ eb.update(enemyProjectileDt); }
+    for(const eb of runtime.enemyProjectiles){
+      eb.prevX=eb.x; eb.prevY=eb.y;
+      eb.update(enemyProjectileDt);
+    }
     runtime.enemyProjectiles = runtime.enemyProjectiles.filter(p=>p.alive);
 
-    // 碰撞：子弹-敌人
+    // Swept relative motion catches fast tears and moving targets in travel order.
     for(const b of runtime.bullets){
+      if(!b.alive) continue;
+      const hits=[];
       for(const e of enemies){
         if(e.dead) continue;
-        if(b.pierceEnemies && typeof b.hasHitEnemy === 'function' && b.hasHitEnemy(e)) continue;
-        const dd = dist(b, e);
-        if(dd < (b.r + e.r)){
-          const killed = e.damage(b.damage);
-          if(!killed){
-            applyEnemyKnockback(e, b.vx, b.vy, {power: 90 + b.damage*18, duration:0.2, slowFactor:0.7, slowDuration:0.3, maxSpeed:300});
-          } else {
-            handleEnemyDeath(e, dungeon.current);
-          }
-          if(b.pierceEnemies){
-            if(b.markEnemyHit){ b.markEnemyHit(e); }
-            continue;
-          }
-          b.destroy({glowStrength:0.5}); break;
-        }
+        if(b.pierceEnemies && b.hasHitEnemy?.(e)) continue;
+        const time=projectileHitTime(b,e);
+        if(time!==null) hits.push({enemy:e,time});
+      }
+      hits.sort((a,b)=>a.time-b.time);
+      for(const hit of hits){
+        const e=hit.enemy;
+        if(e.dead) continue;
+        const killed=damageEnemyAtImpact(e,b.damage,b.vx,b.vy);
+        if(killed) handleEnemyDeath(e,dungeon.current);
+        if(b.pierceEnemies){ b.markEnemyHit?.(e); continue; }
+        b.x=(b.prevX ?? b.x)+(b.x-(b.prevX ?? b.x))*hit.time;
+        b.y=(b.prevY ?? b.y)+(b.y-(b.prevY ?? b.y))*hit.time;
+        b.destroy({glowStrength:0.5});
+        break;
       }
     }
     // 清理死亡
@@ -19985,7 +20322,12 @@
 
     // 玩家被弹幕命中
     if(!timeStopActive){
-      for(const eb of runtime.enemyProjectiles){ if(eb.checkHit(player)){ eb.destroy({glowStrength:0.45}); } }
+      for(const eb of runtime.enemyProjectiles){
+        if(eb.checkHit(player) && eb.alive){
+          if(typeof eb.destroy==='function') eb.destroy({glowStrength:0.45});
+          else eb.alive=false;
+        }
+      }
     }
 
     // 房间是否清空
@@ -20185,6 +20527,7 @@
     }
     drawRoomBackdrop();
     drawFloorDecals();
+    drawRoomGroundLife();
     drawDoors();
     drawObstacles();
 
@@ -20230,6 +20573,7 @@
     drawPlayer();
     drawShortSwordProjectiles();
     drawLightsaberSwings();
+    drawRoomAir();
     ctx.restore();
 
     if(runtime.timeStopTimer>0 || runtime.timeStopFlash>0){
@@ -20280,67 +20624,8 @@
   }
 
   function drawRoomBackdrop(){
-    const w=CONFIG.roomW, h=CONFIG.roomH;
-    const isBoss = dungeon.current.isBoss && !dungeon.current.cleared;
-    const variant = dungeon.current.sceneVariant || null;
-    const g = ctx.createLinearGradient(0,0,0,h);
-    if(variant === 'trap'){
-      g.addColorStop(0,'#1d0f12');
-      g.addColorStop(1,'#150a0d');
-    } else if(variant === 'void'){
-      g.addColorStop(0,'#0b1120');
-      g.addColorStop(1,'#020617');
-    } else if(isBoss){
-      g.addColorStop(0,'#1b0f19');
-      g.addColorStop(1,'#120913');
-    } else {
-      g.addColorStop(0,'#10141d');
-      g.addColorStop(1,'#0d121a');
-    }
-    ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
-    // 边框
-    let borderColor = isBoss ? '#663355' : '#2a3142';
-    if(variant === 'void'){ borderColor = '#f97316aa'; }
-    ctx.strokeStyle = borderColor; ctx.lineWidth=14; ctx.strokeRect(10,10,w-20,h-20);
-    // 裂纹/污渍
-    if(variant === 'trap'){
-      ctx.globalAlpha = 0.08;
-      ctx.fillStyle = '#f97316';
-      for(let i=0;i<18;i++){
-        ctx.beginPath();
-        ctx.ellipse(randRange(40,w-40), randRange(40,h-40), randRange(12,36), randRange(6,20), randRange(0,Math.PI), 0, Math.PI*2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 0.1;
-      ctx.fillStyle = '#7f1d1d';
-      for(let i=0;i<8;i++){
-        ctx.beginPath();
-        ctx.ellipse(randRange(30,w-30), randRange(50,h-50), randRange(30,120), randRange(8,30), randRange(0,Math.PI), 0, Math.PI*2);
-        ctx.fill();
-      }
-    } else if(variant === 'void'){
-      ctx.globalAlpha = 0.16;
-      ctx.fillStyle = '#fbbf24';
-      for(let i=0;i<26;i++){
-        const x = randRange(24, w-24);
-        const y = randRange(28, h-28);
-        const r = randRange(6, 32);
-        ctx.beginPath();
-        ctx.arc(x,y,r,0,Math.PI*2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 0.12;
-      ctx.fillStyle = '#0f172a';
-      for(let i=0;i<10;i++){
-        ctx.beginPath();
-        ctx.ellipse(randRange(40,w-40), randRange(40,h-40), randRange(40,160), randRange(12,42), randRange(0,Math.PI), 0, Math.PI*2);
-        ctx.fill();
-      }
-    } else {
-      ctx.globalAlpha = isBoss ? 0.12 : 0.06; ctx.fillStyle=isBoss ? '#ff88b1' : '#bcd';
-      for(let i=0;i<22;i++){ const x=randRange(30,w-30), y=randRange(30,h-30), r=randRange(8,38); ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); }
-    }
-    ctx.globalAlpha = 1;
+    const a=getRoomAtmosphere();
+    if(a) ctx.drawImage(a.texture,0,0);
   }
   function drawDoors(){
     const r = dungeon.current; const doors = roomDoors(r);
@@ -22179,6 +22464,7 @@
       });
     }
     update(dt){
+      this.prevX=this.x; this.prevY=this.y;
       this.x += this.vx*dt;
       this.y += this.vy*dt;
       this.life -= dt;
@@ -22193,7 +22479,11 @@
     }
     checkHit(target){
       if(!this.alive) return false;
-      if(dist(this,target) < this.r + target.r){ target.hurt(this.type==='needle'?2:1); return true; }
+      if(projectileHitTime(this,target)!==null){
+        target.hurt(this.type==='needle'?2:1);
+        applyProjectileContact(target,this);
+        return true;
+      }
       return false;
     }
     draw(){
