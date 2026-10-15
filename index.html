@@ -23307,7 +23307,7 @@
       ctx.strokeStyle='#c2a16a';ctx.lineWidth=4;ctx.stroke();ctx.strokeStyle='#e3d2a5';ctx.lineWidth=1;ctx.stroke();drawLocalLight(a.x,a.y,42,.14);
     }
     const held=player.shortSword;
-    if(held?.enabled && !held.projectile && held.attached!==false){
+    if(player.attackMode==='shortsword' && held && !held.projectile && held.attached!==false){
       const g=held.geometry || player.getShortSwordGeometry(held);
       if(g){const a=viewPoint(g.baseX,g.baseY,18),b=viewPoint(g.tipX,g.tipY,18);ctx.strokeStyle='#b6af91';ctx.lineWidth=Math.max(3,g.width*.5);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
     }
