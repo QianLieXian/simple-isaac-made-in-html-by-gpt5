@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>简易以撒-like</title>
   <style>
     :root{
@@ -91,6 +91,26 @@
       .virtual-kb-row[data-type="system"]{grid-template-columns:repeat(3,1fr)}
     }
     footer{margin-top:16px;color:var(--muted);text-align:center}
+    #hud-left{flex-wrap:wrap;white-space:nowrap}
+    .codex-header{cursor:pointer}
+    .codex-filter{display:block;margin:12px 0}
+    .codex-grid{max-height:65vh;overflow-y:auto}
+    .audio-settings{margin-top:14px;padding:12px 18px}
+    .audio-settings summary{cursor:pointer}
+    .audio-settings label{display:inline-flex;align-items:center;gap:8px;margin:12px 16px 0 0}
+    button:focus-visible, summary:focus-visible, select:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+    @media (max-width:720px){
+      .wrap{margin:0 auto;padding:8px}
+      header{flex-wrap:wrap}
+      .badge{font-size:12px}
+      .virtual-kb button{min-height:44px}
+    }
+    @media (orientation:landscape) and (max-height:600px) and (pointer:coarse){
+      .wrap{max-width:none;padding:8px}
+      header .badge{display:none}
+      .canvas-wrap{width:min(calc((100dvh - 80px)*4/3),calc(100vw - 320px));margin:0 auto 0 0}
+      .virtual-kb{position:fixed;inset:50px 8px auto auto;transform:none;width:280px;min-width:0;max-height:calc(100dvh - 60px);overflow-y:auto}
+    }
     /* overlays */
     .overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;padding:24px}
     .overlay.show{display:flex}
@@ -99,15 +119,15 @@
     .card p{margin:8px 0;color:var(--muted)}
     .card ul{margin:10px 0 0 1.2em;color:var(--muted)}
     .card li{margin:4px 0}
-    a.btn{display:inline-block;margin-top:10px;padding:8px 12px;border-radius:10px;border:1px solid #273044;color:var(--ink);text-decoration:none}
-    a.btn:hover{border-color:#3a4764}
+    .btn{font:inherit;background:transparent;cursor:pointer;display:inline-block;margin-top:10px;padding:8px 12px;border-radius:10px;border:1px solid #273044;color:var(--ink);text-decoration:none}
+    .btn:hover{border-color:#3a4764}
   </style>
 </head>
 <body>
   <div class="wrap">
     <header>
       <div class="title">地窖速通实验室 · HTML5 Canvas</div>
-      <div class="badge">WASD 移动 · 方向键射击 · E 放置炸弹 · F 购买 · Q 释放卡牌 · 回车开始 · P 暂停 · R 重开 · 记得深呼吸</div>
+      <div class="badge">WASD 移动 · 方向键射击 · E 放置炸弹 · F 购买 · Q 释放卡牌 · Space 主动道具 · 回车开始 · P 暂停 · R 重开 · 记得深呼吸</div>
     </header>
     <div class="panel canvas-wrap">
       <canvas id="game" width="800" height="600"></canvas>
@@ -116,10 +136,10 @@
           <h2>地窖暖场中…</h2>
           <p>这是款极简的房间制顶视角射击。先伸个懒腰再闯关——清空房间敌人，门才会知趣地打开。</p>
           <ul>
-            <li><b>W/A/S/D</b> 移动，<b>↑/↓/←/→</b> 射击</li>
+            <li><b>W/A/S/D</b> 移动，<b>↑/↓/←/→</b> 射击 · <b>Space</b> 主动 · <b>Q</b> 卡牌</li>
             <li><b>Enter</b> 开始 · <b>P</b> 暂停/继续 · <b>R</b> 重开</li>
           </ul>
-          <a class="btn" href="#" id="startBtn">我要出发！</a>
+          <button class="btn" type="button" id="startBtn">我要出发！</button>
         </div>
       </div>
       <div class="overlay" id="paused">
@@ -182,13 +202,19 @@
         </div>
       </div>
     </div>
-    <div id="item-codex" class="panel item-codex" aria-live="polite">
-      <div class="codex-header">
+    <details id="item-codex" class="panel item-codex">
+      <summary class="codex-header">
         <span class="codex-title">道具图鉴</span>
         <span class="codex-progress">已解锁 <span id="codex-count">0</span> / <span id="codex-total">0</span></span>
-      </div>
-      <div id="codex-grid" class="codex-grid"></div>
-    </div>
+      </summary>
+      <label class="codex-filter">显示 <select id="codex-filter"><option value="all">全部道具</option><option value="unlocked">已解锁</option><option value="locked">未解锁</option></select></label>
+      <div id="codex-grid" class="codex-grid" aria-live="polite"></div>
+    </details>
+    <details class="panel audio-settings">
+      <summary>声音设置</summary>
+      <label><input id="audio-muted" type="checkbox"> 静音</label>
+      <label>音量 <input id="audio-volume" type="range" min="0" max="100" value="80"></label>
+    </details>
     <footer>纯前端单文件 · 无素材 · 轻便又俏皮</footer>
   </div>
 
@@ -267,7 +293,7 @@
       glowItemChance:0.01,
       glowGoldChestChance:0.15,
       spike:{chance:0.15, max:3, sizeScale:0.7, damage:1},
-      bloodSpike:{chance:0.015, max:3, sizeScale:0.7, playerDamage:1, enemyDamagePerFrame:1},
+      bloodSpike:{chance:0.015, max:3, sizeScale:0.7, playerDamage:1, enemyDamage:1, enemyInterval:1/60},
       choco:{chance:0.15, max:5, sizeScale:1, minHits:3, maxHits:5, dropChance:0.1, dropTypes:['key','bomb','heart'], rareItemChance:0.001, itemSlug:'hot-chocolate'},
       flame:{chance:0.25, max:5, sizeScale:0.7, minHits:3, maxHits:5, dropChance:0.1, dropTypes:['key','bomb','heart'], playerDamage:1, enemyDamage:3, enemyIntervalFrames:20},
     },
@@ -547,12 +573,29 @@
     const AudioCtx = typeof window !== 'undefined' ? (window.AudioContext || window.webkitAudioContext) : null;
     const ctxRef = {ctx:null, unlocked:false};
     const buffers = new Map();
+    let masterGain = null;
+    let volume = 0.8;
+    let muted = false;
+    try {
+      const saved = JSON.parse(localStorage.getItem('isaac.audio.v1') || 'null');
+      if(saved && typeof saved.volume==='number' && Number.isFinite(saved.volume)) volume = clamp(saved.volume,0,1);
+      if(saved) muted = saved.muted===true;
+    } catch {}
+    function setSettings(nextVolume, nextMuted){
+      volume = clamp(nextVolume,0,1);
+      muted = !!nextMuted;
+      if(masterGain) masterGain.gain.value = muted ? 0 : volume;
+      try { localStorage.setItem('isaac.audio.v1', JSON.stringify({volume,muted})); } catch {}
+    }
 
     function ensureContext(){
       if(!AudioCtx) return null;
       if(ctxRef.ctx) return ctxRef.ctx;
       try {
         ctxRef.ctx = new AudioCtx();
+        masterGain = ctxRef.ctx.createGain();
+        masterGain.gain.value = muted ? 0 : volume;
+        masterGain.connect(ctxRef.ctx.destination);
       } catch(err){
         console.warn('Audio init failed', err);
         ctxRef.ctx = null;
@@ -695,8 +738,8 @@
       source.buffer = buffer;
       const gain = ctx.createGain();
       const volume = clamp(options.volume ?? 1, 0, 1);
-      gain.gain.value = volume * 0.8;
-      source.connect(gain).connect(ctx.destination);
+      gain.gain.value = volume;
+      source.connect(gain).connect(masterGain);
       source.start();
     }
 
@@ -714,10 +757,17 @@
       ctxRef.unlocked = ctx.state === 'running' || ctx.state === 'interactive';
     }
 
-    return { play, unlock, ensureContext };
+    return { play, unlock, ensureContext, setSettings, getSettings:()=>({volume,muted}) };
   }
 
   const audio = createAudioManager();
+  const volumeInput = document.getElementById('audio-volume');
+  const mutedInput = document.getElementById('audio-muted');
+  volumeInput.value = Math.round(audio.getSettings().volume * 100);
+  mutedInput.checked = audio.getSettings().muted;
+  const updateAudioSettings = ()=>audio.setSettings(Number(volumeInput.value)/100, mutedInput.checked);
+  volumeInput.addEventListener('input', updateAudioSettings);
+  mutedInput.addEventListener('change', updateAudioSettings);
   if(typeof window !== 'undefined'){
     ['pointerdown','touchstart','keydown'].forEach(eventName=>{
       window.addEventListener(eventName, ()=>audio.unlock(), {once:true});
@@ -1049,8 +1099,8 @@
       apply(player){
         if(!player) return;
         player.speed += 40;
-        if(Number.isFinite(player.accelTime)){ player.accelTime = Math.max(0.32, player.accelTime * 0.88); }
-        if(Number.isFinite(player.decelTime)){ player.decelTime = Math.max(0.36, player.decelTime * 0.88); }
+        if(Number.isFinite(player.accelTime)){ player.accelTime = Math.max(0.03, player.accelTime * 0.88); }
+        if(Number.isFinite(player.decelTime)){ player.decelTime = Math.max(0.03, player.decelTime * 0.88); }
       }
     },
     {
@@ -1673,7 +1723,7 @@
         }
         player.speed += 20;
         player.ifrBoostMultiplier = Math.max(0.1, (player.ifrBoostMultiplier || 1) * 1.5);
-        if(Number.isFinite(player.decelTime)){ player.decelTime = Math.max(0.32, player.decelTime * 0.85); }
+        if(Number.isFinite(player.decelTime)){ player.decelTime = Math.max(0.03, player.decelTime * 0.85); }
         player.recalculateDamage?.();
       }
     },
@@ -3206,7 +3256,18 @@
   if(cheatItemIdInput && ITEM_TOTAL_COUNT>0){
     cheatItemIdInput.setAttribute('max', String(ITEM_TOTAL_COUNT));
   }
+  const CODEX_STORAGE_KEY = 'isaac.codex.v1';
   const discoveredItems = new Set();
+  try {
+    const saved = JSON.parse(localStorage.getItem(CODEX_STORAGE_KEY) || '[]');
+    if(Array.isArray(saved)){
+      for(const slug of saved){
+        const item = CODEX_ALL_ITEMS.find(entry=>entry && entry.slug===slug);
+        if(item) discoveredItems.add(item.id);
+      }
+    }
+  } catch { /* Storage may be unavailable or contain an older/corrupt save. */ }
+  let codexFilter = 'all';
   let lastCodexSelectedId = null;
 
   function formatItemNumber(id){
@@ -3283,6 +3344,7 @@
     for(const item of CODEX_ALL_ITEMS){
       if(!item) continue;
       const unlocked = discoveredItems.has(item.id);
+      if((codexFilter==='unlocked' && !unlocked) || (codexFilter==='locked' && unlocked)) continue;
       const card=document.createElement('div');
       card.className='codex-entry';
       if(!unlocked) card.classList.add('locked');
@@ -3356,12 +3418,21 @@
     if(numeric==null) return;
     if(!discoveredItems.has(numeric)){
       discoveredItems.add(numeric);
+      try {
+        localStorage.setItem(CODEX_STORAGE_KEY, JSON.stringify(
+          CODEX_ALL_ITEMS.filter(entry=>entry && discoveredItems.has(entry.id)).map(entry=>entry.slug)
+        ));
+      } catch { /* Collection remains usable for this session if storage is blocked. */ }
       updateCodex();
     } else {
       if(CODEX_COUNT) CODEX_COUNT.textContent = discoveredItems.size;
     }
   }
 
+  document.getElementById('codex-filter')?.addEventListener('change', (event)=>{
+    codexFilter = event.target.value;
+    updateCodex();
+  });
   updateCodex();
 
   const cheatDirtyFields = new Set();
@@ -3402,15 +3473,21 @@
     if(!skip('keys', cheatInputs.keys)) cheatInputs.keys.value = player ? Math.floor(player.keys) : 0;
     if(!skip('coins', cheatInputs.coins)) cheatInputs.coins.value = player ? Math.floor(player.coins) : 0;
   }
+  function readNumberInput(input, fallback){
+    const raw = input?.value.trim() ?? '';
+    if(raw === '') return fallback;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : fallback;
+  }
   function applyCheatStats(){
     if(!player) return;
     const maxHpCap = player.maxHpCap || 20;
-    const newMax = clamp(Math.floor(Number(cheatInputs.maxHp.value)||player.maxHp), 1, maxHpCap);
-    const newHp = clamp(Math.floor(Number(cheatInputs.hp.value)||player.hp), 0, newMax);
-    const baseDamage = Number(cheatInputs.damage.value);
-    const moveSpeed = Number(cheatInputs.speed.value);
-    const fireRate = Number(cheatInputs.firerate.value);
-    const tearSpeed = Number(cheatInputs.tearSpeed.value);
+    const newMax = clamp(Math.floor(readNumberInput(cheatInputs.maxHp, player.maxHp)), 1, maxHpCap);
+    const newHp = clamp(Math.floor(readNumberInput(cheatInputs.hp, player.hp)), 0, newMax);
+    const baseDamage = readNumberInput(cheatInputs.damage, player.baseDamage);
+    const moveSpeed = readNumberInput(cheatInputs.speed, player.speed);
+    const fireRate = readNumberInput(cheatInputs.firerate, 1000/player.fireInterval);
+    const tearSpeed = readNumberInput(cheatInputs.tearSpeed, player.tearSpeed);
     player.maxHp = newMax;
     player.hp = newHp;
     if(Number.isFinite(baseDamage) && baseDamage>=0){ player.baseDamage = baseDamage; }
@@ -3426,14 +3503,16 @@
     if(player.hp>player.maxHp) player.hp = player.maxHp;
     player.recalculateDamage();
     player.updateHolyHeartBlessing?.();
+    if(player.hp<=0) gameOver();
+    renderHUD();
     clearCheatDirty('hp','maxHp','damage','speed','firerate','tearSpeed');
     syncCheatPanel();
   }
   function applyCheatResources(){
     if(!player) return;
-    const bombs = clamp(Math.floor(Number(cheatInputs.bombs.value)||player.bombs), 0, 99);
-    const keys = clamp(Math.floor(Number(cheatInputs.keys.value)||player.keys), 0, 99);
-    const coins = clamp(Math.floor(Number(cheatInputs.coins.value)||player.coins), 0, 99);
+    const bombs = clamp(Math.floor(readNumberInput(cheatInputs.bombs, player.bombs)), 0, 99);
+    const keys = clamp(Math.floor(readNumberInput(cheatInputs.keys, player.keys)), 0, 99);
+    const coins = clamp(Math.floor(readNumberInput(cheatInputs.coins, player.coins)), 0, 99);
     player.bombs = bombs;
     player.keys = keys;
     player.coins = coins;
@@ -3550,14 +3629,16 @@
         rows:[[
           {label:'E', code:'KeyE', tap:true},
           {label:'F', code:'KeyF', tap:true},
-          {label:'R', code:'KeyR', tap:true},
-          {label:'P', code:'KeyP', tap:true},
+          {label:'Q 卡牌', code:'KeyQ', tap:true},
+          {label:'Space 主动', code:'Space', tap:true},
         ]],
       },
       {
         type:'system',
         rows:[[
-          {label:'Enter', code:'Enter', tap:true, span:3, className:'small'},
+          {label:'开始', code:'Enter', tap:true, className:'small'},
+          {label:'重开', code:'KeyR', tap:true, className:'small'},
+          {label:'暂停', code:'KeyP', tap:true, className:'small'},
         ]],
       },
     ];
@@ -3605,6 +3686,11 @@
               onKeyUp(key.code);
             }, 50);
           }
+        });
+        btn.addEventListener('click', (e)=>{
+          if(e.detail!==0) return;
+          onKeyDown(key.code);
+          onKeyUp(key.code);
         });
         const end = (e)=>{
           if(!pointerHold.has(e.pointerId)) return;
@@ -3754,9 +3840,9 @@
       const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       player.handleDirectionalKeyTap(code, now);
     }
-    if(state===STATE.MENU && code==='Enter') startGame();
+    if(state===STATE.MENU && code==='Enter'){ audio.unlock(); startGame(); }
     if(state===STATE.PLAY && code==='KeyP') togglePause();
-    if(state===STATE.PAUSE && code==='KeyP') togglePause();
+    else if(state===STATE.PAUSE && code==='KeyP') togglePause();
     if(state===STATE.OVER && code==='Enter') showMenu();
     if((state===STATE.PLAY || state===STATE.PAUSE || state===STATE.OVER) && code==='KeyR') startGame();
     if(state===STATE.PLAY && code==='KeyE') placeBomb();
@@ -3769,9 +3855,10 @@
     keyOrder.delete(code);
   }
   window.addEventListener('keydown', (e)=>{
-    if(isTypingTarget(e)) return;
+    if(isTypingTarget(e) || e.repeat) return;
+    if(['Enter','Space'].includes(e.code) && e.target instanceof Element && e.target.closest('button, a, summary, [role="button"]')) return;
     const block = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'];
-    if(block.includes(e.code)) e.preventDefault();
+    if(block.includes(e.code) || e.code==='Enter') e.preventDefault();
     processKeyDown(e.code);
   });
   window.addEventListener('keyup', (e)=> processKeyUp(e.code));
@@ -3784,9 +3871,20 @@
     onKeyDown: processKeyDown,
     onKeyUp: processKeyUp,
   });
-  if(virtualKeyboard){
-    window.addEventListener('blur', ()=> virtualKeyboard.releaseAll());
+  function releaseAllInput(){
+    virtualKeyboard?.releaseAll();
+    keys.clear();
+    keyOrder.clear();
+    keyOrderTick = 0;
   }
+  function suspendInput(){
+    releaseAllInput();
+    if(state===STATE.PLAY) togglePause();
+  }
+  window.addEventListener('blur', suspendInput);
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.hidden) suspendInput();
+  });
 
   // ======= 游戏状态 =======
   const overlayMenu = document.getElementById('menu');
@@ -3797,7 +3895,12 @@
   const endingSummaryNode = document.getElementById('ending-summary');
   const endingDetailNode = document.getElementById('ending-detail');
   const overlayManager = createOverlayManager({ menu: overlayMenu, paused: overlayPaused, over: overlayOver, ending: overlayEnding });
-  document.getElementById('startBtn').addEventListener('click', (e)=>{e.preventDefault(); audio.unlock(); startGame();});
+  document.getElementById('startBtn').addEventListener('click', (e)=>{
+    e.preventDefault();
+    if(state!==STATE.MENU) return;
+    audio.unlock();
+    startGame();
+  });
 
   const endingLoopBtn = document.getElementById('ending-loop-btn');
   if(endingLoopBtn){
@@ -3810,14 +3913,18 @@
   const STATE = { MENU:0, PLAY:1, PAUSE:2, OVER:3 };
   let state = STATE.MENU;
 
-  function showMenu(){ state=STATE.MENU; overlayManager.setActive('menu'); }
+  function showMenu(){ releaseAllInput(); state=STATE.MENU; overlayManager.setActive('menu'); }
   function togglePause(){
     if(state===STATE.PLAY){
+      releaseAllInput();
+      simulationAccumulator = 0;
       state=STATE.PAUSE;
       overlayManager.setActive('paused');
       runtime.runTimer?.setPauseSource('pause', true);
     }
     else if(state===STATE.PAUSE){
+      releaseAllInput();
+      simulationAccumulator = 0;
       state=STATE.PLAY;
       overlayManager.clear();
       runtime.runTimer?.setPauseSource('pause', false);
@@ -4304,7 +4411,7 @@
       bombImmune:true,
       hazard:true,
       playerDamage: Math.max(0, cfg.damage ?? 1),
-      enemyDamagePerFrame: 0,
+      enemyDamage: 0,
     };
   }
 
@@ -4322,7 +4429,8 @@
       bombImmune:true,
       hazard:true,
       playerDamage: Math.max(0, cfg.playerDamage ?? cfg.damage ?? 1),
-      enemyDamagePerFrame: Math.max(0, cfg.enemyDamagePerFrame ?? 1),
+      enemyDamage: Math.max(0, cfg.enemyDamage ?? 1),
+      enemyInterval: Math.max(1/240, cfg.enemyInterval ?? 1/60),
     };
   }
 
@@ -5689,13 +5797,21 @@
       player.hurt(playerDamage, {cause: obs.type || 'spike'});
     }
     if(!options.bleeding) return;
-    const damage = Math.max(0, obs.enemyDamagePerFrame ?? 0);
+    const damage = Math.max(0, obs.enemyDamage ?? 0);
     if(damage<=0 || !Array.isArray(room.enemies)) return;
+    if(!obs.enemyDamageMap) obs.enemyDamageMap = new WeakMap();
+    const interval = Math.max(1/240, obs.enemyInterval ?? 1/60);
     for(const enemy of room.enemies){
-      if(!enemy || enemy.dead) continue;
-      if(enemy.flying) continue;
-      if(!circleRectOverlap(enemy, obs)) continue;
-      const killed = enemy.damage ? enemy.damage(damage) : false;
+      if(!enemy || enemy.dead || enemy.flying) continue;
+      if(!circleRectOverlap(enemy, obs)){
+        obs.enemyDamageMap.delete(enemy);
+        continue;
+      }
+      const elapsed = (obs.enemyDamageMap.get(enemy) || 0) + Math.max(0, dt);
+      const ticks = Math.floor((elapsed + 1e-9) / interval);
+      obs.enemyDamageMap.set(enemy, Math.max(0, elapsed - ticks * interval));
+      if(!ticks) continue;
+      const killed = enemy.damage ? enemy.damage(damage * ticks) : false;
       if(killed){
         handleEnemyDeath(enemy, room);
       } else if(typeof enemy.damageFlashTimer === 'number'){
@@ -19066,11 +19182,12 @@
   function updateRunClock(dt, options={}){
     const timer = runtime.runTimer;
     if(!timer) return;
-    const pausedByStop = !!options.timeStop;
-    timer.setPauseSource('timeStop', pausedByStop);
+    // Time-stop excludes its actual duration, including a frame crossing its end.
+    timer.setPauseSource('timeStop', false);
+    const activeDt = Math.max(0, dt - Math.min(dt, Math.max(0, options.timeStopDuration || 0)));
     const scale = player?.getWorldTimeScale ? player.getWorldTimeScale() : 1;
     timer.setScaleSource('player', Number.isFinite(scale) ? scale : 1);
-    timer.tick(dt);
+    timer.tick(activeDt);
   }
   function addScreenShake(power=4, duration=0.3){
     if(!runtime.screenShake) resetScreenShake();
@@ -19118,7 +19235,8 @@
     runtime.floor = currentFloor;
     dungeon = new Dungeon();
     player = new Player(CONFIG.roomW/2, CONFIG.roomH/2);
-    keys.clear();
+    releaseAllInput();
+    simulationAccumulator = 0;
     dungeon.current.visited=true;
     dungeon.revealRoom(dungeon.current);
     const initialEnemies = dungeon.current.spawnEnemies(dungeon.depth);
@@ -19711,13 +19829,26 @@
   }
 
   // ======= 主循环 =======
+  const SIMULATION_STEP = 1/120;
+  let simulationAccumulator = 0;
   let lastTime = performance.now();
   function loop(now){
     requestAnimationFrame(loop);
-    const dt = Math.min(0.033, (now - lastTime) / 1000);
-    if(state===STATE.PLAY){ update(dt); }
-    draw();
-    if(state===STATE.PLAY) lastTime = now; // 暂停时不要推进时间
+    const frameDt = Math.max(0, (now - lastTime) / 1000);
+    lastTime = now;
+    if(state===STATE.PLAY){
+      // The run clock uses real active time; simulation catch-up is bounded after stalls.
+      updateRunClock(frameDt, {timeStopDuration: runtime.timeStopTimer});
+      simulationAccumulator += Math.min(0.25, frameDt);
+      while(simulationAccumulator + 1e-9 >= SIMULATION_STEP && state===STATE.PLAY){
+        simulationAccumulator = Math.max(0, simulationAccumulator - SIMULATION_STEP);
+        update(SIMULATION_STEP);
+      }
+      renderHUD();
+    } else {
+      simulationAccumulator = 0;
+    }
+    if(dungeon?.current && player) draw();
   }
   requestAnimationFrame(loop);
 
@@ -19735,7 +19866,6 @@
         runtime.timeStopDuration = 0;
       }
     }
-    updateRunClock(dt, {timeStop: timeStopActive});
     if(runtime.roomEntryLock>0){
       runtime.roomEntryLock = Math.max(0, runtime.roomEntryLock - dt);
     }
@@ -19979,19 +20109,27 @@
 
     updateEffects(worldDt);
 
-    // 更新 HUD
-    renderHUD();
+    // HUD is refreshed once per rendered frame, outside fixed simulation steps.
     runtime.bossIntroTimer = Math.max(0, runtime.bossIntroTimer - dt);
     runtime.itemPickupTimer = Math.max(0, runtime.itemPickupTimer - dt / PICKUP_BANNER_TIME_SCALE);
     if(runtime.itemPickupTimer<=0){ runtime.itemPickupName=''; runtime.itemPickupDesc=''; }
   }
 
+  const hudMarkup = new WeakMap();
+  function setHUDMarkup(node, markup){
+    if(hudMarkup.get(node) === markup) return;
+    node.innerHTML = markup;
+    hudMarkup.set(node, markup);
+  }
   function renderHUD(){
     const redHearts = '❤'.repeat(Math.max(0,player.hp));
     const emptyHearts = '·'.repeat(Math.max(0, player.maxHp - player.hp));
     const soulDisplay = player.soulHearts>0 ? `<span class="kbd" style="color:#60a5fa">💙 ${player.soulHearts}</span>` : '';
     const runClock = runtime.runTimer ? runtime.runTimer.format() : '00:00.00';
-    HUDL.innerHTML = `生命：<span style="letter-spacing:1px">${redHearts}${emptyHearts}</span>${soulDisplay}<span class="kbd">💣 ${player.bombs}</span><span class="kbd">🔑 ${player.keys}</span><span class="kbd">🪙 ${player.coins}</span><span class="kbd">⏱ ${runClock}</span>`;
+    setHUDMarkup(HUDL, `生命：<span style="letter-spacing:1px">${redHearts}${emptyHearts}</span>${soulDisplay}<span class="kbd">💣 ${player.bombs}</span><span class="kbd">🔑 ${player.keys}</span><span class="kbd">🪙 ${player.coins}</span><span class="kbd">⏱ <span id="run-clock"></span></span>`);
+    const clockNode = document.getElementById('run-clock');
+    const clockText = runClock.slice(0,-1);
+    if(clockNode && clockNode.textContent!==clockText) clockNode.textContent = clockText;
     const attackRate = typeof player.getAttackRatePerSecond === 'function'
       ? player.getAttackRatePerSecond()
       : (player.fireInterval>0 ? 1000/player.fireInterval : 0);
@@ -20008,7 +20146,7 @@
       {label:'射程', value: range},
       {label:'交换门', value: `${Math.round(getExchangePortalChance()*100)}%`}
     ];
-    HUDS.innerHTML = statItems.map(({label,value,unit})=>`<span>${label}：<strong>${value}</strong>${unit?`<small>${unit}</small>`:''}</span>`).join('');
+    setHUDMarkup(HUDS, statItems.map(({label,value,unit})=>`<span>${label}：<strong>${value}</strong>${unit?`<small>${unit}</small>`:''}</span>`).join(''));
     const itemsText = player.items.length ? player.items.map(name => {
       const count = Math.max(1, Number(player.itemNameStacks?.[name]) || 1);
       return `${name} ×${count}`;
@@ -20027,9 +20165,9 @@
     const singleUseReady = !!(singleUseItem && typeof singleUseItem.use === 'function');
     const singleUseBadge = singleUseReady ? `<span class="kbd" style="color:var(--accent)">Q 就绪</span>` : `<span class="kbd">Q --</span>`;
     if(dungeon.current.isBoss && dungeon.current.bossEntity && !dungeon.current.bossEntity.dead){
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel}${cycleText} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`;
+      setHUDMarkup(HUDR, `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel}${cycleText} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`);
     } else {
-      HUDR.innerHTML = `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel}${cycleText} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`;
+      setHUDMarkup(HUDR, `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel}${cycleText} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`);
     }
     if(cheatPanelNode?.classList.contains('show')){ syncCheatPanel(); }
   }
