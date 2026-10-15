@@ -95,6 +95,9 @@
     .codex-header{cursor:pointer}
     .codex-filter{display:block;margin:12px 0}
     .codex-grid{max-height:65vh;overflow-y:auto}
+    .room-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px}
+    .room-key{padding:12px 18px;margin-top:14px}
+    .room-key summary{cursor:pointer}
     .audio-settings{margin-top:14px;padding:12px 18px}
     .audio-settings summary{cursor:pointer}
     .audio-settings label{display:inline-flex;align-items:center;gap:8px;margin:12px 16px 0 0}
@@ -210,7 +213,11 @@
       <label class="codex-filter">显示 <select id="codex-filter"><option value="all">全部道具</option><option value="unlocked">已解锁</option><option value="locked">未解锁</option></select></label>
       <div id="codex-grid" class="codex-grid" aria-live="polite"></div>
     </details>
-    <details class="panel audio-settings">
+    <details class="panel room-key">
+      <summary>房型颜色</summary>
+      <div class="room-legend"><span style="color:#69ced7">■ 起始</span><span style="color:#91a9b8">■ 战斗</span><span style="color:#ee687c">■ 首领</span><span style="color:#f1ce71">■ 宝物</span><span style="color:#80d49a">■ 商店</span><span style="color:#b995ed">■ 隐藏</span><span style="color:#f2a15b">■ 尖刺</span><span style="color:#ed8ac4">■ 献祭</span><span style="color:#789afa">■ 虚空</span></div>
+    </details>
+    <details class="panel audio-settings sound-settings">
       <summary>声音设置</summary>
       <label><input id="audio-muted" type="checkbox"> 静音</label>
       <label>音量 <input id="audio-volume" type="range" min="0" max="100" value="80"></label>
@@ -3928,6 +3935,298 @@
     overlayManager.setActive('over');
   }
 
+  const ROOM_STYLES={
+    start:{name:'起始室',color:'#69ced7',floor:['#1c3038','#101c25']},
+    combat:{name:'战斗室',color:'#91a9b8',floor:['#27313a','#151b24']},
+    boss:{name:'首领室',color:'#ee687c',floor:['#3a202e','#1d111d']},
+    item:{name:'宝物室',color:'#f1ce71',floor:['#3d3421','#211b15']},
+    shop:{name:'商店',color:'#80d49a',floor:['#213a2d','#12241e']},
+    secret:{name:'隐藏室',color:'#b995ed',floor:['#302a43','#181626']},
+    spike:{name:'尖刺试炼',color:'#f2a15b',floor:['#3d2a22','#251713']},
+    exchange:{name:'献祭室',color:'#ed8ac4',floor:['#3c2539','#211321']},
+    void:{name:'虚空室',color:'#789afa',floor:['#202a4b','#0e152c']}
+  };
+  const ROOM_LAYOUTS=[
+    {name:'宽厅',vertices:[[32,56],[768,56],[768,544],[32,544]]},
+    {name:'横廊',vertices:[[30,132],[770,132],[770,468],[30,468]]},
+    {name:'纵厅',vertices:[[164,30],[636,30],[636,570],[164,570]]},
+    {name:'方室',vertices:[[144,44],[656,44],[656,556],[144,556]]},
+    {name:'梯形厅',vertices:[[120,50],[680,50],[762,550],[38,550]]},
+    {name:'倒梯厅',vertices:[[38,50],[762,50],[680,550],[120,550]]}
+  ];
+  function roomRole(room){
+    return room.isExchangeRoom ? 'exchange' : room.isBoss ? 'boss'
+      : room.isItemRoom ? 'item' : room.isShop ? 'shop' : room.isSecretRoom ? 'secret'
+      : room.isSpikeRoom ? 'spike' : room.sceneVariant==='void' ? 'void' : room.isSafeRoom ? 'start' : 'combat';
+  }
+  function getRoomProfile(room=dungeon?.current){
+    if(!room) return null;
+    const role=roomRole(room);
+    if(room.profile?.role===role) return room.profile;
+    if(room.layoutSeed===undefined){
+      const seed=new Uint32Array(1);
+      if(globalThis.crypto?.getRandomValues)crypto.getRandomValues(seed);
+      else seed[0]=(Date.now()+(room.i || 0)*7919+(room.j || 0)*104729)>>>0;
+      room.layoutSeed=seed[0];
+    }
+    const index=room.isBoss ? (room.layoutSeed%2 ? 0 : 4) : room.layoutSeed%ROOM_LAYOUTS.length;
+    const layout=ROOM_LAYOUTS[index];
+    const vertices=layout.vertices.map(([x,y])=>({x,y}));
+    const edges=vertices.map((a,i)=>{
+      const b=vertices[(i+1)%4],dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy);
+      return {a,b,nx:-dy/len,ny:dx/len};
+    });
+    const surface=role==='shop' || role==='item' ? {name:'磨石',traction:1.08,speed:1}
+      : room.layoutSeed%3===0 ? {name:'潮石',traction:.82,speed:.97}
+      : room.layoutSeed%3===1 ? {name:'浮土',traction:.94,speed:.94}
+      : {name:'石板',traction:1,speed:1};
+    room.profile={role,style:ROOM_STYLES[role],shape:layout.name,vertices,edges,surface,key:role+':'+index};
+    return room.profile;
+  }
+  function traceRoomPath(context,room=dungeon?.current){
+    const profile=getRoomProfile(room);if(!profile)return;
+    context.beginPath();profile.vertices.forEach((v,i)=>i ? context.lineTo(v.x,v.y) : context.moveTo(v.x,v.y));context.closePath();
+  }
+  function roomContainsPoint(x,y,margin=0,room=dungeon?.current){
+    const profile=getRoomProfile(room);if(!profile)return true;
+    return profile.edges.every(e=>(x-e.a.x)*e.nx+(y-e.a.y)*e.ny>=margin-.01);
+  }
+  function projectRoomPoint(x,y,margin=18,room=dungeon?.current){
+    const p={x,y};const profile=getRoomProfile(room);if(!profile)return p;
+    for(let pass=0;pass<4;pass++)for(const e of profile.edges){
+      const d=(p.x-e.a.x)*e.nx+(p.y-e.a.y)*e.ny;
+      if(d<margin){p.x+=e.nx*(margin-d);p.y+=e.ny*(margin-d);}
+    }
+    return p;
+  }
+  function rectInsideRoom(rect,room,margin=8){
+    return [[rect.x,rect.y],[rect.x+rect.w,rect.y],[rect.x+rect.w,rect.y+rect.h],[rect.x,rect.y+rect.h]]
+      .every(([x,y])=>roomContainsPoint(x,y,margin,room));
+  }
+  function applyWallResponse(actor,nx,ny){
+    const tick=runtime.physicsTick || 0,key=Math.round(nx*10)+','+Math.round(ny*10);
+    if(actor.wallTick!==tick){actor.wallTick=tick;actor.wallNormals=new Set();}
+    const repeated=actor.wallNormals.has(key);actor.wallNormals.add(key);
+    const fields=actor===player ? [[actor.vel,'x','y'],[actor.knockVel,'x','y']]
+      : [[actor,'bodyVx','bodyVy'],[actor,'hitKnockVx','hitKnockVy'],[actor,'contactVx','contactVy']];
+    for(const [object,x,y] of fields){
+      if(!object)continue;
+      let vx=object[x] || 0,vy=object[y] || 0;
+      const dot=vx*nx+vy*ny;
+      if(dot<0){vx-=dot*nx;vy-=dot*ny;}
+      const drag=repeated ? 1 : Math.exp(-1/120*(2+Math.min(3,Math.abs(dot)/80)));
+      object[x]=vx*drag;object[y]=vy*drag;
+    }
+    actor.wallTouch=.12;
+    if(actor.brain?.lunge>0){actor.brain.lunge=0;actor.brain.recover=.5;}
+  }
+  function constrainToRoom(actor,room=dungeon?.current,respond=true){
+    const profile=getRoomProfile(room);if(!profile)return;
+    const margin=(actor.r || 0)+4;
+    for(let pass=0;pass<3;pass++)for(const e of profile.edges){
+      const d=(actor.x-e.a.x)*e.nx+(actor.y-e.a.y)*e.ny;
+      if(d<margin){actor.x+=e.nx*(margin-d);actor.y+=e.ny*(margin-d);if(respond)applyWallResponse(actor,e.nx,e.ny);}
+    }
+  }
+  function constrainRoomProp(prop){
+    const profile=getRoomProfile();if(!profile)return;
+    for(const e of profile.edges){
+      const d=(prop.x-e.a.x)*e.nx+(prop.y-e.a.y)*e.ny;
+      if(d<(prop.r || 10)+5){
+        const dot=(prop.vx || 0)*e.nx+(prop.vy || 0)*e.ny;
+        if(dot<0){prop.vx-=dot*e.nx*1.25;prop.vy-=dot*e.ny*1.25;}
+      }
+    }
+    const point=projectRoomPoint(prop.x,prop.y,(prop.r || 10)+6);prop.x=point.x;prop.y=point.y;
+  }
+  function prepareRoomLayout(room){
+    const profile=getRoomProfile(room);if(!profile)return;
+    if(room.layoutPrepared!==profile.key || room.layoutObstacleCount!==(room.obstacles || []).length || room.layoutOpenState!==room.cleared){
+      room.layoutPrepared=profile.key;
+      room.obstacles=(room.obstacles || []).filter(o=>rectInsideRoom(o,room,10) && (!room.cleared || o.solid===false || !room.collidesDoorCorridor || !room.collidesDoorCorridor(o)));
+      room.layoutOpenState=room.cleared;
+      room.layoutObstacleCount=room.obstacles.length;
+      for(const e of room.enemies || [])constrainToRoom(e,room,false);
+    }
+    for(const p of room.pickups || []){
+      const point=projectRoomPoint(p.x,p.y,(p.r || 12)+8,room);p.x=point.x;p.y=point.y;
+    }
+    for(const portal of [room.portal,...(room.extraPortals || [])]){
+      if(!portal)continue;
+      const point=projectRoomPoint(portal.x,portal.y,(portal.r || 28)+8,room);portal.x=point.x;portal.y=point.y;
+    }
+  }
+  function placePlayerAtEntrance(room,direction){
+    const door=computeDoorRectForRoom(oppositeDir(direction),room);
+    const p=direction==='center' || !direction ? {x:400,y:300} : {x:door.cx+door.nx*48,y:door.cy+door.ny*48};
+    player.x=p.x;player.y=p.y;constrainToRoom(player,room,false);
+    player.vel.x=0;player.vel.y=0;player.knockVel.x=0;player.knockVel.y=0;player.knockTimer=0;
+    player.groundSpeed=0;
+  }
+
+  function enemyBrain(enemy){
+    if(enemy.brain)return enemy.brain;
+    const phase=((enemy.x*17+enemy.y*31+(enemy.r || 12)*13)%997)/997*Math.PI*2;
+    const type=enemy.archetype || enemy.constructor.name.replace('Enemy','').toLowerCase();
+    const ranged=['bomber','elderfly','sentry','spark','cutpurse','brood'].includes(type);
+    enemy.brain={type,phase,time:0,side:Math.sin(phase)>=0 ? 1 : -1,ranged,
+      think:0,intentX:0,intentY:0,action:0,cooldown:1+phase*.2,dodge:0,dodgeCooldown:1,
+      tactic:null,tacticCooldown:3+phase*.2,sequence:0,recover:0,lunge:0};
+    return enemy.brain;
+  }
+  function navigationTarget(enemy,target){
+    target=projectRoomPoint(target.x,target.y,(enemy.r || 12)+14);
+    if(enemy.flying)return target;
+    const blockers=dungeon.current.obstacles.filter(o=>!o.destroyed && o.solid!==false);
+    const radius=(enemy.r || 12)+8;
+    const blocked=blockers.find(o=>segmentRectOverlap(enemy.x,enemy.y,target.x,target.y,o,radius));
+    if(!blocked)return target;
+    const b=enemyBrain(enemy),pad=radius+10;
+    const corners=[{x:blocked.x-pad,y:blocked.y-pad},{x:blocked.x+blocked.w+pad,y:blocked.y-pad},
+      {x:blocked.x-pad,y:blocked.y+blocked.h+pad},{x:blocked.x+blocked.w+pad,y:blocked.y+blocked.h+pad}];
+    const choices=corners.filter(p=>roomContainsPoint(p.x,p.y,radius) && !blockers.some(o=>segmentRectOverlap(enemy.x,enemy.y,p.x,p.y,o,Math.max(0,(enemy.r || 12)-2))));
+    choices.sort((a,c)=>(dist(a,enemy)+dist(a,target))-(dist(c,enemy)+dist(c,target)));
+    if(choices.length){b.waypoint=choices[0];return choices[0];}
+    // Keep a chosen side briefly rather than alternating at an obstacle corner.
+    return {x:enemy.x+(target.y-enemy.y)*b.side,y:enemy.y-(target.x-enemy.x)*b.side};
+  }
+  function updateEnemyIntent(enemy,dt){
+    const b=enemyBrain(enemy);b.time+=dt;b.cooldown-=dt;b.dodgeCooldown-=dt;
+    if(enemy.isBossEntity)return updateBossIntent(enemy,dt);
+    if(isPhasedActor(enemy) || ['dash','charge','emerge','fuse'].includes(enemy.state) || enemy.fuse>0)return null;
+    b.think-=dt;
+    if(b.action>0){
+      b.action=Math.max(0,b.action-dt);
+      if(b.action<=0){b.lunge=.2;b.lungeX=b.aimX;b.lungeY=b.aimY;}
+      return {x:0,y:0};
+    }
+    if(b.lunge>0){b.lunge=Math.max(0,b.lunge-dt);return {x:b.lungeX*enemy.speed*1.6,y:b.lungeY*enemy.speed*1.6};}
+    if(b.dodge>0){b.dodge=Math.max(0,b.dodge-dt);return {x:b.dodgeX,y:b.dodgeY};}
+    if(b.think>0)return {x:b.intentX,y:b.intentY};
+    b.think=.1+(Math.sin(b.phase)+1)*.025;
+    const lead=b.ranged ? .26 : .14;
+    const target=projectRoomPoint(player.x+(player.lastVelocity?.x || 0)*lead,player.y+(player.lastVelocity?.y || 0)*lead,28);
+    let dx=target.x-enemy.x,dy=target.y-enemy.y;const distance=Math.hypot(dx,dy) || 1;
+    const nx=dx/distance,ny=dy/distance;
+    const range=b.ranged ? (b.type==='sentry' ? 230 : 190) : b.type==='tinyfly' ? 46 : b.type==='orbiter' ? 110 : 0;
+    let forward=b.ranged || b.type==='orbiter' ? clamp((distance-range)/70,-.85,1) : 1;
+    let strafe=(b.ranged ? .65 : .22)*b.side*(.7+.3*Math.sin(b.time*1.7+b.phase));
+    if(b.type==='tinyfly')strafe=.65*Math.sin(b.time*2.1+b.phase);
+    let vx=nx*forward-ny*strafe,vy=ny*forward+nx*strafe;
+    if(['chaser','dashling','volatile'].includes(b.type) && b.cooldown<=0 && distance>70 && distance<205){
+      b.action=.28;b.aimX=nx;b.aimY=ny;b.cooldown=2.7+(1+Math.sin(b.phase))*.4;
+      return {x:0,y:0};
+    }
+    if(b.ranged && b.dodgeCooldown<=0){
+      const threat=runtime.bullets.find(p=>{
+        const dx=enemy.x-p.x,dy=enemy.y-p.y,speed=Math.hypot(p.vx,p.vy) || 1;
+        return dx*dx+dy*dy<160*160 && (dx*p.vx+dy*p.vy)>0 && Math.abs(dx*p.vy-dy*p.vx)/speed<(enemy.r || 12)+14;
+      });
+      if(threat){b.dodge=.18;b.dodgeCooldown=2.4;b.dodgeX=-ny*b.side*105;b.dodgeY=nx*b.side*105;return {x:b.dodgeX,y:b.dodgeY};}
+    }
+    const waypoint=navigationTarget(enemy,{x:enemy.x+vx*140,y:enemy.y+vy*140});
+    dx=waypoint.x-enemy.x;dy=waypoint.y-enemy.y;const len=Math.hypot(dx,dy) || 1;
+    vx=dx/len;vy=dy/len;
+    // Local crowd steering avoids the repeated overlap / reverse-impulse loop.
+    for(const other of dungeon.current.enemies){
+      if(other===enemy || other.dead)continue;
+      const ox=enemy.x-other.x,oy=enemy.y-other.y,d=Math.hypot(ox,oy),reach=(enemy.r || 12)+(other.r || 12)+26;
+      if(d>1 && d<reach){vx+=ox/d*(1-d/reach)*1.8;vy+=oy/d*(1-d/reach)*1.8;}
+    }
+    const norm=Math.max(1,Math.hypot(vx,vy));
+    const pace=(enemy.speed || (b.type==='sentry' ? 26 : 55))*getEnemyGlobalSpeedMultiplier();
+    b.intentX=vx/norm*pace;b.intentY=vy/norm*pace;
+    return {x:b.intentX,y:b.intentY};
+  }
+  const BOSS_PERSONALITIES={
+    idol:{range:145,speed:53,patterns:['fan','dash']},
+    master:{range:125,speed:68,patterns:['dash','ring']},
+    hydra:{range:220,speed:46,patterns:['spiral','fan']},
+    seer:{range:245,speed:43,patterns:['sigil','fan']},
+    titan:{range:150,speed:40,patterns:['dash','ring']},
+    umbra:{range:185,speed:72,patterns:['fan','sigil']},
+    paradox:{range:210,speed:58,patterns:['spiral','sigil']}
+  };
+  function updateBossIntent(enemy,dt){
+    const b=enemyBrain(enemy),id=enemy.bossArchetype || 'idol',personality=BOSS_PERSONALITIES[id];
+    b.recover=Math.max(0,b.recover-dt);b.tacticCooldown-=dt;
+    const health=enemy.hp/Math.max(1,enemy.maxHp),stage=health<.3 ? 2 : health<.65 ? 1 : 0;
+    b.stage=stage;
+    if(b.tactic){
+      // A committed attack advertises its target; it cannot track the player at release.
+      for(const field of ['attackTimer','attackCooldown','teleportTimer'])if(typeof enemy[field]==='number')enemy[field]=Math.max(enemy[field],b.tactic.remaining+.5);
+      b.tactic.remaining-=dt;
+      if(b.tactic.remaining<=0){releaseBossTactic(enemy,b.tactic);b.tactic=null;b.recover=.55;}
+      return {x:0,y:0};
+    }
+    if(b.lunge>0){
+      b.lunge=Math.max(0,b.lunge-dt);
+      for(const field of ['attackTimer','attackCooldown','teleportTimer'])if(typeof enemy[field]==='number')enemy[field]=Math.max(enemy[field],.65);
+      return {x:b.lungeX,y:b.lungeY,scripted:true};
+    }
+    if(!['idle','recover','stalk','orbit','glide','float'].includes(enemy.state))return null;
+    if(b.tacticCooldown<=0 && b.recover<=0 && !(enemy.telegraphTimer>0)){
+      const kind=personality.patterns[(b.sequence++)%personality.patterns.length];
+      const target=projectRoomPoint(player.x+(player.lastVelocity?.x || 0)*.22,player.y+(player.lastVelocity?.y || 0)*.22,50);
+      const angle=Math.atan2(target.y-enemy.y,target.x-enemy.x),total=kind==='sigil' ? 1.0 : kind==='dash' ? .8 : .72;
+      b.tactic={kind,target,angle,total,remaining:total,stage};b.tacticCooldown=5.2-stage*.6;
+      for(const field of ['attackTimer','attackCooldown','teleportTimer'])if(typeof enemy[field]==='number')enemy[field]=Math.max(enemy[field],total+.5);
+      return {x:0,y:0};
+    }
+    const dx=player.x-enemy.x,dy=player.y-enemy.y,d=Math.hypot(dx,dy) || 1;
+    const radial=clamp((d-personality.range)/100,-.7,.8),orbit=b.side*(.5+.18*Math.sin(b.time+b.phase));
+    const pace=personality.speed*(1+stage*.12)*(b.recover>0 ? .35 : 1);
+    const target=navigationTarget(enemy,{x:enemy.x+(dx/d*radial-dy/d*orbit)*130,y:enemy.y+(dy/d*radial+dx/d*orbit)*130});
+    const vx=target.x-enemy.x,vy=target.y-enemy.y,len=Math.max(1,Math.hypot(vx,vy));
+    return {x:vx/len*pace,y:vy/len*pace};
+  }
+  function releaseBossTactic(enemy,plan){
+    const b=enemyBrain(enemy),{kind,angle,stage}=plan;
+    if(kind==='dash'){
+      b.lunge=.34;b.lungeX=Math.cos(angle)*(300+stage*35);b.lungeY=Math.sin(angle)*(300+stage*35);
+      emitRoomDust(enemy.x,enemy.y,-b.lungeX*.2,-b.lungeY*.2,8);return;
+    }
+    if(kind==='sigil'){
+      const target=plan.target;
+      spawnCircularEffect(target.x,target.y,46,{duration:.45,innerColor:'#f0d4ff',midColor:'#b084df',outerColor:'#6e52a3'});
+      if(Math.hypot(player.x-target.x,player.y-target.y)<42+player.r){player.hurt(1,{cause:'sigil'});addBodyImpulse(player,(player.x-target.x)*2,(player.y-target.y)*2);}
+      emitRoomDust(target.x,target.y,0,0,12,'#aa8cc4');return;
+    }
+    const count=kind==='fan' ? 5+stage*2 : 12+stage*2;
+    for(let i=0;i<count && runtime.enemyProjectiles.length<90;i++){
+      let direction;
+      if(kind==='fan')direction=angle+(i-(count-1)/2)*.19;
+      else{
+        direction=angle+i*Math.PI*2/count+(b.sequence%2)*.15;
+        // A visible open sector prevents unavoidable close-range rings.
+        const gap=Math.atan2(Math.sin(direction-angle),Math.cos(direction-angle));
+        if(Math.abs(gap)<.4)continue;
+      }
+      const speed=(kind==='spiral' ? 140 : 165)+stage*18;
+      const shot=new EnemyProjectile(enemy.x,enemy.y,Math.cos(direction)*speed,Math.sin(direction)*speed,4,'tear');
+      if(kind==='spiral'){shot.curve=b.side*.24;shot.curveTime=1.6;}
+      runtime.enemyProjectiles.push(shot);
+    }
+  }
+  function drawEnemyIntent(enemy){
+    const b=enemy.brain;if(!b)return;
+    const plan=b.tactic;
+    if(!(b.action>0) && !plan)return;
+    ctx.save();ctx.lineWidth=1.5;ctx.strokeStyle=enemy.isBossEntity ? '#f0a0d5' : '#f6c68c';
+    if(plan?.kind==='sigil'){
+      const p=plan.target,progress=1-plan.remaining/plan.total;
+      ctx.globalAlpha=.17+progress*.3;ctx.fillStyle='#b491d8';ctx.beginPath();ctx.arc(p.x,p.y,46,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=.7;ctx.beginPath();ctx.arc(p.x,p.y,46,0,Math.PI*2);ctx.stroke();
+      ctx.beginPath();ctx.arc(p.x,p.y,46*progress,0,Math.PI*2);ctx.stroke();
+    }else{
+      const angle=plan?.angle ?? Math.atan2(b.aimY,b.aimX),length=plan?.kind==='dash' ? 150 : 80;
+      ctx.globalAlpha=.5;ctx.setLineDash([5,5]);ctx.beginPath();ctx.moveTo(enemy.x,enemy.y);
+      ctx.lineTo(enemy.x+Math.cos(angle)*length,enemy.y+Math.sin(angle)*length);ctx.stroke();
+      ctx.setLineDash([]);ctx.globalAlpha=.4;ctx.beginPath();ctx.arc(enemy.x,enemy.y,(enemy.r || 12)+7,0,Math.PI*2);ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // Shared body motion: AI chooses direction; inertia and impacts move the body once.
   function actorMass(actor){
     if(actor===player) return 1;
@@ -3938,20 +4237,11 @@
       || actor.state==='warp-out' || actor.state==='warp-in';
   }
   function constrainActor(actor){
-    const inset = Math.max(actor===player ? 30 : 24, (actor.r || 12) + 14);
-    const oldX=actor.x, oldY=actor.y;
-    actor.x=clamp(actor.x,inset,CONFIG.roomW-inset);
-    actor.y=clamp(actor.y,inset,CONFIG.roomH-inset);
+    const oldX=actor.x,oldY=actor.y;
+    constrainToRoom(actor);
     resolveEntityObstacles(actor);
+    constrainToRoom(actor);
     if(actor!==player && actor.base){actor.base.x+=actor.x-oldX;actor.base.y+=actor.y-oldY;}
-    if(Math.abs(actor.x-oldX)>0.01){
-      if(actor===player){ actor.vel.x=0; actor.knockVel.x=0; }
-      else { actor.bodyVx=0; actor.hitKnockVx=0; actor.contactVx=0; }
-    }
-    if(Math.abs(actor.y-oldY)>0.01){
-      if(actor===player){ actor.vel.y=0; actor.knockVel.y=0; }
-      else { actor.bodyVy=0; actor.hitKnockVy=0; actor.contactVy=0; }
-    }
   }
   function moveBody(actor, dx, dy){
     actor.x+=dx; actor.y+=dy;
@@ -3973,34 +4263,42 @@
     }
     enemy.knock=0; enemy.knockVx=0; enemy.knockVy=0;
     const wasKnocked=enemy.hitKnockTimer>0;
+    const intent=updateEnemyIntent(enemy,dt);
+    enemy.wallTouch=Math.max(0,(enemy.wallTouch || 0)-dt);
+    if(intent && enemy.base && enemy.range){const angle=enemy.t ?? enemy.theta ?? 0;enemy.base.x=enemy.x-Math.cos(angle)*enemy.range;enemy.base.y=enemy.y-Math.sin(angle)*enemy.range;}
     enemy._motionStep=true;
     try { enemy.update(dt); } finally { enemy._motionStep=false; }
     const dx=enemy.x-x, dy=enemy.y-y;
-    const scripted=enemy.isBossEntity || !!enemy.base || isPhasedActor(enemy)
-      || ['dash','charge','leap','emerge','reappear'].includes(enemy.state)
+    const scripted=(!intent && (enemy.isBossEntity || !!enemy.base)) || isPhasedActor(enemy)
+      || ['dash','charge','leap','jumping','emerge','reappear'].includes(enemy.state) || intent?.scripted
       || Math.hypot(dx,dy)>Math.max(40,(enemy.speed || 100)*dt*5);
     if(Math.hypot(dx,dy)>40){enemy.previousX=enemy.x;enemy.previousY=enemy.y;}
     if(!scripted){
-      const targetX=wasKnocked ? 0 : dx/dt;
-      const targetY=wasKnocked ? 0 : dy/dt;
+      const surface=getRoomProfile().surface;
+      const slow=wasKnocked ? .3 : 1;
+      const targetX=(intent ? intent.x : dx/dt)*slow*surface.speed;
+      const targetY=(intent ? intent.y : dy/dt)*slow*surface.speed;
       const moving=Math.hypot(targetX,targetY)>1;
-      const blend=1-Math.exp(-dt/(moving ? 0.095 : 0.16));
+      const blend=1-Math.exp(-dt*surface.traction/(moving ? .09 : .075));
       enemy.bodyVx=(enemy.bodyVx || 0)+(targetX-(enemy.bodyVx || 0))*blend;
       enemy.bodyVy=(enemy.bodyVy || 0)+(targetY-(enemy.bodyVy || 0))*blend;
       enemy.x=x+enemy.bodyVx*dt;
       enemy.y=y+enemy.bodyVy*dt;
     } else {
-      enemy.bodyVx=dx/dt; enemy.bodyVy=dy/dt;
+      if(intent?.scripted){enemy.x=x+intent.x*dt;enemy.y=y+intent.y*dt;}
+      enemy.bodyVx=(enemy.x-x)/dt; enemy.bodyVy=(enemy.y-y)/dt;
     }
     if(!isPhasedActor(enemy)){
       resolveEnemyKnockback(enemy,dt);
       moveBody(enemy,(enemy.contactVx || 0)*dt,(enemy.contactVy || 0)*dt);
     }
-    enemy.contactVx=(enemy.contactVx || 0)*Math.exp(-dt*9);
-    enemy.contactVy=(enemy.contactVy || 0)*Math.exp(-dt*9);
+    enemy.contactVx=(enemy.contactVx || 0)*Math.exp(-dt*15);
+    enemy.contactVy=(enemy.contactVy || 0)*Math.exp(-dt*15);
     constrainActor(enemy);
     enemy.motionVx=(enemy.x-x)/dt;
     enemy.motionVy=(enemy.y-y)/dt;
+    enemy.groundSpeed=Math.hypot(enemy.motionVx,enemy.motionVy);
+    enemy.gaitPhase=(enemy.gaitPhase || 0)+enemy.groundSpeed*dt*.12;
     enemy.stepDustTimer=Math.max(0,(enemy.stepDustTimer || 0)-dt);
     if(!enemy.flying && !isPhasedActor(enemy) && Math.hypot(enemy.motionVx,enemy.motionVy)>25 && enemy.stepDustTimer===0){
       emitRoomDust(enemy.x,enemy.y+(enemy.r || 12)*0.6,-enemy.motionVx*0.12,-enemy.motionVy*0.12,2);
@@ -4012,7 +4310,7 @@
     if(actor===player){
       actor.knockVel.x=clamp(actor.knockVel.x+vx,-320,320);
       actor.knockVel.y=clamp(actor.knockVel.y+vy,-320,320);
-      actor.knockTimer=Math.max(actor.knockTimer,0.2);
+      actor.knockTimer=Math.max(actor.knockTimer,0.14);
     } else {
       // Contact momentum must not reset hit stun on every touching frame.
       actor.contactVx=clamp((actor.contactVx || 0)+vx,-320,320);
@@ -4033,7 +4331,7 @@
         const nx=distance>0.001 ? dx/distance : 1;
         const ny=distance>0.001 ? dy/distance : 0;
         const invA=1/actorMass(a), invB=1/actorMass(b), total=invA+invB;
-        const separation=Math.max(0,radius-distance-0.05)*0.85;
+        const separation=Math.max(0,radius-distance-0.15)*0.65;
         moveBody(a,-nx*separation*invA/total,-ny*separation*invA/total);
         moveBody(b,nx*separation*invB/total,ny*separation*invB/total);
         if(pass===0){
@@ -4041,7 +4339,7 @@
           const avy=a===player ? a.vel.y+a.knockVel.y : (a.motionVy || 0);
           const bvx=(b.motionVx || 0), bvy=(b.motionVy || 0);
           const closing=Math.min(0,(bvx-avx)*nx+(bvy-avy)*ny);
-          const impulse=-closing*1.05/total;
+          const impulse=closing < -1.5 ? -closing*.72/total : 0;
           addBodyImpulse(a,-nx*impulse*invA,-ny*impulse*invA);
           addBodyImpulse(b,nx*impulse*invB,ny*impulse*invB);
           // Damage immunity does not disable physical contact or momentum transfer.
@@ -4072,7 +4370,7 @@
     let vx=projectile.vx || 0, vy=projectile.vy || 0;
     if(Math.hypot(vx,vy)<1){vx=target.x-projectile.x;vy=target.y-projectile.y;}
     const speed=Math.hypot(vx,vy) || 1;
-    addBodyImpulse(target,vx/speed*65,vy/speed*65);
+    addBodyImpulse(target,vx/speed*40,vy/speed*40);
     emitRoomDust(projectile.x,projectile.y,vx/speed*25,vy/speed*25,4,projectile.color || '#c6b49a');
   }
   function damageEnemyAtImpact(enemy, damage, vx, vy){
@@ -4083,7 +4381,7 @@
       // Replace the legacy "away from player" impulse with actual projectile momentum.
       enemy.hitKnockVx=oldKnock.x; enemy.hitKnockVy=oldKnock.y; enemy.hitKnockTimer=oldKnock.t;
       enemy.knock=0; enemy.knockVx=0; enemy.knockVy=0;
-      if(!killed) applyEnemyKnockback(enemy,vx,vy,{power:90+Math.min(12,damage)*18,duration:0.24,slowFactor:0.7,slowDuration:0.25,maxSpeed:300});
+      if(!killed) applyEnemyKnockback(enemy,vx,vy,{power:65+Math.min(10,damage)*12,duration:0.16,slowFactor:0.7,slowDuration:0.25,maxSpeed:300});
       const length=Math.hypot(vx,vy) || 1;
       emitRoomDust(enemy.x,enemy.y,vx/length*60,vy/length*60,5,'#c6b49a');
     }
@@ -4094,7 +4392,9 @@
   // a bounded population of purely decorative life. Its RNG never advances gameplay RNG.
   function getRoomAtmosphere(room=dungeon?.current){
     if(!room) return null;
-    if(room.atmosphere) return room.atmosphere;
+    const profile=getRoomProfile(room);
+    const visualKey=profile.key+':'+(room.sceneVariant || '');
+    if(room.atmosphere?.profileKey===visualKey) return room.atmosphere;
     const seed=new Uint32Array(1);
     if(globalThis.crypto?.getRandomValues) crypto.getRandomValues(seed);
     else seed[0]=(Date.now() ^ ((room.i || 0)*73856093) ^ ((room.j || 0)*19349663))>>>0;
@@ -4111,7 +4411,8 @@
     const texture=document.createElement('canvas');
     texture.width=CONFIG.roomW; texture.height=CONFIG.roomH;
     const c=texture.getContext('2d');
-    const colors={void:['#0d1723','#080b14'],blood:['#21171c','#100e16'],gold:['#25231f','#111419'],damp:['#19252a','#10171d'],dust:['#25231f','#11151b'],infested:['#20251e','#11161a']}[theme];
+    const colors=room.sceneVariant==='void' && profile.role==='boss' ? ROOM_STYLES.void.floor : profile.style.floor;
+    c.save();traceRoomPath(c,room);c.clip();
     const bg=c.createLinearGradient(0,0,0,CONFIG.roomH);
     bg.addColorStop(0,colors[0]); bg.addColorStop(1,colors[1]);
     c.fillStyle=bg; c.fillRect(0,0,CONFIG.roomW,CONFIG.roomH);
@@ -4153,8 +4454,9 @@
     const vignette=c.createRadialGradient(400,300,130,400,300,470);
     vignette.addColorStop(0,'#00000000');vignette.addColorStop(1,'#00000099');
     c.fillStyle=vignette;c.fillRect(0,0,800,600);
-    c.lineWidth=14;c.strokeStyle=theme==='blood' ? '#5a3544' : theme==='gold' ? '#514634' : '#303c3d';c.strokeRect(10,10,780,580);
-    c.lineWidth=1;c.strokeStyle='#bfcbb32b';c.strokeRect(19.5,19.5,761,561);
+    c.restore();
+    c.lineWidth=12;c.strokeStyle=profile.style.color;traceRoomPath(c,room);c.stroke();
+    c.lineWidth=2;c.strokeStyle='#ffffff25';traceRoomPath(c,room);c.stroke();
     const particles=Array.from({length:theme==='damp' ? 54 : 36},()=>({
       x:roll(26,774),y:roll(26,574),speed:roll(3,16),phase:roll(0,Math.PI*2),size:roll(.5,1.4),
       rain:theme==='damp' && random()<.6,glow:(theme==='gold' || theme==='void') && random()<.45
@@ -4163,7 +4465,7 @@
       x:roll(35,765),y:roll(40,560),angle:roll(0,Math.PI*2),phase:roll(0,Math.PI*2),
       type:i%3===0 ? 'fly' : i%3===1 ? 'ant' : 'larva',speed:roll(3,8),flee:0
     }));
-    room.atmosphere={texture,theme,random,particles,critters,time:0,dust:[],tracks:[],stepTimer:0};
+    room.atmosphere={texture,theme,random,particles,critters,time:0,dust:[],tracks:[],stepTimer:0,profileKey:visualKey};
     return room.atmosphere;
   }
   function emitRoomDust(x,y,vx=0,vy=0,count=3,color='#9e9176'){
@@ -4193,7 +4495,7 @@
       const speed=(b.type==='fly' ? 18 : b.speed)*(b.flee>0 ? 3 : 1);
       b.angle+=Math.sin(a.time*.7+b.phase)*dt*.8;
       b.x+=Math.cos(b.angle)*speed*dt;b.y+=Math.sin(b.angle)*speed*dt;
-      if(b.x<28 || b.x>772 || b.y<28 || b.y>572){b.angle+=Math.PI;b.x=clamp(b.x,28,772);b.y=clamp(b.y,28,572);}
+      if(!roomContainsPoint(b.x,b.y,9)){const p=projectRoomPoint(b.x,b.y,10);b.x=p.x;b.y=p.y;b.angle+=Math.PI*.7;}
     }
     for(const p of a.dust){
       p.x+=p.vx*dt;p.y+=p.vy*dt;
@@ -4212,7 +4514,7 @@
   }
   function drawRoomGroundLife(){
     const a=getRoomAtmosphere();if(!a)return;
-    ctx.save();
+    ctx.save();traceRoomPath(ctx);ctx.clip();
     for(const p of a.tracks){
       ctx.globalAlpha=p.life/4*.16;
       ctx.strokeStyle=p.wet ? '#a3cad0' : '#a8936b';ctx.lineWidth=1;
@@ -4236,7 +4538,7 @@
   }
   function drawRoomAir(){
     const a=getRoomAtmosphere();if(!a)return;
-    ctx.save();ctx.beginPath();ctx.rect(22,22,756,556);ctx.clip();
+    ctx.save();traceRoomPath(ctx);ctx.clip();
     for(const p of a.particles){
       ctx.globalAlpha=p.rain ? .12 : .1+.12*(.5+.5*Math.sin(a.time+p.phase));
       ctx.fillStyle=p.glow ? '#e6d794' : '#b2c2bd';
@@ -4533,22 +4835,22 @@
       }
     }
     collidesDoorCorridor(rect){
+      if(!rectInsideRoom(rect,this,12)) return true;
       const corridors = [];
       for(const dirKey of ['up','down','left','right']){
         if(this.doors?.[dirKey]){
-          const base = computeDoorCorridorRect(dirKey);
+          const base = computeDoorCorridorRect(dirKey,this);
           if(base) corridors.push(base);
         }
       }
       if(Array.isArray(this.secretDoors)){
         for(const secret of this.secretDoors){
           if(!secret) continue;
-          const base = computeDoorCorridorRect(secret.dir);
+          const base = computeDoorCorridorRect(secret.dir,this);
           if(base) corridors.push(base);
         }
       }
-      corridors.push({x:CONFIG.roomW/2-80,y:CONFIG.roomH/2-200,w:160,h:400});
-      corridors.push({x:CONFIG.roomW/2-220,y:CONFIG.roomH/2-80,w:440,h:160});
+      corridors.push({x:CONFIG.roomW/2-42,y:CONFIG.roomH/2-42,w:84,h:84});
       return corridors.some(c=>rectOverlap(c, rect));
     }
     findSpawnPosition(radius){
@@ -4558,6 +4860,7 @@
       for(let attempt=0; attempt<candidates; attempt++){
         const x = randRange(marginX, CONFIG.roomW - marginX);
         const y = randRange(marginY, CONFIG.roomH - marginY);
+        if(!roomContainsPoint(x,y,radius+15,this)) continue;
         const circle = {x,y,r:radius};
         const rect = {x:x-radius, y:y-radius, w:radius*2, h:radius*2};
         if(this.collidesDoorCorridor(rect)) continue;
@@ -4585,6 +4888,7 @@
       for(const pos of fallbackChecks){
         const x = clamp(pos.x, marginX, CONFIG.roomW - marginX);
         const y = clamp(pos.y, marginY, CONFIG.roomH - marginY);
+        if(!roomContainsPoint(x,y,radius+15,this)) continue;
         const circle = {x,y,r:radius};
         const rect = {x:x-radius, y:y-radius, w:radius*2, h:radius*2};
         if(this.collidesDoorCorridor(rect)) continue;
@@ -5165,7 +5469,7 @@
       const dirKey = target.dir.key;
       const secretDoor = Object.assign(
         {open:false, target: secret, glow: rand()*Math.PI*2, revealTimer: 0},
-        computeDoorRectForRoom(dirKey)
+        computeDoorRectForRoom(dirKey,choice.room)
       );
       choice.room.secretDoors.push(secretDoor);
       secret.doors[target.dir.opp] = true;
@@ -5937,6 +6241,7 @@
     }
   }
   function keepPickupInBounds(p){
+    constrainRoomProp(p);
     const marginX = p.r + 24;
     const marginY = p.r + 28;
     if(p.x < marginX){
@@ -6449,6 +6754,7 @@
     }
   }
   function keepBombInBounds(bomb){
+    constrainRoomProp(bomb);
     const margin = bomb.r + 24;
     const marginY = bomb.r + 24;
     if(bomb.x < margin){
@@ -6691,17 +6997,8 @@
       const accelTime = Math.max(0, this.accelTime ?? CONFIG.player.accelTime ?? 0.6);
       const decelTime = Math.max(0, this.decelTime ?? CONFIG.player.decelTime ?? 0.6);
       const maxSpeedScale = (this.maxSpeedScale ?? CONFIG.player.maxSpeedScale ?? 1.1);
-      const accelRate = accelTime > 0 ? (this.speed / accelTime) : Infinity;
       const moveDt = entryLocked ? 0 : dt;
       let maxSpeed = this.speed * maxSpeedScale;
-      const approachAxis = (current, target, rate)=>{
-        if(!Number.isFinite(rate) || rate <= 0) return target;
-        const maxStep = rate * moveDt;
-        if(!Number.isFinite(maxStep) || maxStep <= 0) return target;
-        const delta = target - current;
-        if(Math.abs(delta) <= maxStep) return target;
-        return current + Math.sign(delta) * maxStep;
-      };
       if(dashing){
         this.moveDir.x = mv.x;
         this.moveDir.y = mv.y;
@@ -6710,31 +7007,17 @@
         this.vel.x = mv.x * dashSpeed;
         this.vel.y = mv.y * dashSpeed;
       } else {
-        if(mv.x !== 0 || mv.y !== 0){
-          this.moveDir.x = mv.x;
-          this.moveDir.y = mv.y;
-          const targetSpeed = this.speed;
-          const targetX = mv.x * targetSpeed;
-          const targetY = mv.y * targetSpeed;
-          this.vel.x = approachAxis(this.vel.x, targetX, accelRate);
-          this.vel.y = approachAxis(this.vel.y, targetY, accelRate);
-        } else {
-          const vmag = Math.hypot(this.vel.x, this.vel.y);
-          if(vmag>1e-3){
-            this.moveDir.x = this.vel.x / vmag;
-            this.moveDir.y = this.vel.y / vmag;
-          } else {
-            this.moveDir.x = 0;
-            this.moveDir.y = 0;
-          }
-          if(vmag>0){
-            const basePlayerSpeed = CONFIG && CONFIG.player ? CONFIG.player.speed : 0;
-            const decelRef = Math.max(this.speed, basePlayerSpeed || 0, vmag);
-            const decelRate = decelTime > 0 ? (decelRef / decelTime) : Infinity;
-            this.vel.x = approachAxis(this.vel.x, 0, decelRate);
-            this.vel.y = approachAxis(this.vel.y, 0, decelRate);
-          }
-        }
+        const surface=getRoomProfile().surface;
+        const moving=mv.x!==0 || mv.y!==0;
+        const reversing=this.vel.x*mv.x+this.vel.y*mv.y<0;
+        const response=moving ? Math.max(.03,accelTime*.75)/(reversing ? 1.5 : 1) : Math.max(.025,decelTime*.42);
+        const blend=1-Math.exp(-moveDt*surface.traction/response);
+        const targetSpeed=this.speed*surface.speed;
+        this.vel.x+=(mv.x*targetSpeed-this.vel.x)*blend;
+        this.vel.y+=(mv.y*targetSpeed-this.vel.y)*blend;
+        if(!moving && Math.hypot(this.vel.x,this.vel.y)<1){this.vel.x=0;this.vel.y=0;}
+        this.moveDir.x=moving ? mv.x : this.vel.x/Math.max(1,Math.hypot(this.vel.x,this.vel.y));
+        this.moveDir.y=moving ? mv.y : this.vel.y/Math.max(1,Math.hypot(this.vel.x,this.vel.y));
         const curSpeed = Math.hypot(this.vel.x, this.vel.y);
         if(curSpeed > maxSpeed){
           const scale = maxSpeed / curSpeed;
@@ -6755,15 +7038,7 @@
         this.knockVel.x = 0;
         this.knockVel.y = 0;
       }
-      // 边界
-      const minX = 30;
-      const maxX = CONFIG.roomW - 30;
-      const minY = 30;
-      const maxY = CONFIG.roomH - 30;
-      if(this.x < minX){ if(this.vel.x < 0) this.vel.x = 0; this.x = minX; }
-      if(this.x > maxX){ if(this.vel.x > 0) this.vel.x = 0; this.x = maxX; }
-      if(this.y < minY){ if(this.vel.y < 0) this.vel.y = 0; this.y = minY; }
-      if(this.y > maxY){ if(this.vel.y > 0) this.vel.y = 0; this.y = maxY; }
+      constrainToRoom(this);
       this.ifr = Math.max(0, this.ifr - dt);
       this.fireCd = Math.max(0, this.fireCd - dt*1000);
 
@@ -6782,8 +7057,6 @@
         this.shotInput.justChangedDir = false;
         this.shotInput.holdTime = 0;
       }
-      const preResolveX = this.x;
-      const preResolveY = this.y;
       resolveEntityObstacles(this);
       if(dashing){
         if(dash && dash.trail && typeof dash.trail.addPoint === 'function'){
@@ -6797,19 +7070,6 @@
           this.endImpactDash({blocked});
           if(!dash.active){
             dashing = false;
-          }
-        }
-      } else if(this.x!==preResolveX || this.y!==preResolveY){
-        const corrX = this.x - preResolveX;
-        const corrY = this.y - preResolveY;
-        const corrLen = Math.hypot(corrX, corrY);
-        if(corrLen>1e-6){
-          const nx = corrX / corrLen;
-          const ny = corrY / corrLen;
-          const dot = this.vel.x * nx + this.vel.y * ny;
-          if(dot<0){
-            this.vel.x -= dot * nx;
-            this.vel.y -= dot * ny;
           }
         }
       }
@@ -7071,7 +7331,7 @@
       }
       if(firedCount>0){
         // A short recoil blends into the same friction used by contact impulses.
-        const recoil=Math.min(9,3+Math.sqrt(firedCount)*2);
+        const recoil=Math.min(4.5,1.5+Math.sqrt(firedCount));
         addBodyImpulse(this,-dirX*recoil,-dirY*recoil);
         const volume = Math.min(0.75, 0.42 + firedCount*0.04);
         audio.play('playerShoot', {volume});
@@ -10887,7 +11147,7 @@
       this.y += this.vy*dt;
       this.life -= dt;
       if(this.life<=0){ this.destroy(); return; }
-      if(this.x<0||this.x>CONFIG.roomW||this.y<0||this.y>CONFIG.roomH){ this.destroy(); return; }
+      if(!roomContainsPoint(this.x,this.y,this.r+1)){ this.destroy(); return; }
       if(!this.pierceObstacles){
         for(const obs of dungeon.current.obstacles){
           if(obs.destroyed) continue;
@@ -13246,6 +13506,7 @@
     else if(type==='warper') enemy = new EnemyWarper(pos.x,pos.y, Math.max(hp+1, 4));
     else if(type==='crab') enemy = new EnemyCrab(pos.x,pos.y, Math.max(hp+1, 4));
     else enemy = new EnemyChaser(pos.x,pos.y,hp);
+    enemy.archetype=type;
     return prepareEnemy(enemy);
   }
 
@@ -13319,6 +13580,7 @@
         boss = new EnemyBoss(pos.x, pos.y, bossName);
         break;
     }
+    boss.bossArchetype=bossId;
     boss.room = room;
     return prepareEnemy(boss);
   }
@@ -17104,6 +17366,7 @@
       this.alive=true;
       this.r=options.r ?? 10;
       this.damage=Math.max(1, options.damage ?? 1);
+      const landing=projectRoomPoint(this.x,this.ground,(options.r ?? 10)+8);this.x=landing.x;this.ground=landing.y;
       this.color=options.color || '#c084fc';
       this.impacted=false;
     }
@@ -17200,6 +17463,7 @@
       this.life=options.life ?? 6;
       this.r=options.r ?? 12;
       this.damage=Math.max(1, options.damage ?? 2);
+      const landing=projectRoomPoint(this.x,this.ground,(options.r ?? 12)+8);this.x=landing.x;this.ground=landing.y;
       this.color=options.color || '#fb923c';
       this.alive=true;
       this.exploded=false;
@@ -19449,6 +19713,8 @@
 
   function handleRoomEntry(room, direction='center', options={}){
     if(!room) return;
+    prepareRoomLayout(room);
+    constrainToRoom(player,room,false);
     const spawnList = Array.isArray(options.enemies)
       ? options.enemies
       : Array.isArray(room.enemies)
@@ -19760,37 +20026,17 @@
   }
 
   // ======= 门与换房 =======
-  function computeDoorRectForRoom(dir){
-    const w=CONFIG.roomW, h=CONFIG.roomH;
-    const doorW=60, doorH=10, offset=22;
-    switch(dir){
-      case 'up':
-        return {dir, x:w/2-doorW/2, y:offset, w:doorW, h:doorH};
-      case 'down':
-        return {dir, x:w/2-doorW/2, y:h-offset-doorH, w:doorW, h:doorH};
-      case 'left':
-        return {dir, x:offset, y:h/2-doorW/2, w:doorH, h:doorW};
-      case 'right':
-        return {dir, x:w-offset-doorH, y:h/2-doorW/2, w:doorH, h:doorW};
-      default:
-        return {dir, x:w/2-doorW/2, y:offset, w:doorW, h:doorH};
-    }
+  function computeDoorRectForRoom(dir,room=dungeon?.current){
+    const profile=getRoomProfile(room);
+    const index={up:0,right:1,down:2,left:3}[dir] ?? 0;
+    const e=profile.edges[index],cx=(e.a.x+e.b.x)/2,cy=(e.a.y+e.b.y)/2;
+    const horizontal=dir==='up' || dir==='down';
+    return {dir,cx,cy,nx:e.nx,ny:e.ny,x:cx-(horizontal ? 32 : 8),y:cy-(horizontal ? 8 : 32),w:horizontal ? 64 : 16,h:horizontal ? 16 : 64};
   }
-
-  function computeDoorCorridorRect(dir){
-    const w=CONFIG.roomW, h=CONFIG.roomH;
-    switch(dir){
-      case 'up':
-        return {x:w/2-60, y:0, w:120, h:180};
-      case 'down':
-        return {x:w/2-60, y:h-180, w:120, h:180};
-      case 'left':
-        return {x:0, y:h/2-70, w:180, h:140};
-      case 'right':
-        return {x:w-180, y:h/2-70, w:180, h:140};
-      default:
-        return null;
-    }
+  function computeDoorCorridorRect(dir,room=dungeon?.current){
+    const d=computeDoorRectForRoom(dir,room);
+    if(dir==='up' || dir==='down')return {x:d.cx-36,y:Math.min(d.cy,300)-12,w:72,h:Math.abs(d.cy-300)+24};
+    return {x:Math.min(d.cx,400)-12,y:d.cy-36,w:Math.abs(d.cx-400)+24,h:72};
   }
   function oppositeDir(dir){
     switch(dir){
@@ -19807,7 +20053,7 @@
     const doors = [];
     for(const dir of ['up','down','left','right']){
       if(state[dir]){
-        doors.push(computeDoorRectForRoom(dir));
+        doors.push(computeDoorRectForRoom(dir,r));
       }
     }
     return doors;
@@ -19861,14 +20107,7 @@
     player.handleRoomChange(nextRoom);
 
     const dir = direction || 'center';
-    if(dir==='up'){ player.x=CONFIG.roomW/2; player.y=CONFIG.roomH-60; }
-    else if(dir==='down'){ player.x=CONFIG.roomW/2; player.y=60; }
-    else if(dir==='left'){ player.x=CONFIG.roomW-60; player.y=CONFIG.roomH/2; }
-    else if(dir==='right'){ player.x=60; player.y=CONFIG.roomH/2; }
-    else {
-      player.x = CONFIG.roomW/2;
-      player.y = CONFIG.roomH/2;
-    }
+    placePlayerAtEntrance(nextRoom,dir);
 
     player.snapFollowersToPlayer(dir);
 
@@ -19907,6 +20146,7 @@
 
   function tryRoomTransition(){
     const r = dungeon.current;
+    if(runtime.roomEntryLock>0) return;
     const doors = roomDoors(r);
     for(const d of doors){
       const ni = r.i + (d.dir==='down') - (d.dir==='up');
@@ -19914,6 +20154,8 @@
       const nr = dungeon.rooms[ni]?.[nj];
       if(!nr) continue;
       if(!rectCircleOverlap(d.x,d.y,d.w,d.h, player.x,player.y,player.r)) continue;
+      const moveX=resolveAxis('KeyA','KeyD'),moveY=resolveAxis('KeyW','KeyS');
+      if(moveX*(-d.nx)+moveY*(-d.ny)<.2) continue;
       if(!isRoomReadyForExit(r)){
         if(runtime.itemPickupTimer<=0){
           runtime.itemPickupName = '房门紧闭';
@@ -20061,7 +20303,8 @@
       if(push){
         entity.x += push.x;
         entity.y += push.y;
-        if(entity.knockVel){ entity.knockVel.x *= 0.5; entity.knockVel.y *= 0.5; }
+        const length=Math.hypot(push.x,push.y) || 1;
+        applyWallResponse(entity,push.x/length,push.y/length);
       }
     }
   }
@@ -20182,6 +20425,8 @@
   requestAnimationFrame(loop);
 
   function update(dt){
+    runtime.physicsTick=(runtime.physicsTick || 0)+1;
+    prepareRoomLayout(dungeon.current);
     updateScreenShake(dt);
     if(runtime.timeStopFlash>0){
       runtime.timeStopFlash = Math.max(0, runtime.timeStopFlash - dt*2.4);
@@ -20273,6 +20518,8 @@
       }
     }
     resolveActorContacts(enemies,enemyDt);
+    player.groundSpeed=Math.hypot(player.x-player.previousX,player.y-player.previousY)/Math.max(dt,1e-6);
+    player.gaitPhase=(player.gaitPhase || 0)+player.groundSpeed*dt*.14;
     updateRoomAtmosphere(worldDt);
     updateBeams(dt);
     updateShortSwordProjectiles(entryLocked ? 0 : dt, enemies);
@@ -20283,6 +20530,9 @@
     for(const eb of runtime.enemyProjectiles){
       eb.prevX=eb.x; eb.prevY=eb.y;
       eb.update(enemyProjectileDt);
+      if(eb.alive && eb.r && !(eb instanceof FallingShard) && !(eb instanceof LobbedRock) && !roomContainsPoint(eb.x,eb.y,eb.r+1)){
+        if(typeof eb.destroy==='function')eb.destroy({glowStrength:.25});else eb.alive=false;
+      }
     }
     runtime.enemyProjectiles = runtime.enemyProjectiles.filter(p=>p.alive);
 
@@ -20468,9 +20718,11 @@
     const emptyHearts = '·'.repeat(Math.max(0, player.maxHp - player.hp));
     const soulDisplay = player.soulHearts>0 ? `<span class="kbd" style="color:#60a5fa">💙 ${player.soulHearts}</span>` : '';
     const runClock = runtime.runTimer ? runtime.runTimer.format() : '00:00.00';
-    setHUDMarkup(HUDL, `生命：<span style="letter-spacing:1px">${redHearts}${emptyHearts}</span>${soulDisplay}<span class="kbd">💣 ${player.bombs}</span><span class="kbd">🔑 ${player.keys}</span><span class="kbd">🪙 ${player.coins}</span><span class="kbd">⏱ <span id="run-clock"></span></span>`);
+    setHUDMarkup(HUDL, `生命：<span style="letter-spacing:1px">${redHearts}${emptyHearts}</span>${soulDisplay}<span class="kbd">💣 ${player.bombs}</span><span class="kbd">🔑 ${player.keys}</span><span class="kbd">🪙 ${player.coins}</span><span class="kbd">⏱ <span id="run-clock"></span></span><span class="kbd">地速 <span id="ground-speed">0</span></span>`);
     const clockNode = document.getElementById('run-clock');
     const clockText = runClock.slice(0,-1);
+    const speedNode=document.getElementById('ground-speed'),speedText=String(Math.round((player.groundSpeed || 0)/5)*5);
+    if(speedNode && speedNode.textContent!==speedText)speedNode.textContent=speedText;
     if(clockNode && clockNode.textContent!==clockText) clockNode.textContent = clockText;
     const attackRate = typeof player.getAttackRatePerSecond === 'function'
       ? player.getAttackRatePerSecond()
@@ -20494,6 +20746,8 @@
       return `${name} ×${count}`;
     }).join('、') : '空手上阵';
     const floorLevel = runtime.floor || currentFloor || 1;
+    const profile=getRoomProfile();
+    const roomText=`<span style="color:${profile.style.color}">${profile.style.name} · ${profile.shape} · ${profile.surface.name}</span>`;
     const loopCycle = (runtime.loopCount || 0) + 1;
     const cycleText = loopCycle>1 ? ` · 第${loopCycle}轮` : '';
     const maxCharge = Math.max(0, player.activeMaxCharge ?? 0);
@@ -20507,9 +20761,9 @@
     const singleUseReady = !!(singleUseItem && typeof singleUseItem.use === 'function');
     const singleUseBadge = singleUseReady ? `<span class="kbd" style="color:var(--accent)">Q 就绪</span>` : `<span class="kbd">Q --</span>`;
     if(dungeon.current.isBoss && dungeon.current.bossEntity && !dungeon.current.bossEntity.dead){
-      setHUDMarkup(HUDR, `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel}${cycleText} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`);
+      setHUDMarkup(HUDR, `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>${roomText}<br>楼层：${floorLevel}${cycleText} / <span style="color:#ffb4c8">BOSS：${dungeon.current.bossEntity.name}</span></span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`);
     } else {
-      setHUDMarkup(HUDR, `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>楼层：${floorLevel}${cycleText} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`);
+      setHUDMarkup(HUDR, `<span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end"><span>${roomText}<br>楼层：${floorLevel}${cycleText} / 已探索：${exploredRooms()} 间</span><span>道具：${itemsText}</span><span>主动：${activeName} ${activeBadge}</span><span>卡牌：${singleUseName} ${singleUseBadge}</span></span>`);
     }
     if(cheatPanelNode?.classList.contains('show')){ syncCheatPanel(); }
   }
@@ -20526,10 +20780,13 @@
       ctx.translate(shake.offsetX, shake.offsetY);
     }
     drawRoomBackdrop();
+    ctx.save();traceRoomPath(ctx);ctx.clip();
     drawFloorDecals();
     drawRoomGroundLife();
+    ctx.restore();
     drawDoors();
     drawObstacles();
+    for(const enemy of dungeon.current.enemies) drawEnemyIntent(enemy);
 
     for(const p of dungeon.current.pickups){ drawPickup(p); }
 
@@ -20547,6 +20804,10 @@
       const fade = getEntitySpawnFade(e);
       ctx.save();
       if(fade<1){ ctx.globalAlpha *= fade; }
+      if(!e.isBossEntity && !e.flying && !isPhasedActor(e)){
+        const stride=Math.sin(e.gaitPhase || 0)*.025*Math.min(1,(e.groundSpeed || 0)/80);
+        ctx.translate(e.x,e.y);ctx.rotate(clamp((e.motionVx || 0)*.0004,-.06,.06));ctx.scale(1+stride,1-stride);ctx.translate(-e.x,-e.y);
+      }
       e.draw();
       ctx.restore();
       if(e.damageFlashTimer>0){
@@ -20625,6 +20886,7 @@
 
   function drawRoomBackdrop(){
     const a=getRoomAtmosphere();
+    ctx.fillStyle='#080b11';ctx.fillRect(0,0,CONFIG.roomW,CONFIG.roomH);
     if(a) ctx.drawImage(a.texture,0,0);
   }
   function drawDoors(){
@@ -20653,17 +20915,16 @@
         frame = '#6ee7ff55';
         fill = '#6ee7ff';
       }
+      if(nr){const palette=getRoomProfile(nr).style;frame=palette.color+'66';fill=doorUnlocked ? palette.color : palette.color+'55';}
       if(locked){
         frame = '#b4530955';
         fill = '#7c2d12';
       }
       ctx.save();
       // 门框
-      ctx.fillStyle = frame;
-      ctx.fillRect(d.x-4,d.y-4,d.w+8,d.h+8);
-      // 门
-      ctx.fillStyle = fill;
-      ctx.fillRect(d.x,d.y,d.w,d.h);
+      ctx.translate(d.cx,d.cy);ctx.rotate(Math.atan2(-d.nx,d.ny));
+      ctx.fillStyle = frame;ctx.fillRect(-36,-12,72,24);
+      ctx.fillStyle = fill;ctx.fillRect(-32,-8,64,16);
       ctx.restore();
     }
     if(Array.isArray(r.secretDoors)){
@@ -22248,7 +22509,11 @@
         ctx.globalAlpha *= alpha;
       }
     }
+    ctx.save();
+    const stride=player.flying ? 0 : Math.sin(player.gaitPhase || 0)*.022*Math.min(1,(player.groundSpeed || 0)/140);
+    ctx.translate(player.x,player.y);ctx.rotate(clamp(player.vel.x*.00025,-.05,.05));ctx.scale(1+stride,1-stride);ctx.translate(-player.x,-player.y);
     drawBlob(player.x, player.y, player.r, baseColor, edgeColor);
+    ctx.restore();
     if(player.attackMode === 'shortsword'){
       drawAttachedShortSword(player);
     }
@@ -22355,12 +22620,10 @@
     for(const r of discovered){
       const x = (r.j - dungeon.bounds.minJ) * cell;
       const y = (r.i - dungeon.bounds.minI) * cell;
-      if(r===dungeon.current){ ctx.fillStyle='#6ee7ff'; }
-      else if(r.isBoss && !r.bossDefeated){ ctx.fillStyle='#ff6b6b'; }
-      else if(r.isItemRoom && !r.itemClaimed){ ctx.fillStyle='#facc15'; }
-      else if(r.isShop){ ctx.fillStyle='#fbbf24'; }
-      else { ctx.fillStyle='#2c3a54'; }
+      ctx.fillStyle=getRoomProfile(r).style.color;
+      ctx.globalAlpha=r===dungeon.current ? 1 : r.visited ? .65 : .35;
       ctx.fillRect(x,y,cell-1,cell-1);
+      if(r===dungeon.current){ctx.globalAlpha=1;ctx.strokeStyle='#ffffff';ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,cell-2,cell-2);}
     }
     ctx.restore();
     if(runtime.bossIntroTimer>0){ drawBossIntro(); }
@@ -22465,11 +22728,15 @@
     }
     update(dt){
       this.prevX=this.x; this.prevY=this.y;
+      if(this.curve && this.curveTime>0){
+        const angle=this.curve*Math.min(dt,this.curveTime),cos=Math.cos(angle),sin=Math.sin(angle),vx=this.vx;
+        this.vx=vx*cos-this.vy*sin;this.vy=vx*sin+this.vy*cos;this.curveTime=Math.max(0,this.curveTime-dt);
+      }
       this.x += this.vx*dt;
       this.y += this.vy*dt;
       this.life -= dt;
       if(this.life<=0){ this.destroy(); return; }
-      if(this.x<20||this.x>CONFIG.roomW-20||this.y<20||this.y>CONFIG.roomH-20){ this.destroy(); return; }
+      if(!roomContainsPoint(this.x,this.y,this.r+1)){ this.destroy(); return; }
       if(this.alive){
         for(const obs of dungeon.current.obstacles){
           if(obs.destroyed) continue;
@@ -22877,6 +23144,7 @@
       enemy.isBossSummon = true;
       enemy.bossSummoner = summoner || null;
     }
+    constrainToRoom(enemy,dungeon.current,false);
     runtime.pendingEnemySpawns.push(prepareEnemy(enemy));
     return true;
   }
