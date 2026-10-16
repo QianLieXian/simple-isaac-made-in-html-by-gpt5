@@ -188,7 +188,16 @@
     @media(orientation:landscape) and (max-height:600px) and (pointer:coarse){.canvas-wrap{width:min(calc((100dvh - 86px)*4/3),calc(100vw - 300px));min-width:0;margin:0}.title #pad-status{display:none}#nearby-info{font-size:11px;width:49%;max-height:70%;overflow:hidden}.nearby-description{max-height:4.5em;overflow:hidden}}
 
     #game{image-rendering:auto}
+    #mini-map{position:absolute;right:10px;top:10px;width:clamp(112px,23%,184px);height:clamp(100px,28%,168px);z-index:6;pointer-events:none;background:transparent;box-shadow:none;border:0;border-radius:0;image-rendering:auto}
+    #mini-map[hidden]{display:none!important}
+    body.touch-mode #mini-map{position:absolute;right:var(--touch-right);top:calc(var(--touch-top) + 40px);width:min(calc(var(--touch-key)*3 + 8px),156px);height:clamp(74px,calc(var(--touch-height) - var(--touch-key)*3 - 94px),150px);z-index:16}
+    body.touch-mode.drawer-open #mini-map{visibility:hidden}
     @media(max-width:1000px){.view-tools{max-width:248px;flex-wrap:wrap;justify-content:flex-end}}
+    #familiar-roster{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
+    .familiar-entry{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #706246;background:#191c1433;font-size:12px}
+    .familiar-entry span{flex:1}.familiar-entry small{display:block;color:#b4aa8e;margin-top:3px}
+    .familiar-entry button{min-width:64px;min-height:36px;color:#f2dfb4;background:#4b412c;border:1px solid #aa925f;touch-action:manipulation;cursor:pointer}
+    .familiar-entry button:disabled{opacity:.45;cursor:default}
     .render-settings{display:flex;align-items:center;gap:6px;color:#e5d4a7;background:#302a1ef0;padding:4px 7px;font-size:12px}
     #render-quality{max-width:180px;background:#302a1e;color:#f2dcaf;border:1px solid #947c52;padding:5px;font:12px Georgia,'Songti SC',serif;touch-action:manipulation}
     #mobile-drawer .render-settings{justify-content:space-between;margin:10px 0;padding:12px;border:1px solid #8c754d}
@@ -199,7 +208,7 @@
     body.touch-mode.touch-portrait .wrap{transform:translateX(var(--touch-height)) rotate(90deg)}
     body.touch-mode{--touch-left:max(8px,env(safe-area-inset-left));--touch-right:max(8px,env(safe-area-inset-right));--touch-top:max(5px,env(safe-area-inset-top));--touch-bottom:max(5px,env(safe-area-inset-bottom));--touch-key:clamp(40px,calc(var(--touch-height)*.13),56px)}
     body.touch-mode.touch-portrait{--touch-left:max(8px,env(safe-area-inset-top));--touch-right:max(8px,env(safe-area-inset-bottom));--touch-top:max(5px,env(safe-area-inset-right));--touch-bottom:max(5px,env(safe-area-inset-left))}
-    body.touch-mode .wrap> :not(.canvas-wrap):not(#virtual-kb):not(#mobile-toolbar):not(#mobile-vitals):not(#mobile-toast):not(#mobile-drawer){display:none}
+    body.touch-mode .wrap>header,body.touch-mode .wrap>.hud,body.touch-mode .wrap>details,body.touch-mode .wrap>footer{display:none}
     body.touch-mode .canvas-wrap{position:absolute;top:0;left:50%;transform:translateX(-50%);width:min(calc(var(--touch-width) - var(--touch-left) - var(--touch-right)),calc((var(--touch-height) - 38px)*4/3));height:auto;min-width:0;margin:0;border:2px ridge #716044;aspect-ratio:4/3}
     body.touch-mode .canvas-wrap canvas{touch-action:none;-webkit-touch-callout:none}
     body.touch-mode .view-tools{right:5px;bottom:7px;z-index:3}
@@ -265,6 +274,7 @@
     </header>
     <div class="panel canvas-wrap">
       <canvas id="game" width="800" height="600"></canvas>
+      <canvas id="mini-map" width="336" height="288" aria-label="迷你地图" role="img" hidden></canvas>
       <div id="nearby-info" hidden><strong></strong><div class="nearby-description"></div><div class="nearby-action"></div></div>
       <div class="view-tools"><label class="render-settings">清晰度 <select id="render-quality" aria-label="渲染清晰度"><option value="pixel">流畅 · 800 × 600</option><option value="clear">清晰 · 1600 × 1200</option><option value="fine">精细 · 2400 × 1800</option></select></label><button id="view-zoom" type="button" aria-label="切换近景和全景">视角：近景</button><button id="view-fullscreen" type="button">全屏</button></div>
       <div class="overlay" id="menu">
@@ -359,7 +369,8 @@
       <label><input id="audio-muted" type="checkbox"> 静音</label><label><input id="music-enabled" type="checkbox" checked> 地窖氛围音乐</label>
       <label>音量 <input id="audio-volume" type="range" min="0" max="100" value="80"></label>
     </details>
-    <details class="panel inventory"><summary>冒险规则与成长上限</summary><p id="balance-rules">遗物最多叠加 3 次；生命上限 12、灵魂心 6、移速 280、普通射速 7 次/秒、基础有效伤害 8、单轮普通弹丸总伤害 10、跟随者最多 4。普通敌人每 0.5 秒最多承受 22 点，首领 14 点，单次攻击至多 18 点，避免多段攻击瞬间蒸发首领。主动与特殊攻击遵守各自充能和冷却。达到叠加上限的遗物折算为 2 枚金币。</p></details>
+    <details class="panel inventory" id="familiar-panel"><summary id="familiar-summary">随从编队 · 0/4</summary><p>最多四名出战；其余进入候补，可先休息一名再换上。收集型随从负责拾心，不主动攻击。展开编队时暂停，关闭后继续。</p><div id="familiar-roster"></div></details>
+    <details class="panel inventory"><summary>冒险规则与成长上限</summary><p id="balance-rules">遗物最多叠加 3 次；生命上限 12、灵魂心 6、移速 280、普通射速 7 次/秒、基础有效伤害 8、单轮普通弹丸总伤害 10、出战跟班最多 4，超出进入候补，可在随从编队中更换。普通敌人每 0.5 秒最多承受 22 点，首领 14 点，单次攻击至多 18 点，避免多段攻击瞬间蒸发首领。主动与特殊攻击遵守各自充能和冷却。达到叠加上限的遗物折算为 2 枚金币。</p></details>
     <footer class="credits">尘封地窖 · 单文件离线游戏<br>Icons made by <a href="https://lorcblog.blogspot.com/">Lorc</a> and <a href="https://delapouite.com/">Delapouite</a>, via <a href="https://game-icons.net/">Game-icons.net</a>, <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>. Adapted: transparent backgrounds, pixel rasterization, recoloring and compositing.<br>氛围音乐为原创程序生成，可随本游戏 MIT 许可使用。</footer>
   </div>
 
@@ -1690,7 +1701,7 @@
       slug:'aunt-brimstone',
       name:'大姨妈',
       weight: WEIGHT_PRESETS.item,
-      description:'跟班：蓄力 2 秒释放持续 1.5 秒的细束硫磺火，每 8 帧造成 0.75 伤害。',
+      description:'跟班：按住攻击蓄力，松手释放细束硫磺火。基础满蓄 2 秒，射速加快蓄力；满蓄持续 1.5 秒，每 8 帧造成 0.75 基础伤害。',
       setTag:'宝宝套装',
       apply(player){ grantAuntFollower(player); }
     },
@@ -2015,7 +2026,7 @@
       slug:'brother',
       name:'兄弟',
       weight: WEIGHT_PRESETS.lifeTrade,
-      description:'跟班：复制玩家的所有射击效果与升级，总是紧贴玩家左右姐妹之后。',
+      description:'跟班：复制泪弹、升级与光束；近战化为短距刃影，炸弹化为余烬弹。跟在姐妹后方，超出四名出战上限时进入候补。',
       setTag:'宝宝套装',
       apply(player){ grantBrotherFollower(player); }
     },
@@ -2023,7 +2034,7 @@
       slug:'sister',
       name:'姐妹',
       weight: WEIGHT_PRESETS.lifeTrade,
-      description:'双生跟班：左右各有 1 名，以 0.75 倍伤害复制玩家的射击。',
+      description:'双生跟班：左右各一名，以 0.75 倍基础伤害复制泪弹和光束；近战与炸弹化为刃影、余烬弹。每名各占一个出战位。',
       setTag:'宝宝套装',
       apply(player){ grantSisterFollowers(player); }
     },
@@ -3921,7 +3932,7 @@
 
   // DPR 缩放（保持内部 800x600 逻辑坐标）
   const canvas = document.getElementById('game');
-  const ctx = canvas.getContext('2d');
+  let ctx = canvas.getContext('2d');
   const RENDER_QUALITIES=Object.freeze({
     pixel:{scale:1,tile:32,label:'流畅 · 800 × 600'},
     clear:{scale:2,tile:64,label:'清晰 · 1600 × 1200'},
@@ -4079,7 +4090,7 @@
   const STATE = { MENU:0, PLAY:1, PAUSE:2, OVER:3 };
   let state = STATE.MENU;
 
-  function showMenu(){ releaseAllInput(); state=STATE.MENU; overlayManager.setActive('menu'); }
+  function showMenu(){ releaseAllInput(); resetGamePanels();state=STATE.MENU; overlayManager.setActive('menu'); }
   function togglePause(){
     audio.setScene?.(false,false);
     if(state===STATE.PLAY){
@@ -4422,7 +4433,12 @@
     p.maxHp=clamp(Number.isFinite(p.maxHp) ? p.maxHp : 6,1,BALANCE.hp);
     p.hp=Math.min(p.hp,p.maxHp);p.soulHearts=clamp(p.soulHearts || 0,0,BALANCE.soul);
     p.damage=clamp(Number.isFinite(p.damage) ? p.damage : BALANCE.damage,.25,BALANCE.damage);
-    if(p.followers?.length>BALANCE.followers)p.followers.length=BALANCE.followers;
+    if(p.followers?.length>BALANCE.followers){
+      for(const f of p.followers.splice(BALANCE.followers)){
+        if(f.brimstoneBeam)endBeam(f.brimstoneBeam);f.brimstoneBeam=null;
+        p.followerRoster ||= [];if(!p.followerRoster.includes(f))p.followerRoster.push(f);
+      }p.followerRosterVersion=(p.followerRosterVersion || 0)+1;
+    }
     if(p.impactDash){p.impactDash.trailDamageMultiplier=Math.min(3,p.impactDash.trailDamageMultiplier || 1);p.impactDash.cooldownDuration=Math.max(2,p.impactDash.cooldownDuration || 5);}
     if(p.bombProgenitor)p.bombProgenitor.damageScale=Math.min(8,p.bombProgenitor.damageScale || 4);
 
@@ -4779,8 +4795,12 @@
     emitDetail(actor.x,actor.y,actor===player ? 29:Math.min(35,(actor.r || 12)*1.4),material,color,Math.min(10,4+Math.ceil(amount)),{vx:(actor.incomingHit?.vx || 0)*.08,vy:(actor.incomingHit?.vy || 0)*.08,playerClock:actor===player});
     if(['blood','ichor','oil'].includes(material))addRoomMark(actor.x,actor.y,3+Math.min(4,amount),color,material);
   }
+  function creatureAnimationPhase(actor){
+    const seed=actor.x*37+actor.y*13+(actor.r || 12)*7;
+    return actor===player ? 0:((seed%131+131)%131)/131*Math.PI*2;
+  }
   function tickCreatureAnimation(actor,dt){
-    const profile=creatureProfile(actor),a=actor.animation ||= {clock:0,age:0,lastX:actor.x,lastY:actor.y,step:0,breath:profile.breath*.5,bleed:0};
+    const profile=creatureProfile(actor),a=actor.animation ||= {clock:creatureAnimationPhase(actor),age:0,lastX:actor.x,lastY:actor.y,step:0,breath:profile.breath*(.15+creatureAnimationPhase(actor)/Math.PI/2*.7),bleed:0};
     if(!(dt>0))return;
     a.clock+=dt;a.age+=dt;a.hitAge=(a.hitAge ?? 9)+dt;
     const moved=Math.hypot(actor.x-a.lastX,actor.y-a.lastY);a.speed=moved/Math.max(dt,.001);
@@ -7077,26 +7097,17 @@
     }
   }
   function computeBeamGeometry(beam){
-    const owner = beam?.owner;
-    if(!owner) return null;
-    const dir = beam.dir || {x:1,y:0};
-    const len = Math.hypot(dir.x, dir.y) || 1;
-    const nx = dir.x / len;
-    const ny = dir.y / len;
-    const startOffset = owner.r + (beam.startOffset ?? owner.r*0.2);
-    const startX = owner.x + nx * startOffset;
-    const startY = owner.y + ny * startOffset;
-    const minX = 20, maxX = CONFIG.roomW - 20, minY = 20, maxY = CONFIG.roomH - 20;
-    let maxT = Infinity;
-    if(nx > 0){ maxT = Math.min(maxT, (maxX - startX) / nx); }
-    else if(nx < 0){ maxT = Math.min(maxT, (minX - startX) / nx); }
-    if(ny > 0){ maxT = Math.min(maxT, (maxY - startY) / ny); }
-    else if(ny < 0){ maxT = Math.min(maxT, (minY - startY) / ny); }
-    if(!Number.isFinite(maxT) || maxT < 0){ maxT = 0; }
-    const endX = startX + nx * maxT;
-    const endY = startY + ny * maxT;
-    const length = Math.hypot(endX - startX, endY - startY);
-    return {startX, startY, endX, endY, length, nx, ny};
+    const owner=beam?.owner;if(!owner)return null;
+    const dir=beam.dir || {x:1,y:0},len=Math.hypot(dir.x,dir.y) || 1,nx=dir.x/len,ny=dir.y/len;
+    let end=Infinity;
+    for(const edge of getRoomProfile().edges){
+      const distance=(owner.x-edge.a.x)*edge.nx+(owner.y-edge.a.y)*edge.ny,heading=nx*edge.nx+ny*edge.ny;
+      if(heading<-.000001)end=Math.min(end,Math.max(0,(distance-1)/-heading));
+    }
+    if(!Number.isFinite(end))end=0;
+    const offset=Math.min(end,Math.max(0,beam.startOffset ?? (owner.r || 12)*1.2));
+    const startX=owner.x+nx*offset,startY=owner.y+ny*offset,endX=owner.x+nx*end,endY=owner.y+ny*end;
+    return {startX,startY,endX,endY,length:Math.max(0,end-offset),nx,ny};
   }
 
   function buildCurvedBeamSamples(geom, width, options={}){
@@ -7274,7 +7285,7 @@
         continue;
       }
       let stepDt = dt;
-      if(runtime.timeStopTimer>0 && beam.owner && beam.owner !== player){
+      if(runtime.timeStopTimer>0 && beam.owner && beam.owner !== player && beam.owner.player !== player){
         stepDt = 0;
       }
       if(typeof beam.update === 'function'){
@@ -7398,7 +7409,7 @@
       this.baseActiveMaxCharge = Math.max(0, CONFIG.player.activeMaxCharge ?? 0);
       this.activeItem = null;
       this.activeCharge = 0;
-      this.activeMaxCharge = this.baseActiveMaxCharge;
+      this.activeMaxCharge = 0;
       this.singleUseItem = null;
       this.timeScaleModifiers = new Map();
       this.bombRadiusMultiplier = 1;
@@ -7456,7 +7467,7 @@
         resumeFromGrace: false,
       };
       this.setBonuses = {};
-      this.followers = [];
+      this.followers = [];this.followerRoster=[];this.followerRosterVersion=0;
       this.followerOrderCounter = 0;
       this.impactDash = this.createImpactDashState();
       this.hotChocolate = null;
@@ -7732,7 +7743,7 @@
         shotState.resumeFromGrace = false;
       }
       this.recordFollowerTrailPoint();
-      this.updateFollowers(dt);
+      this.updateFollowers(entryLocked ? 0:dt);
       this.recalculateDamage();
     }
     fireTearProjectile(dirX, dirY, lvx, lvy, maxSpeed, options={}){
@@ -8936,6 +8947,7 @@
         state.reticleEffect.life = Math.min(state.reticleEffect.life, 0.12);
         state.reticleEffect = null;
       }
+      this.dispatchFollowerShot('bomb',{dirX:position.x-this.x,dirY:position.y-this.y,damage:this.damage*4});
       const count = this.getBombProgenitorChainCount();
       state.chainCount = count;
       state.chainTimer = 0;
@@ -9297,9 +9309,25 @@
       const follower = createFollowerEntity(this, config);
       if(!follower) return null;
       follower.order = this.followerOrderCounter++;
-      list.push(follower);
+      this.followerRoster ||= [];this.followerRoster.push(follower);
+      if(list.length<BALANCE.followers)list.push(follower);
+      this.followerRosterVersion++;
       this.rebuildFollowerOrder();
       return follower;
+    }
+    setFollowerActive(order,active){
+      const f=this.followerRoster?.find(f=>f.order===order);if(!f)return false;
+      const index=this.followers.indexOf(f);
+      if(active && index<0){
+        if(this.followers.length>=BALANCE.followers)return false;
+        this.followers.push(f);Object.assign(f,nearestFreePosition({x:this.x,y:this.y,r:f.r}) || {x:this.x,y:this.y});
+      }else if(!active && index>=0){this.followers.splice(index,1);}else return false;
+      if(f.brimstoneBeam)endBeam(f.brimstoneBeam);f.brimstoneBeam=null;f.pendingBeam=null;f.charging=false;f.chargeProgress=0;
+      f.collectTarget=null;f.fireTimer=.12;f.echoCooldown=0;
+      f.behavior?.onRoomEntered?.(f,this,'center');
+      if(active && f.animation)f.animation.age=0;
+      emitDetail(f.x,f.y,12,'wisp',creatureProfile(f).color,4,{playerClock:true});
+      this.rebuildFollowerOrder();this.followerRosterVersion++;return true;
     }
     rebuildFollowerOrder(){
       const list = this.followers;
@@ -9471,6 +9499,7 @@
         const ty = clamp(target?.y ?? this.y, 40, CONFIG.roomH - 40);
         follower.x = tx;
         follower.y = ty;
+        constrainActor(follower);
         if(follower.knockVel){ follower.knockVel.x = 0; follower.knockVel.y = 0; }
         if(follower.brimstoneBeam){
           endBeam(follower.brimstoneBeam);
@@ -10808,7 +10837,7 @@
       this.brimstoneCharged = false;
       this.brimstoneCharging = false;
       this.brimstoneReleasePending = null;
-      this.dispatchFollowerShot?.('brimstone-start', {dir, duration, tickFrames, damageScale, width: widthOverride});
+      this.dispatchFollowerShot?.('brimstone-start', {dir,duration,tickFrames,damageScale,width:widthOverride,homing:this.homingTears,homingStrength:this.homingStrength});
       this.triggerAimIndicatorFlash?.('shoot', {color: '#f87171', intensity: Math.min(1.2, 0.8 + (chargeRatio || 0) * 0.4)});
       return true;
     }
@@ -10943,8 +10972,8 @@
     setActiveItem(item){
       if(!item){
         this.activeItem = null;
-        this.activeMaxCharge = this.baseActiveMaxCharge;
-        this.activeCharge = clamp(this.activeCharge, 0, this.activeMaxCharge);
+        this.activeMaxCharge = 0;
+        this.activeCharge = 0;
         return;
       }
       this.activeItem = {...item};
@@ -10992,7 +11021,7 @@
       return result ?? true;
     }
     gainActiveCharge(amount=1){
-      if(!Number.isFinite(amount) || amount<=0) return false;
+      if(!this.activeItem || typeof this.activeItem.use!=='function' || !Number.isFinite(amount) || amount<=0)return false;
       const max = Math.max(0, this.activeMaxCharge ?? 0);
       if(max<=0) return false;
       const prev = this.activeCharge;
@@ -11041,7 +11070,8 @@
     let best=null;
     let bestDist=Infinity;
     for(const enemy of room.enemies){
-      if(!enemy || enemy.dead) continue;
+      if(isPhasedActor(enemy) || enemy.invulnerable || enemy.invuln>0)continue;
+      if(room.obstacles.some(o=>!o.destroyed && o.projectileSolid!==false && segmentRectOverlap(source.x,source.y,enemy.x,enemy.y,o,2)))continue;
       const dx = enemy.x - source.x;
       const dy = enemy.y - source.y;
       const dist = dx*dx + dy*dy;
@@ -11076,16 +11106,31 @@
     ctx.restore();
   }
 
+  function familiarDamageValue(value,owner){
+    const synergy=owner?.synergyState;
+    return clamp(value*Math.max(.05,synergy?.followerDamageMultiplier || 1)+(synergy?.followerDamageAdd || 0),.05,BALANCE.damage);
+  }
   function followerMirrorShotHandler(options={}){
     const damageMultiplier = Number.isFinite(options.damageMultiplier) ? options.damageMultiplier : 1;
     const enableBrimstone = options.brimstone !== false;
-    return function(follower, type, shot){
+    return function(follower, type, shot, owner){
+      if(!shot || !dungeon?.current || runtime.roomEntryLock>0)return;
+      const synergy=owner?.synergyState;
+      follower.damage=familiarDamageValue((owner?.damage || 1)*follower.damageMultiplier,owner);
       if(type === 'tear'){
         if(!shot) return;
-        follower.shotPose=.25;
-        const cloneOptions = {...(shot.options || {}),launchHeight:28};
-        const damage = Math.max(0.01, shot.damage * damageMultiplier);
+        follower.shotPose=.25;follower.facingX=shot.vx/Math.max(1,Math.hypot(shot.vx,shot.vy));
+        const cloneOptions = {...(shot.options || {}),launchHeight:28,sourceActor:follower};
+        const damage=familiarDamageValue(shot.damage*damageMultiplier,owner);
+        if(synergy?.grantsHoming || synergy?.followerHomingStrengthBonus>0){cloneOptions.homing=true;cloneOptions.homingStrength=(cloneOptions.homingStrength || 6)+(synergy.followerHomingStrengthBonus || 0);}
         runtime.bullets.push(new Bullet(follower.x, follower.y, shot.vx, shot.vy, shot.life, damage, cloneOptions));
+      } else if(type==='melee' || type==='bomb'){
+        if((follower.echoCooldown || 0)>0)return;
+        const angle=Number.isFinite(shot.angle) ? shot.angle:Math.atan2(shot.dirY ?? owner.shotInput.dirY,shot.dirX ?? owner.shotInput.dirX);
+        const blade=type==='melee',speed=blade ? 300:205,life=blade ? .24:.75;
+        const damage=clamp(familiarDamageValue((shot.damage || owner.damage)*damageMultiplier*(blade ? .5:.18),owner),.5,blade ? 3:4);
+        const bullet=new Bullet(follower.x,follower.y,Math.cos(angle)*speed,Math.sin(angle)*speed,life,damage,{sourceActor:follower,familiarKind:blade ? 'blade':'ember',pierceEnemies:blade,launchHeight:26,color:blade ? '#e4d8b3':'#dfab69'});
+        runtime.bullets.push(bullet);follower.shotPose=.25;follower.echoCooldown=.18;follower.facingX=Math.cos(angle);follower.facingY=Math.sin(angle);
       } else if(type === 'brimstone-start' && enableBrimstone){
         if(!shot) return;
         if(follower.brimstoneBeam){ endBeam(follower.brimstoneBeam); }
@@ -11094,7 +11139,9 @@
           duration: shot.duration,
           tickFrames: shot.tickFrames,
           damageScale: shot.damageScale ?? 1,
-          width: shot.width,
+          width: shot.width ?? owner?.getBrimstoneWidth?.() ?? 24,
+          homing:!!(shot.homing || synergy?.grantsHoming || synergy?.followerHomingStrengthBonus>0),
+          homingStrength:(shot.homingStrength || owner?.homingStrength || 6)+(synergy?.followerHomingStrengthBonus || 0),
         });
         follower.brimstoneBeam = beam;
         if(!Array.isArray(runtime.beams)){ runtime.beams = []; }
@@ -11120,7 +11167,7 @@
     let best=null;
     let bestDist=Infinity;
     for(const pickup of room.pickups){
-      if(!pickup || pickup.type!=='heart' || pickup.kind==='soul') continue;
+      if(!pickup || pickup.type!=='heart' || pickup.kind==='soul' || pickup.spawnGrace>0)continue;
       const dx = pickup.x - playerRef.x;
       const dy = pickup.y - playerRef.y;
       const distSq = dx*dx + dy*dy;
@@ -11152,6 +11199,7 @@
     }
     if(pickup){
       pickup.spawnGrace = CONFIG.pickupSpawnGrace ?? 0;
+      Object.assign(pickup,nearestFreePosition({...pickup,r:pickup.r || 12},room));
       room.pickups.push(pickup);
     }
   }
@@ -11169,6 +11217,7 @@
       spacingMultiplier: Number.isFinite(config.spacingMultiplier) ? config.spacingMultiplier : 1,
       followSpeed: Number.isFinite(config.followSpeed) ? config.followSpeed : (player.speed * 1.1 + 60),
       damageMultiplier: Number.isFinite(config.damageMultiplier) ? config.damageMultiplier : 1,
+      baseDamage:Number.isFinite(config.baseDamage) ? config.baseDamage:null,
       color: config.color || '#e0f2fe',
       behavior: config.behavior || {},
       x: player.x + (config.initialOffset?.x ?? randRange(-6,6)),
@@ -11223,13 +11272,18 @@
       }
     };
     follower.update = function(dt, owner){
-      follower.damage = (owner?.damage ?? 1) * follower.damageMultiplier;
+      if(!(dt>0) || !owner || owner.hp<=0)return;
+      follower.echoCooldown=Math.max(0,(follower.echoCooldown || 0)-dt);follower.pickupPose=Math.max(0,(follower.pickupPose || 0)-dt);
+      follower.previousX=follower.x;follower.previousY=follower.y;
+      follower.damage=familiarDamageValue(follower.baseDamage ?? (owner.damage*follower.damageMultiplier),owner);
+      follower.tearSpeed=owner.tearSpeed;follower.tearLife=owner.tearLife;
       let handled = false;
       if(follower.behavior && typeof follower.behavior.update === 'function'){
         handled = follower.behavior.update(follower, owner, dt) === true;
       }
       if(!handled){
-        const target = follower.getDesiredPosition(owner, dt) || {x:follower.x,y:follower.y};
+        const desired=follower.getDesiredPosition(owner,dt) || owner;
+        const target=navigationTarget(follower,desired);
         const toX = target.x - follower.x;
         const toY = target.y - follower.y;
         const dist = Math.hypot(toX, toY);
@@ -11240,6 +11294,8 @@
           follower.y += (toY/dist) * step;
         }
       }
+      constrainActor(follower);
+      follower.motionVx=(follower.x-follower.previousX)/dt;follower.motionVy=(follower.y-follower.previousY)/dt;
       if(follower.behavior && typeof follower.behavior.afterUpdate === 'function'){
         follower.behavior.afterUpdate(follower, owner, dt);
       }
@@ -11251,8 +11307,8 @@
     const sideDir = side==='left' ? -1 : 1;
     return {
       getAnchorPosition(follower, owner){
-        let nx = owner?.moveDir?.x ?? 0;
-        let ny = owner?.moveDir?.y ?? -1;
+        const aim=owner?.getShotInput?.(),direction=aim?.pressed ? {x:aim.dirX,y:aim.dirY}:owner?.moveDir;
+        let nx=direction?.x ?? 0,ny=direction?.y ?? -1;
         const len = Math.hypot(nx, ny);
         if(!(len>1e-4)){
           nx = 0; ny = -1;
@@ -11301,8 +11357,8 @@
         const life = Math.max(0.2, baseLife * (synergy ? Math.max(0.1, synergy.followerRangeMultiplier || 1) : 1));
         let damageValue = damage * (synergy ? Math.max(0.05, synergy.followerDamageMultiplier || 1) : 1);
         if(synergy){ damageValue += synergy.followerDamageAdd || 0; }
-        damageValue = Math.max(0.05, damageValue);
-        const bulletOptions = {homing, homingStrength};
+        damageValue = clamp(damageValue,.05,BALANCE.damage);
+        const bulletOptions = {homing, homingStrength,sourceActor:follower};
         if(synergy){
           const bonus = Math.max(0, synergy.followerHomingStrengthBonus || 0);
           if(bonus>0 || synergy.grantsHoming){
@@ -11313,7 +11369,7 @@
             bulletOptions.homingStrength = Math.max(baseStrength, baseStrength + bonus);
           }
         }
-        follower.shotPose=.25;bulletOptions.launchHeight=28;
+        follower.shotPose=.25;follower.facingX=dx/len;bulletOptions.launchHeight=28;
         runtime.bullets.push(new Bullet(follower.x, follower.y, vx, vy, life, damageValue, bulletOptions));
         follower.fireTimer = actualCooldown;
       }
@@ -11321,7 +11377,7 @@
   }
 
   function createAuntBehavior(){
-    const MAX_CHARGE = 2.2;
+    const MAX_CHARGE = 2;
     const MIN_CHARGE = 0.25;
     const FLASH_INTERVAL = 0.12;
     return {
@@ -11353,7 +11409,7 @@
             state.dir.x = dirX / len;
             state.dir.y = dirY / len;
           }
-          state.charge = Math.min(MAX_CHARGE, state.charge + dt * clamp(CONFIG.player.fireCd/Math.max(1000/BALANCE.fireRate,owner.fireInterval),.4,3));
+          state.charge = Math.min(MAX_CHARGE, state.charge + dt * clamp(CONFIG.player.fireCd/Math.max(1000/BALANCE.fireRate,owner.fireInterval)*(owner.synergyState?.followerFireRateMultiplier || 1),.4,3));
           follower.chargeProgress = clamp(state.charge / MAX_CHARGE, 0, 1);
           state.flash = (state.flash || 0) + dt;
           if(state.flash >= FLASH_INTERVAL){
@@ -11396,14 +11452,16 @@
         const baseWidth = (owner?.r || CONFIG.player.radius || 12) * 1.1;
         const chargeRatio = clamp(payload.chargeProgress || 0, 0, 1);
         const width = baseWidth * (1 + chargeRatio * 0.35);
-        const damageScale = 0.75 + chargeRatio * 0.15;
-        const duration = 1.5 + chargeRatio * 0.2;
-        follower.damage = 1;
+        const damageScale = .75;
+        const duration = .6 + chargeRatio * .9;
+        follower.damage=familiarDamageValue(follower.baseDamage ?? 1,owner);
         const beam = new BrimstoneProjectile(follower, dir, {
           duration,
           tickFrames: 8,
           damageScale,
           width,
+          homing:!!(owner?.synergyState?.grantsHoming || owner?.synergyState?.followerHomingStrengthBonus>0),
+          homingStrength:(owner?.homingStrength || 6)+(owner?.synergyState?.followerHomingStrengthBonus || 0),
         });
         follower.brimstoneBeam = beam;
         follower.shotPose=.35;
@@ -11480,33 +11538,18 @@
         }
         if(follower.collectTarget){
           const target = follower.collectTarget;
-          const dx = target.x - follower.x;
-          const dy = target.y - follower.y;
-          const dist = Math.hypot(dx, dy);
-          const speed = Math.max(60, owner.speed * 0.75);
-          if(dist>1e-3){
-            const step = Math.min(dist, speed * dt);
-            follower.x += (dx/dist) * step;
-            follower.y += (dy/dist) * step;
-          }
-          if(dist <= (follower.r + (target.r || 10) + 2)){
-            const wasteEnabled = true;
-            const result = tryPlayerCollectHeart(target, {allowWaste:wasteEnabled});
-            if(result && result.collected){
-              if(result.consumed){
-                const arr = room.pickups;
-                const idx = arr.indexOf(target);
-                if(idx>=0) arr.splice(idx,1);
-              }
-              if(result.gained || wasteEnabled){
-                follower.collectedHearts = (follower.collectedHearts || 0) + 1;
-                if(follower.collectedHearts >= 3){
-                  spawnCollectorReward(follower);
-                  follower.collectedHearts = 0;
-                }
-              }
+          const waypoint=navigationTarget(follower,target),dx=waypoint.x-follower.x,dy=waypoint.y-follower.y,distance=Math.hypot(dx,dy),speed=Math.max(60,owner.speed*.75);
+          if(distance>.001){const step=Math.min(distance,speed*dt);follower.x+=dx/distance*step;follower.y+=dy/distance*step;}
+          constrainActor(follower);
+          if(dist(follower,target)<=follower.r+(target.r || 10)+2 && !(target.spawnGrace>0)){
+            const index=room.pickups.indexOf(target);
+            if(index>=0){
+              room.pickups.splice(index,1);animateCollectedPickup(target,follower);follower.pickupPose=.4;
+              follower.collectedHearts=(follower.collectedHearts || 0)+1;
+              audio.play('pickupPassive',{volume:.25,x:follower.x});
+              if(follower.collectedHearts>=3){spawnCollectorReward(follower);follower.collectedHearts-=3;}
             }
-            follower.collectTarget = null;
+            follower.collectTarget=null;
           }
           return true;
         }
@@ -11601,6 +11644,7 @@
     player.addFollower({
       slug:'aunt-brimstone',
       name:'大姨妈',
+      baseDamage:1,
       priority:3,
       spacingMultiplier:1.2,
       color:'#fca5a5',
@@ -11639,6 +11683,7 @@
       this.life=life;this.totalLife=life;this.launchHeight=options.launchHeight || 23;
       this.launchSpeed=Math.hypot(vx,vy);this.nominalRange=this.launchSpeed*life;this.visualSeed=(x*13+y*7)%17;
       this.damage=damage;
+      this.sourceActor=options.sourceActor || player;this.familiarKind=options.familiarKind || null;
       this.alive=true;
       this.r=calcTearRadius(damage);
       this.pierceObstacles = !!options.pierce;
@@ -12923,11 +12968,11 @@
       this.homing = !!options.homing;
       const homingDefault = Number.isFinite(options.homingStrength) ? options.homingStrength : (owner?.homingStrength ?? 10);
       this.homingStrength = Math.max(0, homingDefault);
-      this.visualSeed = rand();
+      this.visualSeed = visualRandom();
       this.sparkTimers = {start:0,end:0};
       this.sparkStartInterval = Math.max(0.02, Number(options.sparkStartInterval) || 0.045);
       this.sparkEndInterval = Math.max(0.025, Number(options.sparkEndInterval) || 0.055);
-      this.wobblePhase = rand()*Math.PI*2;
+      this.wobblePhase = visualRandom()*Math.PI*2;
     }
     getWidth(){
       if(Number.isFinite(this.widthOverride)) return this.widthOverride;
@@ -12949,7 +12994,7 @@
       const half = Math.max(4, this.getWidth() * 0.5);
       const damageValue = Math.max(0, (this.owner?.damage ?? 1) * this.damageScale);
       for(const enemy of enemies){
-        if(enemy.dead) continue;
+        if(isPhasedActor(enemy) || enemy.invulnerable || enemy.invuln>0)continue;
         const result = pointSegmentDistance(enemy.x, enemy.y, geom.startX, geom.startY, geom.endX, geom.endY);
         const threshold = half + (enemy.r || 12);
         if(result.distance <= threshold){
@@ -12971,6 +13016,7 @@
       steerNearTarget(proxy,dt,this.homingStrength);this.dir.x=proxy.vx/200;this.dir.y=proxy.vy/200;
     }
     update(dt){
+      if(!(dt>0))return;
       if(!this.owner){ this.finish(); return; }
       this.timer -= dt;
       if(this.owner){
@@ -20137,6 +20183,7 @@
   let dungeon, player;
 
   function startGame(){
+    resetGamePanels();
     runtime.lastRenderedRoom=null;
     overlayManager.clear();
     recentItemHistory.length = 0;
@@ -20854,8 +20901,8 @@
         if(gained && runtime.itemPickupTimer<=0){
           const maxCharge = Math.max(0, player.activeMaxCharge ?? 0);
           const current = Math.min(player.activeCharge, maxCharge);
-          runtime.itemPickupName = '主动道具充能 +1';
-          runtime.itemPickupDesc = maxCharge>0 ? `当前充能：${current}/${maxCharge}` : '能量已存入电容槽。';
+          runtime.itemPickupName = `${player.activeItem.name} · 充能 +1`;
+          runtime.itemPickupDesc = `当前充能：${current}/${maxCharge}${current===maxCharge ? ' · 已就绪':''}`;
           runtime.itemPickupTimer = 1.4;
         }
         room.chargeGranted = true;
@@ -20976,7 +21023,36 @@
     node.innerHTML = markup;
     hudMarkup.set(node, markup);
   }
+  let rosterOwner=null,rosterVersion=-1,resumeAfterRoster=false;
+  function resetGamePanels(){
+    resumeAfterRoster=false;document.getElementById('familiar-panel').open=false;
+    resumeAfterMobileSettings=false;document.getElementById('mobile-drawer').hidden=true;
+    document.body.classList.remove('drawer-open');document.getElementById('mobile-settings').setAttribute('aria-expanded','false');
+  }
+  document.getElementById('familiar-panel').addEventListener('toggle',event=>{
+    if(mobileLayout.active)return;
+    if(event.currentTarget.open && state===STATE.PLAY){resumeAfterRoster=true;togglePause();}
+    else if(!event.currentTarget.open && resumeAfterRoster){if(state===STATE.PAUSE)togglePause();resumeAfterRoster=false;}
+  });
+  function updateFollowerRosterUI(){
+    if(!player)return;
+    const panel=document.getElementById('familiar-roster');
+    if(rosterOwner===player && rosterVersion===player.followerRosterVersion)return;
+    rosterOwner=player;rosterVersion=player.followerRosterVersion;
+    document.getElementById('familiar-summary').textContent=`随从编队 · ${player.followers.length}/${BALANCE.followers} · 候补 ${Math.max(0,player.followerRoster.length-player.followers.length)}`;
+    panel.replaceChildren();
+    if(!player.followerRoster.length){panel.textContent='拾取跟班遗物后，可在这里查看和调整编队。';return;}
+    for(const f of player.followerRoster){
+      const active=player.followers.includes(f),row=document.createElement('div'),name=document.createElement('span'),role=document.createElement('small'),button=document.createElement('button');
+      row.className='familiar-entry';name.textContent=`${f.name}${f.slug==='sister-left' ? ' · 左':f.slug==='sister-right' ? ' · 右':''}`;
+      role.textContent=f.slug==='black-buddy' ? '收集红心，每三枚返还资源':f.slug==='aunt-brimstone' ? '松手释放蓄力光束':['cousin','younger-cousin'].includes(f.slug) ? '自动寻找可攻击目标':'复制泪弹/光束，近战与炸弹化为回声弹';
+      name.append(role);button.type='button';button.textContent=active ? '出战 · 休息':'候补 · 入列';button.disabled=!active && player.followers.length>=BALANCE.followers;
+      button.addEventListener('click',()=>{player.setFollowerActive(f.order,!player.followers.includes(f));updateFollowerRosterUI();button.blur();});
+      row.append(name,button);panel.append(row);
+    }
+  }
   function renderHUD(){
+    updateFollowerRosterUI();
     const redHearts = hudIcon('health-heart','生命').repeat(Math.max(0,Math.floor(player.hp)));
     const emptyHearts = '·'.repeat(Math.max(0, player.maxHp - player.hp));
     const soulDisplay = player.soulHearts>0 ? `<span class="kbd">${hudIcon('ghost','灵魂心')} ${player.soulHearts}</span>` : '';
@@ -21020,7 +21096,7 @@
       const vitals=document.getElementById('mobile-vitals'),text=`♥ ${player.hp}/${player.maxHp}${player.soulHearts ? ` ◇ ${player.soulHearts}`:''} · 炸弹 ${player.bombs} · 钥匙 ${player.keys} · ¢ ${player.coins}`;
       if(vitals.textContent!==text)vitals.textContent=text;
       const activeButton=virtualKbPanel.querySelector('[data-code="Space"]'),bombButton=virtualKbPanel.querySelector('[data-code="KeyE"]');
-      const activeText=player.activeItem ? `${player.activeItem.name}\n${chargeValue}/${maxCharge}` : `主动 ${chargeValue}/${maxCharge}`,bombText=`炸弹 ${player.bombs}`;
+      const activeText=player.activeItem ? `${player.activeItem.name}\n${chargeValue}/${maxCharge}` : '主动\n空槽',bombText=`炸弹 ${player.bombs}`;
       if(activeButton.textContent!==activeText)activeButton.textContent=activeText;
       if(bombButton.textContent!==bombText)bombButton.textContent=bombText;
       activeButton.title=player.activeItem?.name || '主动槽为空';
@@ -21030,7 +21106,7 @@
     }
     const activeName = player.activeItem?.name || '空槽';
     const chargeLabel = maxCharge>0 ? `${chargeValue}/${maxCharge}` : '--';
-    const activeBadge = ready ? `<span class="kbd" style="color:var(--ok)">${hudIcon('crystal-shrine','充能')} 就绪</span>` : `<span class="kbd">${hudIcon('crystal-shrine','充能')} ${chargeLabel}</span>`;
+    const activeBadge = !player.activeItem ? '' : ready ? `<span class="kbd" style="color:var(--ok)">${hudIcon('crystal-shrine','充能')} 就绪</span>` : `<span class="kbd">${hudIcon('crystal-shrine','充能')} ${chargeLabel}</span>`;
     const singleUseItem = player.singleUseItem;
     const singleUseName = singleUseItem?.name || '空槽';
     const singleUseReady = !!(singleUseItem && typeof singleUseItem.use === 'function');
@@ -22303,44 +22379,56 @@
     drawAimIndicator(player);
     ctx.restore();
   }
-  function miniMapLayout(){
-    const rooms=dungeon.allRooms.filter(r=>r.discovered);
-    if(!rooms.length)return null;
+  const miniMapCanvas=document.getElementById('mini-map'),miniMapContext=miniMapCanvas.getContext('2d');
+  let miniMapStamp='',miniMapDungeon=null;
+  function miniMapLayout(width=miniMapCanvas.clientWidth || 168,height=miniMapCanvas.clientHeight || 144){
+    const rooms=dungeon.allRooms.filter(r=>r.discovered);if(!rooms.length)return null;
     const minI=Math.min(...rooms.map(r=>r.i)),maxI=Math.max(...rooms.map(r=>r.i)),minJ=Math.min(...rooms.map(r=>r.j)),maxJ=Math.max(...rooms.map(r=>r.j));
-    const cols=maxJ-minJ+1,rows=maxI-minI+1,cell=Math.min(30,174/cols,142/rows),width=Math.max(156,cols*cell+20),height=rows*cell+60;
-    const x=788-width,y=document.body.classList.contains('touch-mode') ? 62:12;
-    const left=x+(width-cols*cell)/2,top=y+28;
+    const cols=maxJ-minJ+1,rows=maxI-minI+1,footer=height>=126 ? 25:12,top=24,pad=7;
+    const cell=Math.max(.25,Math.min(30,(width-pad*2)/cols,(height-top-footer-pad)/rows)),inset=Math.min(3,cell*.17);
+    const left=(width-cols*cell)/2,gridTop=top+(height-top-footer-rows*cell)/2;
     const nodes=rooms.map(room=>{
-      const cx=left+(room.j-minJ+.5)*cell,cy=top+(room.i-minI+.5)*cell,profile=getRoomProfile(room),scale=(cell-6)/800;
+      const cx=left+(room.j-minJ+.5)*cell,cy=gridTop+(room.i-minI+.5)*cell,profile=getRoomProfile(room),scale=(cell-inset*2)/800;
       return {room,cx,cy,points:profile.vertices.map(v=>({x:cx+(v.x-400)*scale,y:cy+(v.y-300)*scale})),role:roomRole(room),current:room===dungeon.current,visited:room.visited};
     });
-    const links=[];
+    const lookup=new Map(nodes.map(n=>[`${n.room.i},${n.room.j}`,n])),links=[];
     for(const n of nodes)for(const [dir,di,dj] of [['right',0,1],['down',1,0]]){
-      const next=nodes.find(m=>m.room.i===n.room.i+di && m.room.j===n.room.j+dj);
-      if(next && n.room.doors?.[dir])links.push({from:n,to:next});
+      const next=lookup.get(`${n.room.i+di},${n.room.j+dj}`);if(next && n.room.doors?.[dir])links.push({from:n,to:next});
     }
-    return {x,y,width,height,cell,nodes,links};
+    return {x:0,y:0,width,height,cell,nodes,links,footer,temporary:!rooms.includes(dungeon.current)};
   }
   function drawMiniMap(){
+    const visible=!!player && !!dungeon && (state===STATE.PLAY || state===STATE.PAUSE);
+    miniMapCanvas.hidden=!visible;if(!visible)return;
     const map=miniMapLayout();if(!map)return;
-    const {x,y,width,height,cell,nodes,links}=map;
-    ctx.save();ctx.fillStyle='#171910ed';ctx.fillRect(x,y,width,height);ctx.strokeStyle='#967e50';ctx.lineWidth=2;ctx.strokeRect(x+.5,y+.5,width-1,height-1);
-    ctx.fillStyle='#51442c';ctx.fillRect(x+4,y+4,width-8,19);
-    ctx.font='12px Georgia,"Songti SC",serif';ctx.textAlign='left';ctx.fillStyle='#efd5a3';ctx.fillText('地窖手记',x+10,y+18);
-    ctx.font='10px serif';ctx.textAlign='right';ctx.fillStyle='#c4b18b';ctx.fillText(`${nodes.filter(n=>n.visited).length} / ${nodes.length} 已探`,x+width-9,y+18);
-    for(const link of links){ctx.strokeStyle=link.from.visited && link.to.visited ? '#aa9463':'#575b50';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(link.from.cx,link.from.cy);ctx.lineTo(link.to.cx,link.to.cy);ctx.stroke();}
+    const {width,height,cell,nodes,links}=map,scale=RENDER_QUALITIES[renderQuality].scale;
+    const stamp=[width,height,scale,dungeon.current.i,dungeon.current.j,getRoomProfile().key,...nodes.map(n=>`${n.room.i},${n.room.j},${n.visited},${n.room.locked},${n.role},${n.current}`)].join('|');
+    if(miniMapDungeon===dungeon && miniMapStamp===stamp)return;
+    miniMapDungeon=dungeon;miniMapStamp=stamp;
+    miniMapCanvas.width=Math.round(width*scale);miniMapCanvas.height=Math.round(height*scale);
+    const g=miniMapContext;g.setTransform(scale,0,0,scale,0,0);g.clearRect(0,0,width,height);
+    g.fillStyle='rgba(23,25,16,.2)';g.fillRect(0,0,width,height);
+    g.strokeStyle='#bcaa7388';g.lineWidth=1;g.strokeRect(.5,.5,width-1,height-1);
+    g.strokeStyle='#a28b5e66';g.beginPath();g.moveTo(4,19.5);g.lineTo(width-4,19.5);g.stroke();
+    g.font='11px Georgia,"Songti SC",serif';g.textAlign='left';g.fillStyle='#f1dbad';g.fillText(width<125 ? '地窖':'地窖手记',7,14);
+    g.font='9px serif';g.textAlign='right';g.fillStyle='#ddd0ae';g.fillText(map.temporary ? '旁室':`${nodes.filter(n=>n.visited).length}/${nodes.length}`,width-7,14);
+    g.save();g.beginPath();g.rect(3,20,width-6,height-22);g.clip();
+    for(const link of links){g.strokeStyle=link.from.visited && link.to.visited ? '#b6a06e':'#767a68';g.lineWidth=Math.min(1.5,cell*.12);g.beginPath();g.moveTo(link.from.cx,link.from.cy);g.lineTo(link.to.cx,link.to.cy);g.stroke();}
     for(const n of nodes){
       const color=getRoomProfile(n.room).style.color;
-      polygon(n.points,n.current ? '#cdb786':n.visited ? shadeColor(color,-.23):'#343933',n.current ? '#fff0c2':n.visited ? color:'#707568');
-      if(n.current){ctx.strokeStyle='#e8d49e';ctx.lineWidth=1;ctx.strokeRect(n.cx-cell*.48,n.cy-cell*.43,cell*.96,cell*.86);}
+      g.beginPath();n.points.forEach((p,i)=>i ? g.lineTo(p.x,p.y):g.moveTo(p.x,p.y));g.closePath();
+      g.fillStyle=n.current ? '#d8bf85':n.visited ? shadeColor(color,-.2):'#343933';g.fill();
+      g.strokeStyle=n.current ? '#fff0c2':n.visited ? color:'#838776';g.lineWidth=Math.min(1,cell*.1);g.stroke();
+      if(n.current){g.strokeStyle='#f6e3b0';g.lineWidth=1;g.strokeRect(n.cx-cell*.46,n.cy-cell*.42,cell*.92,cell*.84);}
       const key={boss:'skull-mask',item:'mineral-heart',shop:'coins',spike:'bleeding-heart',exchange:'skeleton-key',secret:'eyeball',void:'tentacles-skull',start:'doorway'}[n.role];
-      if(key){const size=Math.max(7,Math.min(12,cell*.5));drawGlyph(ctx,key,n.cx-size/2,n.cy-size/2,size,size,n.visited ? '#fff0c1':'#b6b8a3');}
-      else if(n.current){ctx.fillStyle='#352f20';ctx.fillRect(n.cx-2,n.cy-2,4,4);}
-      if(n.room.locked){ctx.fillStyle='#e0bf77';ctx.fillRect(n.cx+cell*.24,n.cy+cell*.13,3,4);}
+      if(key && cell>=9){const size=Math.min(12,cell*.5);drawGlyph(g,key,n.cx-size/2,n.cy-size/2,size,size,n.visited ? '#fff0c1':'#c8cbb6');}
+      else if(n.current){g.fillStyle='#322f22';g.fillRect(n.cx-Math.min(2,cell*.1),n.cy-Math.min(2,cell*.1),Math.min(4,cell*.2),Math.min(4,cell*.2));}
+      if(n.room.locked && cell>=10){g.fillStyle='#efcc82';g.fillRect(n.cx+cell*.23,n.cy+cell*.14,2,3);}
     }
-    ctx.font='10px serif';ctx.textAlign='left';ctx.fillStyle='#a8aa95';ctx.fillText('亮：走过  暗：相邻待探',x+9,y+height-19);
-    ctx.fillStyle='#e3c795';ctx.fillText(`${getRoomProfile().style.name} · ${getRoomProfile().shape}`,x+9,y+height-6,width-18);
-    ctx.restore();
+    g.restore();g.font='9px Georgia,"Songti SC",serif';g.textAlign='left';g.fillStyle='#f0ddb2';
+    if(map.footer>12){g.fillText('亮：走过  暗：待探',7,height-16,width-14);}
+    g.fillText(map.temporary ? `${getRoomProfile().style.name} · 由返回门离开`:getRoomProfile().style.name,7,height-5,width-14);
+    miniMapCanvas.setAttribute('aria-label',`${getRoomProfile().style.name}；已探索 ${nodes.filter(n=>n.visited).length} 个房间，相邻待探索 ${nodes.filter(n=>!n.visited).length} 个房间`);
   }
 
   function drawBossHealth(){
@@ -23154,7 +23242,47 @@
     const key=actor.archetype || actor.constructor.name.replace('Enemy','').toLowerCase();
     return {shadowecho:'ghost',paradoxshard:'crystal-eye',chaser:'imp',orbiter:'evil-bat',gasbag:'goo-skull',bomber:'unlit-bomb',tinyfly:'dragonfly',elderfly:'fly',spider:'masked-spider',splitter:'slime',volatile:'candle-skull',sentry:'helmet-head-shot',dashling:'rogue',burrower:'mushroom',spark:'crystal-ball',brood:'goblin-head',mirrormimic:'floating-ghost',cutpurse:'cloak-dagger',warper:'ghost',crab:'spiked-shell',rat:'rat',warden:'chest-armor',lantern:'torch',beetle:'flying-beetle'}[key] || 'imp';
   }
+  const creatureSprites=new WeakMap();
+  let creatureSpritePass=false;
+  function drawOutlinedCreature(actor,draw){
+    const point=viewPoint(actor.x,actor.y),hero=actor===player,pose=creaturePose(actor),size=creatureDimensions(actor),scale=RENDER_QUALITIES[renderQuality].scale;
+    const half=hero ? 44:Math.ceil(size.w*1.3+8),above=hero ? 90:Math.ceil(size.h*1.45+creatureLift(actor)+28),width=half*2,height=above+20;
+    const costume=hero ? Object.values(actor.costume || {}).map(slot=>slot?.id || '').join(','):'';
+    const key=[renderQuality,Math.floor(pose.clock*8),pose.frame,pose.band,pose.preparing,pose.attack,pose.hurt,pose.phased,pose.frozen,actor.state,
+      Math.floor((actor.gaitPhase || 0)*1.2)%4,Math.round((actor.motionVx || 0)/60),Math.round((actor.facingX || 0)*4),
+      Math.round((actor.rotation || actor.lockedAngle || 0)*8),Math.ceil(pose.born*8),Math.ceil(getEntitySpawnFade(actor)*8),actor.ifr>0,actor.flying,
+      Math.round(creatureLift(actor)*4),Math.round((actor.plantTimer || 0)*12),Math.round((actor.chargeProgress || 0)*8),actor.pickupPose>0,actor.activePose>0,actor.pickupRelic,actor.activeRelic,
+      actor.cinder>0,actor.mossSlow>0,actor.collectedHearts || 0,hero && actor.hp<=0 ? Math.floor((runtime.playerDeathTime || 0)*5):0,
+      actor.cryptType==='warden' ? Math.round(Math.atan2(player.y-actor.y,player.x-actor.x)*8):0,costume].join('|');
+    let cache=creatureSprites.get(actor);
+    if(!cache){
+      cache={sprite:document.createElement('canvas'),mask:document.createElement('canvas'),outline:document.createElement('canvas')};
+      cache.maskContext=cache.mask.getContext('2d',{willReadFrequently:true});creatureSprites.set(actor,cache);
+    }
+    if(cache.key!==key || cache.width!==width || cache.height!==height){
+      cache.sprite.width=width*scale;cache.sprite.height=height*scale;
+      const original=ctx;ctx=cache.sprite.getContext('2d');ctx.setTransform(scale,0,0,scale,(half-point.x)*scale,(above-point.y)*scale);creatureSpritePass=true;
+      try{draw();}finally{ctx=original;creatureSpritePass=false;}
+      cache.mask.width=cache.outline.width=width;cache.mask.height=cache.outline.height=height;
+      const g=cache.maskContext;g.drawImage(cache.sprite,0,0,width,height);
+      const pixels=g.getImageData(0,0,width,height).data,out=g.createImageData(width,height),data=out.data;
+      // Limit dilation to the visible silhouette, without per-pixel allocations.
+      let minX=width,maxX=0,minY=height,maxY=0;
+      for(let y=1;y<height-1;y++)for(let x=1;x<width-1;x++)if(pixels[(y*width+x)*4+3]>=72){minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);}
+      const row=width*4;
+      for(let y=Math.max(1,minY-1);y<=Math.min(height-2,maxY+1);y++)for(let x=Math.max(1,minX-1);x<=Math.min(width-2,maxX+1);x++){
+        const i=(y*width+x)*4,k=i+3;if(pixels[k]>=72)continue;
+        const alpha=Math.max(pixels[k-4],pixels[k+4],pixels[k-row],pixels[k+row],pixels[k-row-4],pixels[k-row+4],pixels[k+row-4],pixels[k+row+4]);
+        if(alpha<72)continue;data[i]=data[i+1]=data[i+2]=255;data[i+3]=alpha;
+      }
+      cache.outline.getContext('2d').putImageData(out,0,0);cache.key=key;cache.width=width;cache.height=height;
+    }
+    actorShadow(actor);
+    ctx.save();ctx.imageSmoothingEnabled=false;ctx.drawImage(cache.outline,point.x-half,point.y-above,width,height);
+    ctx.imageSmoothingEnabled=renderQuality!=='pixel';ctx.drawImage(cache.sprite,point.x-half,point.y-above,width,height);ctx.restore();
+  }
   function actorShadow(actor){
+    if(creatureSpritePass)return;
     const altitude=Math.max(0,Number(actor.getAltitude?.()) || Number(actor.altitude) || (actor.flying ? .45:0)),r=actor.r || 12;
     ctx.save();groundLayer(()=>{
       ctx.fillStyle=`rgba(6,6,5,${.52-Math.min(.22,altitude*.18)})`;ctx.beginPath();ctx.arc(actor.x,actor.y,r,0,Math.PI*2);ctx.fill();
@@ -23314,7 +23442,7 @@
     };
     const line=(points,color=light,width=1)=>{ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();points.forEach(([x,y],i)=>{const q=at(x,y);i ? ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y);});ctx.stroke();};
     const eyes=(y=.65,spread=.14,size=.045,offsetX=0)=>{
-      const look=clamp(((actor===player ? actor.facingX : actor.motionVx) || 0)/80,-1,1)*.025;
+      const look=clamp(((actor===player || actor.slug ? (actor.facingX || 0)*80 : actor.motionVx) || 0)/80,-1,1)*.025;
       const blink=!preparing && !attack && frame===3 && Math.floor(pose.clock*2)%11===0;
       for(const sign of [-1,1]){const q=at(sign*spread+look+offsetX,y);ctx.fillStyle='#241f1b';ctx.fillRect(q.x-size*w,q.y-size*h,size*w*2,blink ? 1:size*h*2);if(!blink){ctx.fillStyle=preparing ? '#f4b583':'#ead7ad';ctx.fillRect(q.x-size*w,q.y-size*h,Math.max(1,size*w*.6),Math.max(1,size*h*.6));}}
     };
@@ -23524,7 +23652,10 @@
   function drawFollowerDetail(f){
     const pose=creaturePose(f),p=viewPoint(f.x,f.y,12+Math.round(Math.sin(pose.clock*2)*2)),{w,h}=creatureDimensions(f);actorShadow(f);
     ctx.save();ctx.globalAlpha=.7+.3*pose.born;
-    drawCreatureParts(f,p,w,h,pose,true);drawCreatureBody(f,p,w,h,pose);drawCreatureParts(f,p,w,h,pose);ctx.restore();
+    drawCreatureParts(f,p,w,h,pose,true);drawCreatureBody(f,p,w,h,pose);drawCreatureParts(f,p,w,h,pose);
+    if(f.slug==='black-buddy')for(let i=0;i<3;i++){ctx.fillStyle=i<(f.collectedHearts || 0) ? '#e5b29e':'#594d43';ctx.fillRect(p.x-5+i*4,p.y+3,2,2);}
+    if(f.shotPose>0){ctx.fillStyle='#f5dec0';ctx.fillRect(p.x+(f.facingX || 0)*w*.6-1,p.y-h*.55,2,2);}
+    ctx.restore();
   }
   function drawCorpseDetail(c){
     const t=1-c.life/c.ttl,frame=Math.min(5,Math.floor(t*6)),p=viewPoint(c.x,c.y,(c.z || 0)*Math.max(0,1-t*(c.material==='wisp' ? .3:4))),profile=CREATURE_ANIMATIONS[c.profile] || CREATURE_ANIMATIONS.chaser;
@@ -23649,8 +23780,8 @@
     if(p.type==='chest')return 'chest';if(p.type==='heart' && p.kind==='soul')return 'ghost';
     return {heart:'health-heart',soul:'ghost',bomb:'unlit-bomb',key:'skeleton-key',coin:'coins','exchange-supply':'health-potion'}[p.entry?.resource || p.type] || 'crystal-shrine';
   }
-  function animateCollectedPickup(p){
-    (runtime.relicFlights ||= []).push({key:pickupGlyph(p),x:p.x,y:p.y,life:.55,ttl:.55});
+  function animateCollectedPickup(p,targetActor=player){
+    (runtime.relicFlights ||= []).push({key:pickupGlyph(p),x:p.x,y:p.y,targetActor,life:.55,ttl:.55});
     emitRoomDust(p.x,p.y,0,-12,4,'#bfab7d');
   }
   function drawCryptPickup(p){
@@ -23737,7 +23868,12 @@
       ctx.beginPath();ctx.moveTo(p.x-dx*Math.min(3,12/length),p.y-dy*Math.min(3,12/length));ctx.lineTo(p.x,p.y);ctx.stroke();
     }
     if(b.holyAura){ctx.strokeStyle='#dbc78988';ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(p.x,p.y,r*2.5,r*1.8,0,0,Math.PI*2);ctx.stroke();}
-    if(hostile && b.type==='needle'){
+    if(b.familiarKind==='blade'){
+      ctx.translate(p.x,p.y);ctx.rotate(Math.atan2((b.vy || 0)*.72,(b.vx || 0)*.9+(b.vy || 0)*.12));
+      polygon([{x:-8,y:2},{x:10,y:0},{x:-4,y:-3}],color,'#f5ead2');
+    }else if(b.familiarKind==='ember'){
+      ctx.fillStyle='#744b32';ctx.beginPath();ctx.arc(p.x,p.y,r+1,0,Math.PI*2);ctx.fill();ctx.fillStyle=color;ctx.fillRect(p.x-2,p.y-3,4,4);ctx.fillStyle='#ffe0a6';ctx.fillRect(p.x+2,p.y-5,2,2);
+    }else if(hostile && b.type==='needle'){
       ctx.translate(p.x,p.y);ctx.rotate(Math.atan2((b.vy || 0)*.72,(b.vx || 0)*.9+(b.vy || 0)*.12));
       polygon([{x:-r*1.4,y:0},{x:-r*.3,y:-r*.65},{x:r*1.4,y:0},{x:-r*.3,y:r*.65}],color,'#4f332c');
       ctx.fillStyle='#ffe2b0';ctx.fillRect(0,-1,r,2);
@@ -23804,7 +23940,7 @@
     }
     ctx.globalAlpha=1;
     for(const c of runtime.relicFlights || []){
-      const t=Math.floor((1-c.life/c.ttl)*8)/8,point=viewPoint(c.x+(player.x-c.x)*t,c.y+(player.y-c.y)*t,12+t*45);
+      const t=Math.floor((1-c.life/c.ttl)*8)/8,target=c.targetActor || player,point=viewPoint(c.x+(target.x-c.x)*t,c.y+(target.y-c.y)*t,12+t*(target===player ? 45:22));
       ctx.save();ctx.globalAlpha=1-t*.6;drawGlyph(ctx,c.key,point.x-12,point.y-24,24,24,'#ddc58e');ctx.restore();
     }
     for(const c of runtime.chainLinks || []){
@@ -23890,9 +24026,9 @@
     for(const p of dungeon.current.pickups)actors.push({depth:p.y,draw:()=>drawCryptPickup(p)});
     for(const portal of roomPortals(dungeon.current))actors.push({depth:portal.y,draw:()=>drawCryptPortal(portal)});
     for(const b of dungeon.current.bombs)actors.push({depth:b.y,draw:()=>drawCryptBomb(b)});
-    for(const e of dungeon.current.enemies)if(!e.dead)actors.push({depth:e.y,draw:()=>drawCryptActor(e)});
-    for(const f of player.followers || [])actors.push({depth:f.y,draw:()=>drawFollowerDetail(f)});
-    actors.push({depth:player.y,draw:()=>drawCryptActor(player)});
+    for(const e of dungeon.current.enemies)if(!e.dead)actors.push({depth:e.y,draw:()=>drawOutlinedCreature(e,()=>drawCryptActor(e))});
+    for(const f of player.followers || [])actors.push({depth:f.y,draw:()=>drawOutlinedCreature(f,()=>drawFollowerDetail(f))});
+    actors.push({depth:player.y,draw:()=>drawOutlinedCreature(player,()=>drawCryptActor(player))});
     for(const c of runtime.corpses || [])actors.push({depth:c.y-.1,draw:()=>drawCorpseDetail(c)});
     for(const b of runtime.bullets)if(b.alive)actors.push({depth:b.y,draw:()=>drawCryptShot(b)});
     for(const b of runtime.enemyProjectiles){
@@ -23919,7 +24055,7 @@
     beginCryptFrame();
     ctx.fillStyle='#171712';ctx.fillRect(0,0,800,600);drawGlyph(ctx,'crystal-shrine',300,180,200,220,'#4a4938');
     const g=ctx.createRadialGradient(400,300,10,400,300,350);g.addColorStop(0,'#c3954822');g.addColorStop(1,'#00000088');ctx.fillStyle=g;ctx.fillRect(0,0,800,600);
-    updateNearbyInfo();audio.setScene?.(false,false);
+    drawMiniMap();updateNearbyInfo();audio.setScene?.(false,false);
   }
 
   // Shared physical clearance; the grid is for reachability, never a movement snap.
@@ -24129,7 +24265,7 @@
     for(const [key,value] of [['unlit-bomb',player.bombs],['skeleton-key',player.keys],['coins',player.coins]]){drawGlyph(ctx,key,x,558,13,13,'#c7b281');ctx.fillText(String(value),x+16,570);x+=47;}
     const max=Math.max(0,player.activeMaxCharge || 0),charge=Math.min(max,player.activeCharge || 0),active=player.activeItem?.name || '空槽',card=player.singleUseItem?.name || '空槽';
     const activeKey=padInput.index===null ? 'Space':'X',cardKey=padInput.index===null ? 'Q':'Y';
-    ctx.fillStyle='#b9ae91';ctx.font='11px serif';ctx.fillText(`${activeKey} · ${active} ${charge}/${max}     ${cardKey} · ${card}`,17,584);ctx.restore();
+    ctx.fillStyle='#b9ae91';ctx.font='11px serif';ctx.fillText(`${activeKey} · ${active}${player.activeItem ? ` ${charge}/${max}`:''}     ${cardKey} · ${card}`,17,584);ctx.restore();
   }
 
   function followerChargeFeedback(f){
@@ -24202,6 +24338,7 @@
     if(virtualKbPanel.parentElement!==document.querySelector('.wrap'))document.querySelector('.wrap').append(virtualKbPanel);
     const zoom=document.getElementById('view-zoom'),toolbar=document.getElementById('mobile-toolbar');
     if(zoom.parentElement!==toolbar)toolbar.prepend(zoom);
+    if(miniMapCanvas.parentElement!==document.querySelector('.wrap'))document.querySelector('.wrap').append(miniMapCanvas);
     const drawer=document.getElementById('mobile-drawer-content');
     const quality=document.querySelector('.render-settings');if(quality.parentElement!==drawer)drawer.prepend(quality);
     if(!drawer.querySelector('.sound-settings'))for(const node of document.querySelectorAll('.wrap>details,.wrap>footer'))drawer.append(node);
