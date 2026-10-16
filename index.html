@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>简易以撒-like</title>
   <style>
     :root{
@@ -187,10 +187,73 @@
     @media(max-width:720px){.canvas-wrap{width:100%;min-width:0}#nearby-info{left:6px;top:6px;padding:6px;font-size:12px;width:49%}#nearby-info strong{font-size:14px}.nearby-action{font-size:11px}.view-tools button{font-size:11px;padding:4px}.title{font-size:14px}}
     @media(orientation:landscape) and (max-height:600px) and (pointer:coarse){.canvas-wrap{width:min(calc((100dvh - 86px)*4/3),calc(100vw - 300px));min-width:0;margin:0}.title #pad-status{display:none}#nearby-info{font-size:11px;width:49%;max-height:70%;overflow:hidden}.nearby-description{max-height:4.5em;overflow:hidden}}
 
+    /* Touch play uses the whole available viewport, with independent thumb zones. */
+    #mobile-toolbar,#mobile-vitals,#mobile-toast,#mobile-drawer{display:none}
+    body.touch-mode{overflow:hidden;overscroll-behavior:none;background:#100f0b}
+    body.touch-mode .wrap{position:fixed;inset:0 auto auto 0;width:var(--touch-width);height:var(--touch-height);max-width:none;margin:0;padding:0;overflow:hidden;transform-origin:0 0;background:#15150e;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+    body.touch-mode.touch-portrait .wrap{transform:translateX(var(--touch-height)) rotate(90deg)}
+    body.touch-mode{--touch-left:max(8px,env(safe-area-inset-left));--touch-right:max(8px,env(safe-area-inset-right));--touch-top:max(5px,env(safe-area-inset-top));--touch-bottom:max(5px,env(safe-area-inset-bottom));--touch-key:clamp(40px,calc(var(--touch-height)*.13),56px)}
+    body.touch-mode.touch-portrait{--touch-left:max(8px,env(safe-area-inset-top));--touch-right:max(8px,env(safe-area-inset-bottom));--touch-top:max(5px,env(safe-area-inset-right));--touch-bottom:max(5px,env(safe-area-inset-left))}
+    body.touch-mode .wrap> :not(.canvas-wrap):not(#virtual-kb):not(#mobile-toolbar):not(#mobile-vitals):not(#mobile-toast):not(#mobile-drawer){display:none}
+    body.touch-mode .canvas-wrap{position:absolute;top:0;left:50%;transform:translateX(-50%);width:min(calc(var(--touch-width) - var(--touch-left) - var(--touch-right)),calc((var(--touch-height) - 38px)*4/3));height:auto;min-width:0;margin:0;border:2px ridge #716044;aspect-ratio:4/3}
+    body.touch-mode .canvas-wrap canvas{touch-action:none;-webkit-touch-callout:none}
+    body.touch-mode .view-tools{right:5px;bottom:7px;z-index:3}
+    body.touch-mode #view-fullscreen{display:none}
+    body.touch-mode #view-zoom{font-size:10px;padding:3px 6px}
+    body.touch-mode #nearby-info{left:5px;top:34px;width:54%;padding:5px;font-size:11px;max-height:40%;overflow:hidden}
+    body.touch-mode #nearby-info strong{font-size:13px}
+    body.touch-mode .nearby-description{max-height:3em;overflow:hidden}
+    body.touch-mode .nearby-action{font-size:10px}
+    body.touch-mode .overlay{padding:36px 12px 20px;z-index:8}
+    body.touch-mode .card{max-width:360px;max-height:calc(var(--touch-height) - 90px);overflow:auto;padding:12px 16px;touch-action:pan-y}
+    body.touch-mode .card h2{font-size:20px;padding-bottom:5px;margin-bottom:6px}
+    body.touch-mode .card p{font-size:12px;line-height:1.5;margin:6px 0}
+    body.touch-mode #menu .card ul{display:none}
+    body.touch-mode .card .btn{min-height:42px;margin-top:5px;padding:7px 15px}
+    body.touch-mode .virtual-kb{display:block;position:absolute;inset:0;width:100%;height:100%;min-width:0;max-width:none;max-height:none;transform:none;overflow:visible;padding:0;border:0;background:none;box-shadow:none;pointer-events:none;z-index:20}
+    body.touch-mode .virtual-kb-cluster{display:contents}
+    body.touch-mode .virtual-kb-block{position:absolute;bottom:calc(var(--touch-bottom) + 6px);width:calc(var(--touch-key)*3 + 8px);gap:4px;pointer-events:auto;touch-action:none}
+    body.touch-mode .virtual-kb-block[data-type="movement"]{left:var(--touch-left)}
+    body.touch-mode .virtual-kb-block[data-type="arrows"]{right:var(--touch-right)}
+    body.touch-mode .virtual-kb-block::before{position:absolute;left:0;right:0;bottom:calc(100% + 5px);text-align:center;color:#ad9a75;font-size:11px;letter-spacing:3px;pointer-events:none}
+    body.touch-mode .virtual-kb-block[data-type="movement"]::before{content:'移动'}
+    body.touch-mode .virtual-kb-block[data-type="arrows"]::before{content:'攻击'}
+    body.touch-mode .virtual-kb-row{gap:4px}
+    body.touch-mode .virtual-kb button{height:var(--touch-key);min-height:0;min-width:0;padding:0;font-size:22px;line-height:1;pointer-events:auto;touch-action:none;transition:none;opacity:.88;-webkit-tap-highlight-color:transparent}
+    body.touch-mode .virtual-kb-block[data-type="movement"] button{background:linear-gradient(#535d43,#2b3426)!important;border-color:#939775!important}
+    body.touch-mode .virtual-kb-block[data-type="arrows"] button{background:linear-gradient(#79593e,#422c24)!important;border-color:#b5956b!important}
+    body.touch-mode .virtual-kb button.active{opacity:1;background:#9a8150!important;border-color:#f0d6a0!important;box-shadow:inset 0 0 0 2px #dbc18d;transform:none}
+    body.touch-mode .virtual-kb-row[data-type="actions"]{position:absolute;bottom:var(--touch-bottom);left:50%;transform:translateX(-50%);grid-template-columns:repeat(4,1fr);width:clamp(236px,calc(var(--touch-width)*.32),288px);gap:5px}
+    body.touch-mode .virtual-kb-row[data-type="actions"] button{height:44px;font-size:11px;line-height:1.2;padding:3px;white-space:pre-line}
+    body.touch-mode .virtual-kb-row[data-type="system"]{position:absolute;top:var(--touch-top);left:var(--touch-left);grid-template-columns:52px 52px 78px;gap:4px}
+    body.touch-mode .virtual-kb-row[data-type="system"] button{height:32px;font-size:11px;padding:2px}
+    body.touch-mode #mobile-toolbar{gap:5px;position:absolute;top:var(--touch-top);right:var(--touch-right);display:flex;z-index:25}
+    #mobile-fullscreen,#mobile-settings,#mobile-drawer-close{height:34px;min-width:96px;padding:4px 10px;border:2px outset #b39663;background:linear-gradient(#675338,#342b1f);color:#f1dcad;font:13px Georgia,'Songti SC',serif;touch-action:manipulation;-webkit-touch-callout:none}
+    body.touch-mode #mobile-vitals{position:absolute;top:calc(var(--touch-top) + 3px);left:50%;transform:translateX(-50%);display:block;max-width:calc(var(--touch-width) - 410px);padding:4px 7px;background:#1b1d13df;border:1px solid #756445;color:#e9c999;font-size:11px;white-space:nowrap;pointer-events:none;z-index:12}
+    #mobile-settings{min-width:48px;padding:4px 7px}
+    #mobile-toolbar #view-zoom{height:34px;min-width:68px;padding:4px 6px;border:2px outset #9b8357;background:linear-gradient(#574c34,#302a1e);color:#e8d4ab;font:11px Georgia,'Songti SC',serif;touch-action:manipulation}
+    body.touch-mode.touch-compact #mobile-vitals{top:40px;max-width:calc(var(--touch-width) - 220px)}
+    body.touch-mode.touch-compact #nearby-info{top:66px}
+    body.touch-mode #mobile-drawer:not([hidden]){display:block;position:absolute;inset:var(--touch-top) var(--touch-right) var(--touch-bottom) var(--touch-left);padding:12px;background:#242116fa;border:3px double #aa8e5c;z-index:40;overflow:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}
+    #mobile-drawer-close{position:sticky;top:0;float:right;z-index:1;margin-bottom:8px;min-width:100px}
+    #mobile-drawer-content{clear:both}
+    #mobile-drawer-content details{margin:8px 0;padding:10px}
+    #mobile-drawer-content .codex-grid{max-height:none}
+    #mobile-drawer input[type="range"]{touch-action:pan-x}
+    body.touch-mode.drawer-open #virtual-kb,body.touch-mode.drawer-open #mobile-toolbar,body.touch-mode.drawer-open #mobile-vitals{visibility:hidden}
+    .touch-help{display:none}
+    body.touch-mode .touch-help{display:block}
+    body.touch-mode #paused .desktop-help{display:none}
+    body.touch-mode #mobile-toast:not([hidden]){position:absolute;top:47px;left:50%;transform:translateX(-50%);display:block;width:min(340px,65%);padding:7px 10px;border:1px solid #ab8d57;background:#282315f5;color:#e7d4ac;font-size:12px;text-align:center;z-index:30;pointer-events:none}
+
   </style>
 </head>
 <body>
   <div class="wrap">
+    <div id="mobile-toolbar"><button id="mobile-settings" type="button" aria-controls="mobile-drawer" aria-expanded="false">设置</button><button id="mobile-fullscreen" type="button" aria-label="一键全屏并锁定横向">⛶ 一键全屏</button></div>
+    <div id="mobile-drawer" role="dialog" aria-modal="true" aria-label="行囊、图鉴与设置" hidden><button id="mobile-drawer-close" type="button">返回游戏</button><div id="mobile-drawer-content"></div></div>
+    <div id="mobile-vitals" aria-label="生命与资源"></div>
+    <div id="mobile-toast" role="status" hidden></div>
     <header>
       <div class="title">尘封地窖 · THE UNDERCROFT <small id="pad-status">手柄：未连接</small></div>
       <div class="badge">WASD 移动 · 方向键射击 · E 放置炸弹 · F 领取 / 购买 / 献祭 · Q 释放卡牌 · Space 主动道具 · 回车开始 · P 暂停 · R 重开 · 记得深呼吸</div>
@@ -203,6 +266,7 @@
         <div class="card">
           <h2>尘封地窖</h2>
           <p>潮湿石阶的尽头，只剩下一盏灯。拾起旧日遗物，穿过不断变化的地窖；清空敌人后，石门才会开启。</p>
+          <p class="touch-help">左手移动，右手攻击；按住并滑动可斜向操作，底部按钮使用道具。</p>
           <ul>
             <li><b>W/A/S/D</b> 移动，<b>↑/↓/←/→</b> 射击 · <b>Space</b> 主动 · <b>Q</b> 卡牌</li>
             <li><b>F / 手柄 A</b> 领取道具、购买、献祭；手柄左杆移动，右杆射击，B/LB 炸弹，X/RB 主动，Y 卡牌，Start 暂停。</li>
@@ -214,7 +278,8 @@
       <div class="overlay" id="paused">
         <div class="card">
           <h2>旅途暂歇</h2>
-          <p>按 <b>P</b> 继续。关卡在原地等你，敌人也在发呆。</p>
+          <p class="desktop-help">按 <b>P</b> 继续。关卡在原地等你，敌人也在发呆。</p>
+          <p class="touch-help">点左上角「暂停/继续」返回地窖。</p>
         </div>
       </div>
       <div class="overlay" id="gameover">
@@ -3736,144 +3801,58 @@
 
   function createVirtualKeyboard({panel, toggle, onKeyDown, onKeyUp}){
     if(!panel || !toggle || typeof onKeyDown !== 'function' || typeof onKeyUp !== 'function') return null;
-    const layout = [
-      {
-        type:'cluster',
-        columns:[
-          {
-            type:'movement',
-            rows:[
-              [null,{label:'W', code:'KeyW', hold:true},null],
-              [
-                {label:'A', code:'KeyA', hold:true},
-                {label:'S', code:'KeyS', hold:true},
-                {label:'D', code:'KeyD', hold:true},
-              ],
-            ],
-          },
-          {
-            type:'arrows',
-            rows:[
-              [null,{label:'↑', code:'ArrowUp', hold:true},null],
-              [
-                {label:'←', code:'ArrowLeft', hold:true},
-                {label:'↓', code:'ArrowDown', hold:true},
-                {label:'→', code:'ArrowRight', hold:true},
-              ],
-            ],
-          },
-        ],
-      },
-      {
-        type:'actions',
-        rows:[[
-          {label:'E', code:'KeyE', tap:true},
-          {label:'F', code:'KeyF', tap:true},
-          {label:'Q 卡牌', code:'KeyQ', tap:true},
-          {label:'Space 主动', code:'Space', tap:true},
-        ]],
-      },
-      {
-        type:'system',
-        rows:[[
-          {label:'开始', code:'Enter', tap:true, className:'small'},
-          {label:'重开', code:'KeyR', tap:true, className:'small'},
-          {label:'暂停', code:'KeyP', tap:true, className:'small'},
-        ]],
-      },
+    const layout=[
+      {columns:[
+        {type:'movement',rows:[[null,{label:'↑',code:'KeyW',hold:true},null],[{label:'←',code:'KeyA',hold:true},null,{label:'→',code:'KeyD',hold:true}],[null,{label:'↓',code:'KeyS',hold:true},null]]},
+        {type:'arrows',rows:[[null,{label:'↑',code:'ArrowUp',hold:true},null],[{label:'←',code:'ArrowLeft',hold:true},null,{label:'→',code:'ArrowRight',hold:true}],[null,{label:'↓',code:'ArrowDown',hold:true},null]]}
+      ]},
+      {type:'actions',rows:[[{label:'炸弹',code:'KeyE'},{label:'领取',code:'KeyF'},{label:'卡牌',code:'KeyQ'},{label:'主动',code:'Space'}]]},
+      {type:'system',rows:[[{label:'开始',code:'Enter'},{label:'重开',code:'KeyR'},{label:'暂停/继续',code:'KeyP'}]]}
     ];
-
     panel.innerHTML = '';
-    const activeHoldButtons = new Map();
-    const pointerHold = new Map();
-
-    function createRow(row, type){
-      const rowEl = document.createElement('div');
-      rowEl.className = 'virtual-kb-row';
-      if(type) rowEl.dataset.type = type;
+    const activeHoldButtons=new Map(),pointerHold=new Map();
+    const labels={KeyW:'移动：上',KeyA:'移动：左',KeyS:'移动：下',KeyD:'移动：右',ArrowUp:'攻击：上',ArrowLeft:'攻击：左',ArrowDown:'攻击：下',ArrowRight:'攻击：右',KeyE:'放置炸弹',KeyF:'领取、购买或献祭',KeyQ:'释放卡牌',Space:'使用主动道具',Enter:'开始',KeyR:'重新开始',KeyP:'暂停或继续'};
+    function syncHeldKeys(){
+      const wanted=new Set([...pointerHold.values()].flatMap(pointer=>[...pointer.codes]));
+      for(const [code,button] of activeHoldButtons)if(!wanted.has(code)){onKeyUp(code);button.classList.remove('active');activeHoldButtons.delete(code);}
+      for(const code of wanted)if(!activeHoldButtons.has(code)){
+        const button=panel.querySelector(`[data-code="${code}"]`);activeHoldButtons.set(code,button);button?.classList.add('active');onKeyDown(code);
+      }
+    }
+    function releaseAll(){
+      pointerHold.clear();syncHeldKeys();
+      for(const button of panel.querySelectorAll('button.active'))button.classList.remove('active');
+    }
+    function dragDirections(event,pointer){
+      const box=pointer.block.getBoundingClientRect();
+      let x=(event.clientX-box.left-box.width/2)/(box.width/2),y=(event.clientY-box.top-box.height/2)/(box.height/2);
+      if(document.body.classList.contains('touch-portrait'))[x,y]=[y,-x];
+      const codes=new Set(),vertical=pointer.type==='movement' ? ['KeyW','KeyS']:['ArrowUp','ArrowDown'],horizontal=pointer.type==='movement' ? ['KeyA','KeyD']:['ArrowLeft','ArrowRight'];
+      if(Math.abs(x)<=1.3 && Math.abs(y)<=1.3 && Math.hypot(x,y)>.23){
+        if(Math.abs(x)>Math.abs(y)*.42)codes.add(horizontal[x<0 ? 0:1]);
+        if(Math.abs(y)>Math.abs(x)*.42)codes.add(vertical[y<0 ? 0:1]);
+      }
+      pointer.codes=codes;syncHeldKeys();
+    }
+    function createRow(row,type){
+      const rowEl=document.createElement('div');rowEl.className='virtual-kb-row';rowEl.dataset.type=type || '';
       for(const key of row){
-        if(!key){
-          const spacer = document.createElement('div');
-          spacer.className = 'virtual-kb-spacer';
-          rowEl.appendChild(spacer);
-          continue;
-        }
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.textContent = key.label;
-        btn.dataset.code = key.code;
-        if(key.className) btn.classList.add(key.className);
-        if(key.span){ btn.style.gridColumn = `span ${key.span}`; }
-        btn.addEventListener('selectstart', (e)=> e.preventDefault());
-        btn.addEventListener('contextmenu', (e)=> e.preventDefault());
-        btn.addEventListener('pointerdown', (e)=>{
-          e.preventDefault();
-          btn.setPointerCapture?.(e.pointerId);
-          if(key.hold){
-            if(!activeHoldButtons.has(key.code)){
-              onKeyDown(key.code);
-            }
-            btn.classList.add('active');
-            activeHoldButtons.set(key.code, btn);
-            pointerHold.set(e.pointerId, key.code);
-          } else {
-            onKeyDown(key.code);
-            btn.classList.add('active');
-            setTimeout(()=>{
-              btn.classList.remove('active');
-            }, 120);
-            setTimeout(()=>{
-              onKeyUp(key.code);
-            }, 50);
-          }
+        if(!key){const spacer=document.createElement('div');spacer.className='virtual-kb-spacer';rowEl.append(spacer);continue;}
+        const btn=document.createElement('button');btn.type='button';btn.textContent=key.label;btn.dataset.code=key.code;btn.setAttribute('aria-label',labels[key.code]);btn.title=labels[key.code];
+        if(!key.hold)btn.classList.add('small');
+        btn.addEventListener('pointerdown',event=>{
+          if(event.button!==0)return;event.preventDefault();audio.unlock();
+          try{btn.setPointerCapture(event.pointerId);}catch{}
+          if(key.hold){pointerHold.set(event.pointerId,{codes:new Set([key.code]),block:btn.closest('.virtual-kb-block'),type});syncHeldKeys();}
+          else{btn.classList.add('active');onKeyDown(key.code);onKeyUp(key.code);}
         });
-        btn.addEventListener('click', (e)=>{
-          if(e.detail!==0) return;
-          onKeyDown(key.code);
-          onKeyUp(key.code);
-        });
-        const end = (e)=>{
-          if(!pointerHold.has(e.pointerId)) return;
-          const code = pointerHold.get(e.pointerId);
-          pointerHold.delete(e.pointerId);
-          releaseHold(code);
-        };
-        btn.addEventListener('pointerup', end);
-        btn.addEventListener('pointercancel', end);
-        btn.addEventListener('lostpointercapture', (e)=>{
-          if(pointerHold.has(e.pointerId)){
-            const code = pointerHold.get(e.pointerId);
-            pointerHold.delete(e.pointerId);
-            releaseHold(code);
-          }
-        });
-        btn.addEventListener('pointerleave', (e)=>{
-          if(pointerHold.has(e.pointerId)){
-            const code = pointerHold.get(e.pointerId);
-            pointerHold.delete(e.pointerId);
-            releaseHold(code);
-          }
-        });
-        rowEl.appendChild(btn);
+        btn.addEventListener('pointermove',event=>{const pointer=pointerHold.get(event.pointerId);if(pointer){event.preventDefault();dragDirections(event,pointer);}});
+        const end=event=>{pointerHold.delete(event.pointerId);syncHeldKeys();if(!key.hold)btn.classList.remove('active');};
+        for(const name of ['pointerup','pointercancel','lostpointercapture'])btn.addEventListener(name,end);
+        btn.addEventListener('click',event=>{if(event.detail!==0)return;onKeyDown(key.code);onKeyUp(key.code);});
+        rowEl.append(btn);
       }
       return rowEl;
-    }
-
-    function releaseHold(code){
-      if(!code) return;
-      onKeyUp(code);
-      const btn = activeHoldButtons.get(code);
-      if(btn){
-        btn.classList.remove('active');
-        activeHoldButtons.delete(code);
-      }
-    }
-
-    function releaseAll(){
-      for(const code of Array.from(activeHoldButtons.keys())){
-        releaseHold(code);
-      }
-      pointerHold.clear();
     }
 
     for(const section of layout){
@@ -3903,6 +3882,7 @@
     panel.addEventListener('contextmenu', (e)=> e.preventDefault());
 
     function hide(){
+      if(document.body.classList.contains('touch-mode')){show();return;}
       panel.classList.remove('show');
       panel.setAttribute('aria-hidden', 'true');
       toggle.classList.remove('active');
@@ -20918,6 +20898,18 @@
     const maxCharge = Math.max(0, player.activeMaxCharge ?? 0);
     const chargeValue = clamp(Math.floor(player.activeCharge ?? 0), 0, maxCharge);
     const ready = maxCharge>0 && chargeValue >= maxCharge && player.activeItem && typeof player.activeItem.use === 'function';
+    if(document.body.classList.contains('touch-mode')){
+      const vitals=document.getElementById('mobile-vitals'),text=`♥ ${player.hp}/${player.maxHp}${player.soulHearts ? ` ◇ ${player.soulHearts}`:''} · 炸弹 ${player.bombs} · 钥匙 ${player.keys} · ¢ ${player.coins}`;
+      if(vitals.textContent!==text)vitals.textContent=text;
+      const activeButton=virtualKbPanel.querySelector('[data-code="Space"]'),bombButton=virtualKbPanel.querySelector('[data-code="KeyE"]');
+      const activeText=player.activeItem ? `${player.activeItem.name}\n${chargeValue}/${maxCharge}` : `主动 ${chargeValue}/${maxCharge}`,bombText=`炸弹 ${player.bombs}`;
+      if(activeButton.textContent!==activeText)activeButton.textContent=activeText;
+      if(bombButton.textContent!==bombText)bombButton.textContent=bombText;
+      activeButton.title=player.activeItem?.name || '主动槽为空';
+      const cardButton=virtualKbPanel.querySelector('[data-code="KeyQ"]'),cardText=player.singleUseItem ? `${player.singleUseItem.name}\n卡牌`:'卡牌';
+      if(cardButton.textContent!==cardText)cardButton.textContent=cardText;
+      cardButton.title=player.singleUseItem?.name || '卡牌槽为空';
+    }
     const activeName = player.activeItem?.name || '空槽';
     const chargeLabel = maxCharge>0 ? `${chargeValue}/${maxCharge}` : '--';
     const activeBadge = ready ? `<span class="kbd" style="color:var(--ok)">${hudIcon('crystal-shrine','充能')} 就绪</span>` : `<span class="kbd">${hudIcon('crystal-shrine','充能')} ${chargeLabel}</span>`;
@@ -23723,7 +23715,7 @@
     panel.dataset.trade=String(p.type==='life-trade');
   }
   function drawPlayerVitals(){
-    if(!player)return;
+    if(!player || document.body.classList.contains('touch-mode'))return;
     ctx.save();ctx.fillStyle='#1a1c13ed';ctx.fillRect(10,554,530,36);ctx.strokeStyle='#746344';ctx.strokeRect(10.5,554.5,530,36);
     for(let i=0;i<player.maxHp;i++){ctx.globalAlpha=i<player.hp ? 1:.2;drawGlyph(ctx,'health-heart',17+i*13,559,12,12,'#d9b08b');}ctx.globalAlpha=1;
     let x=27+player.maxHp*13;
@@ -23771,11 +23763,88 @@
   document.getElementById('view-zoom').addEventListener('click',e=>{
     cryptCamera.zoom=cryptCamera.zoom>1 ? 1:1.3;cryptCamera.room=null;e.currentTarget.textContent=cryptCamera.zoom>1 ? '视角：近景':'视角：全景';e.currentTarget.blur();
   });
-  document.getElementById('view-fullscreen').addEventListener('click',async e=>{
-    const button=e.currentTarget;
-    try{if(document.fullscreenElement)await document.exitFullscreen();else await (matchMedia('(pointer:coarse)').matches ? document.documentElement : document.querySelector('.canvas-wrap')).requestFullscreen();}catch{button.textContent='浏览器不支持全屏';}button.blur();
+  const mobileLayout={active:false,portrait:false,width:0,height:0};
+  const touchMedia=matchMedia('(pointer:coarse)');
+  function updateMobileLayout(forceTouch=false){
+    const active=forceTouch || mobileLayout.active || touchMedia.matches;
+    if(!active)return;
+    const width=Math.round(window.visualViewport?.width || innerWidth),height=Math.round(window.visualViewport?.height || innerHeight);
+    const portrait=height>width,changed=!mobileLayout.active || portrait!==mobileLayout.portrait || width!==mobileLayout.width || height!==mobileLayout.height;
+    mobileLayout.active=true;mobileLayout.portrait=portrait;mobileLayout.width=width;mobileLayout.height=height;
+    document.body.classList.add('touch-mode');document.body.classList.toggle('touch-portrait',portrait);
+    document.body.classList.toggle('touch-compact',Math.max(width,height)<760);
+    document.documentElement.style.setProperty('--touch-width',`${Math.max(width,height)}px`);
+    document.documentElement.style.setProperty('--touch-height',`${Math.min(width,height)}px`);
+    if(virtualKbPanel.parentElement!==document.querySelector('.wrap'))document.querySelector('.wrap').append(virtualKbPanel);
+    const zoom=document.getElementById('view-zoom'),toolbar=document.getElementById('mobile-toolbar');
+    if(zoom.parentElement!==toolbar)toolbar.prepend(zoom);
+    const drawer=document.getElementById('mobile-drawer-content');
+    if(!drawer.children.length)for(const node of document.querySelectorAll('.wrap>details,.wrap>footer'))drawer.append(node);
+    virtualKeyboard.show();
+    if(changed)releaseAllInput();
+  }
+  let resumeAfterMobileSettings=false;
+  document.getElementById('mobile-settings').addEventListener('click',()=>{
+    resumeAfterMobileSettings=state===STATE.PLAY;
+    if(resumeAfterMobileSettings)togglePause();else releaseAllInput();
+    document.getElementById('mobile-drawer').hidden=false;document.body.classList.add('drawer-open');
+    document.getElementById('mobile-settings').setAttribute('aria-expanded','true');
+    document.getElementById('mobile-drawer-close').focus({preventScroll:true});
   });
-  document.addEventListener('fullscreenchange',()=>{document.getElementById('view-fullscreen').textContent=document.fullscreenElement ? '退出全屏':'全屏';});
+  document.getElementById('mobile-drawer-close').addEventListener('click',()=>{
+    document.getElementById('mobile-drawer').hidden=true;document.body.classList.remove('drawer-open');
+    document.getElementById('mobile-settings').setAttribute('aria-expanded','false');
+    if(resumeAfterMobileSettings && state===STATE.PAUSE)togglePause();
+    resumeAfterMobileSettings=false;document.getElementById('mobile-settings').focus({preventScroll:true});
+  });
+  let mobileToastTimer;
+  function mobileNotice(message){
+    if(!mobileLayout.active)return;
+    const node=document.getElementById('mobile-toast');node.textContent=message;node.hidden=false;
+    clearTimeout(mobileToastTimer);mobileToastTimer=setTimeout(()=>{node.hidden=true;},3500);
+  }
+  async function lockMobileLandscape(){
+    if(!mobileLayout.active)return;
+    try{await screen.orientation?.lock?.('landscape');}catch{}
+    updateMobileLayout();
+  }
+  function syncFullscreenButtons(){
+    const full=!!(document.fullscreenElement || document.webkitFullscreenElement);
+    document.getElementById('view-fullscreen').textContent=full ? '退出全屏':'全屏';
+    document.getElementById('mobile-fullscreen').textContent=full ? '⛶ 退出全屏':'⛶ 一键全屏';
+  }
+  async function toggleGameFullscreen(event){
+    const button=event.currentTarget;releaseAllInput();
+    try{
+      if(document.fullscreenElement || document.webkitFullscreenElement){
+        const exit=document.exitFullscreen || document.webkitExitFullscreen;if(exit)await exit.call(document);
+        try{screen.orientation?.unlock?.();}catch{}
+      }else{
+        const target=mobileLayout.active ? document.documentElement:document.querySelector('.canvas-wrap');
+        const request=target.requestFullscreen || target.webkitRequestFullscreen;
+        if(!request)throw new Error('fullscreen unavailable');
+        await request.call(target);await lockMobileLandscape();
+      }
+    }catch{
+      updateMobileLayout();mobileNotice('已使用横向沉浸布局；此浏览器无法隐藏系统栏。');
+      if(!mobileLayout.active)button.textContent='浏览器不支持全屏';
+    }
+    syncFullscreenButtons();button.blur();
+  }
+  for(const id of ['view-fullscreen','mobile-fullscreen'])document.getElementById(id).addEventListener('click',toggleGameFullscreen);
+  for(const name of ['fullscreenchange','webkitfullscreenchange'])document.addEventListener(name,()=>{syncFullscreenButtons();updateMobileLayout();});
+  window.addEventListener('resize',()=>updateMobileLayout());
+  window.visualViewport?.addEventListener('resize',()=>updateMobileLayout());
+  screen.orientation?.addEventListener?.('change',()=>{releaseAllInput();updateMobileLayout();});
+  touchMedia.addEventListener?.('change',()=>updateMobileLayout());
+  window.addEventListener('pointerdown',event=>{if(event.pointerType==='touch' && !mobileLayout.active)updateMobileLayout(true);},{capture:true});
+  document.getElementById('startBtn').addEventListener('click',()=>{if(mobileLayout.active)lockMobileLandscape();});
+  for(const name of ['contextmenu','selectstart','dragstart'])document.querySelector('.wrap').addEventListener(name,event=>{
+    if(mobileLayout.active || event.target.closest('#game,#virtual-kb'))event.preventDefault();
+  });
+  for(const name of ['touchstart','touchmove'])canvas.addEventListener(name,event=>event.preventDefault(),{passive:false});
+  document.addEventListener('gesturestart',event=>{if(mobileLayout.active)event.preventDefault();},{passive:false});
+  updateMobileLayout();
   // ======= 入口 =======
   function showStart(){ showMenu(); lastTime = performance.now(); }
   showStart();
