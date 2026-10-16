@@ -319,22 +319,22 @@
       speed: 90,
       spawnMin: 3, spawnMax: 6,
       maxPerRoom: 5,
-      gasbag: {speed: 95, safeRadius: 180, triggerRange: 70, triggerChance: 0.55, triggerCooldown: 0.9, fuse: 1.1, explosionRadius: 68, spawnMin: 3, spawnMax: 5},
+      gasbag: {speed: 95, safeRadius: 180, triggerRange: 70, triggerChance: 0.55, triggerCooldown: 1.2, fuse: 1.25, explosionRadius: 68, spawnMin: 2, spawnMax: 3},
       bomber: {speed: 70, wanderSpeed: 48, cooldown: 4, fuse: 2.4},
       tinyFly: {speed: 80},
       elderFly: {speed: 60, minRange: 130, maxRange: 220, fireInterval: 2.5, telegraph: 1, projectileSpeed: 200},
-      spider: {leapSpeed: 320, maxDistance: 320, telegraph: 1, cooldown: 3.2},
-      splitter: {speed: 80, radius: 14, maxSplits: 3, pause: 1, radiusDecay: 0.9, hpDecay: 0.75},
+      spider: {leapSpeed: 280, maxDistance: 230, telegraph: 1, cooldown: 3.2},
+      splitter: {speed: 80, radius: 14, maxSplits: 2, pause: 1, radiusDecay: 0.9, hpDecay: 0.75},
       volatile: {speed: 150, triggerMultiplier: 2, fuse: 0.55, explosionRadiusMultiplier: 1.5, damage: 2},
-      sentry: {rotateSpeed: 2.6, fireInterval: 2.3, telegraph: 0.45, burst: 3, burstSpacing: 0.16, spread: 0.22, projectileSpeed: 230, projectileLife: 2.2},
-      dashling: {speed: 115, dashSpeed: 340, dashDuration: 0.32, windup: 0.55, recover: 0.6, preferredRange: 150},
+      sentry: {rotateSpeed: 2.6, fireInterval: 3.1, telegraph: 0.7, burst: 2, burstSpacing: 0.28, spread: 0.24, projectileSpeed: 175, projectileLife: 2.2},
+      dashling: {speed: 115, dashSpeed: 285, dashDuration: 0.32, windup: 0.65, recover: 0.85, preferredRange: 150},
       burrower: {idleSpeed: 70, surfaceMin: 1.6, surfaceMax: 2.9, burrowTime: 1.1, burrowSpeed: 160, emergeSpeed: 300, emergeDuration: 0.36},
-      spark: {driftSpeed: 46, orbitSpeed: 1.7, rangeMin: 48, rangeMax: 86, fireInterval: 2.8, burst: 2, burstSpacing: 0.22, bolts: 6, projectileSpeed: 210, projectileLife: 1.6},
-      brood: {speed: 68, preferredRange: 180, spawnInterval: 4.4, spawnMax: 3, minionSpread: 26},
+      spark: {driftSpeed: 46, orbitSpeed: 1.7, rangeMin: 48, rangeMax: 86, fireInterval: 3.2, burst: 1, burstSpacing: 0.3, bolts: 6, projectileSpeed: 155, projectileLife: 1.6},
+      brood: {speed: 68, preferredRange: 180, spawnInterval: 5.5, spawnMax: 2, minionSpread: 26},
       mirrorMimic: {glideSpeed: 88, dashSpeed: 280, dashDuration: 0.32, windup: 0.55, recover: 0.5, attackInterval: 2.8, mirrorFactor: 1.05, jitter: 18, jitterSpeed: 2.6},
       cutpurse: {speed: 96, lungeSpeed: 280, fleeSpeed: 160, windup: 0.45, recover: 0.62, cooldown: 2.6, stealAmount: 3, preferredRange: 150, triggerRange: 115, fleeDuration: 1.4},
-      warper: {driftSpeed: 72, warpInterval: 3.2, telegraph: 0.65, warpDistance: 118, strikeDuration: 0.28, strikeSpeed: 320, recover: 0.55},
-      crab: {speed: 72, strafeSpeed: 126, preferredRange: 210, fireInterval: 2.7, telegraph: 0.6, volley: 3, shells: 3, volleySpacing: 0.18, spread: 0.24, projectileSpeed: 210, projectileLife: 2.4, recover: 0.6},
+      warper: {driftSpeed: 72, warpInterval: 3.2, telegraph: 0.65, warpDistance: 118, strikeDuration: 0.28, strikeSpeed: 270, recover: 0.8},
+      crab: {speed: 72, strafeSpeed: 126, preferredRange: 210, fireInterval: 3.3, telegraph: 0.75, volley: 2, shells: 3, volleySpacing: 0.3, spread: 0.26, projectileSpeed: 165, projectileLife: 2.4, recover: 0.6},
     },
     drops: {
       heartPerEnemy: 0.2,
@@ -406,16 +406,16 @@
     },
     progression: {
       enemyHp: 1.15,
-      enemySpeed: 1.08,
-      enemyAggression: 1.08,
+      enemySpeed: 1.025,
+      enemyAggression: 1.035,
     },
     combat: {
-      shotInertia: 0.32,
-      shotForwardBoost: 0.7,
-      shotLateralInfluence: 0.65,
-      shotLateralAngle: 32,
+      shotInertia: 0.18,
+      shotForwardBoost: 0.15,
+      shotLateralInfluence: 0.2,
+      shotLateralAngle: 12,
       shotLateralCurve: 1.2,
-      shotReverseBoost: 0.8,
+      shotReverseBoost: 0,
     },
     portal: {
       radius: 36,
@@ -672,7 +672,9 @@
         const t=i/sr,section=Math.floor(t/6),root=[55,65.406,49,58.27][section];
         seed=(Math.imul(seed,1664525)+1013904223)>>>0;brown=(brown+(seed/4294967296-.5)*.025)*.995;
         const envelope=Math.min(1,t/.7,(seconds-t)/.7),swell=.7+.25*Math.sin(t*.35);
-        const drone=Math.sin(t*root*Math.PI*2)*.2+Math.sin(t*root*1.5*Math.PI*2)*.075+Math.sin(t*root*2.002*Math.PI*2)*.04;
+        const roots=[55,65.406,49,58.27],blend=clamp((t%6)/1.2,0,1),fade=blend*blend*(3-2*blend);
+        const tone=f=>Math.sin(t*f*Math.PI*2)*.2+Math.sin(t*f*1.5*Math.PI*2)*.075+Math.sin(t*f*2.002*Math.PI*2)*.04;
+        const drone=tone(roots[(section+3)%4])*(1-fade)+tone(root)*fade;
         data[i]=(drone*swell+brown*.13)*envelope;
       }
       musicSource=ctx.createBufferSource();musicSource.buffer=buffer;musicSource.loop=true;
@@ -692,7 +694,9 @@
         ctxRef.ctx = new AudioCtx();
         masterGain = ctxRef.ctx.createGain();
         masterGain.gain.value = muted ? 0 : volume;
-        masterGain.connect(ctxRef.ctx.destination);
+        const limiter=ctxRef.ctx.createDynamicsCompressor();
+        limiter.threshold.value=-16;limiter.knee.value=18;limiter.ratio.value=4;limiter.attack.value=.006;limiter.release.value=.16;
+        masterGain.connect(limiter).connect(ctxRef.ctx.destination);
       } catch(err){
         console.warn('Audio init failed', err);
         ctxRef.ctx = null;
@@ -746,8 +750,14 @@
           break;
         case 'playerShoot':
           buffer=buildBuffer(.12,t=>{const env=Math.exp(-t*38)*Math.min(1,t*1000);return (Math.sin(2*Math.PI*(310*t-650*t*t))*.7+Math.sin(t*3113)*Math.sin(t*1721)*.2)*env;});break;
+        case 'enemyShoot':
+          buffer=buildBuffer(.15,t=>(Math.sin(2*Math.PI*(170*t-240*t*t))*.55+Math.sin(t*2317)*Math.sin(t*971)*.18)*Math.exp(-t*26)*Math.min(1,t*700));break;
+        case 'shieldHit':
+          buffer=buildBuffer(.19,t=>(Math.sin(t*2780)+Math.sin(t*4117)*.35)*Math.exp(-t*35)*Math.min(1,t*900)*.5);break;
         case 'enemyHit':
           buffer=buildBuffer(.16,t=>(Math.sin(2*Math.PI*(130*t-240*t*t))*.65+Math.sin(t*2871)*Math.sin(t*1831)*.3)*Math.exp(-t*30)*Math.min(1,t*1200));break;
+        case 'wetStep':
+          buffer=buildBuffer(.13,t=>(Math.sin(2*Math.PI*(160*t-380*t*t))*.4+Math.sin(t*4317)*Math.sin(t*2791)*.2)*Math.exp(-t*33)*Math.min(1,t*600));break;
         case 'playerStep':
         case 'enemyStep':
           buffer=buildBuffer(.11,t=>(Math.sin(t*690)*.45+Math.sin(t*4217)*Math.sin(t*1399)*.3)*Math.exp(-t*44)*Math.min(1,t*600));break;
@@ -831,7 +841,7 @@
 
     function play(name, options={}){
       const ctx=ensureContext();if(!ctx || !ctxRef.unlocked || muted || volume<=0)return;
-      const cooldown={enemyHit:.045,enemyStep:.085,playerStep:.085,playerShoot:.035,bombTap:.06,tearLand:.06,enemyDeath:.035}[name] || .02;
+      const cooldown={enemyHit:.045,enemyStep:.085,playerStep:.085,wetStep:.085,playerShoot:.035,bombTap:.06,tearLand:.06,enemyShoot:.1,shieldHit:.06,enemyDeath:.035}[name] || .02;
       if(activeVoices>=24 || ctx.currentTime-(lastSound.get(name) ?? -10)<cooldown)return;
       const buffer=getBuffer(name);if(!buffer)return;
       lastSound.set(name,ctx.currentTime);activeVoices++;
@@ -946,8 +956,8 @@
     return {
       floor: level,
       hp: Math.pow(safeProgressionValue(progression.enemyHp), exponent),
-      speed: Math.pow(safeProgressionValue(progression.enemySpeed), exponent),
-      aggression: Math.pow(safeProgressionValue(progression.enemyAggression), exponent),
+      speed: Math.min(1.25, Math.pow(safeProgressionValue(progression.enemySpeed), exponent)),
+      aggression: Math.min(1.3, Math.pow(safeProgressionValue(progression.enemyAggression), exponent)),
     };
   }
 
@@ -990,11 +1000,12 @@
           if(!this.damageWindow || now-this.damageWindow.start>=.5)this.damageWindow={start:now,spent:0};
           const amount=Math.max(0,Math.min(args[0],18,budget-this.damageWindow.spent));
           if(amount<=0)return false;
-          this.damageWindow.spent+=amount;args[0]=amount;
+          args[0]=amount;
         }
         const prevHp = (typeof this.hp === 'number') ? this.hp : null;
         const result = originalDamage.apply(this, args);
         if(prevHp !== null && typeof this.hp === 'number' && this.hp < prevHp){
+          if(this.damageWindow)this.damageWindow.spent+=prevHp-this.hp;
           this.damageFlashTimer = ENEMY_DAMAGE_FLASH_DURATION;
           audio.play('enemyHit',{volume:.26,x:this.x});
         }
@@ -1384,7 +1395,7 @@
       slug:'impact-chocolate',
       name:'冲击巧克力',
       weight: WEIGHT_PRESETS.item,
-      description:'被动：双击同方向键即可高速冲刺，冲刺期间无敌并留下一道造成高额伤害的冲击光带。额外巧克力：冲刺距离每层 +3 身位、无敌同步延长且冷却 -0.5 秒。持有 4 层起可粉碎障碍，光带愈发炫亮。',
+      description:'被动：双击同方向键即可高速冲刺，冲刺期间无敌并留下一道造成高额伤害的冲击光带。额外巧克力：冲刺距离每层 +3 身位、无敌同步延长且冷却 -0.5 秒。持有 3 层起可粉碎障碍，光带愈发炫亮。',
       apply(player){
         if(!player) return;
         if(typeof player.enableImpactDash === 'function'){
@@ -1471,6 +1482,7 @@
             const bombGain = grantResource('bomb', Math.max(0, 1 + bombBonus));
             const coinBase = Math.max(0, 3 + coinExtra);
             const coinGain = grantResource('coin', Math.max(0, Math.round(coinBase * coinMultiplier)) || 0);
+            if(keyGain+bombGain+coinGain===0)return {consume:0,message:'腰包已经装满',detail:'资源达到上限，保留充能。'};
             const detail = `钥匙 +${keyGain}，炸弹 +${bombGain}，金币 +${coinGain}`;
             return {message:'户外腰包翻找完毕', detail};
           }
@@ -1482,23 +1494,24 @@
       slug:'pocket-watch',
       name:'怀表',
       weight: WEIGHT_PRESETS.item,
-      description:'主动道具 · 4 充能。使用后 4 秒内除玩家外时间停滞，敌人、炸弹与弹幕全部冻结。',
+      description:'主动道具 · 4 充能。使用后 3.5 秒内除玩家外时间停滞，敌人、炸弹与弹幕全部冻结。',
       apply(player){
         const active = {
           slug:'pocket-watch',
           name:'怀表',
-          description:'时间停止 4 秒，唯独你可移动与攻击。',
+          description:'时间停止 3.5 秒，唯独你可移动与攻击。',
           maxCharge:4,
           startCharge:4,
           use(){
             if(runtime.timeStopTimer>0){
               return {consume:0, message:'时间仍在冻结', detail:'等待时间流动回归。'};
             }
-            let duration = 4;
+            let duration = 3.5;
             const synergy = player?.synergyState || null;
             if(synergy && Number.isFinite(synergy.timeStopExtend)){
               duration += Math.max(0, synergy.timeStopExtend);
             }
+            duration=Math.min(5,duration);
             const display = duration % 1 ? duration.toFixed(1) : String(Math.round(duration));
             runtime.timeStopTimer = duration;
             runtime.timeStopDuration = duration;
@@ -1527,9 +1540,9 @@
             if(!room){
               return {consume:0, message:'肾上腺素无从发挥', detail:'需要在房间内使用。'};
             }
-            if(p.hp<=0){
-              return {consume:0, message:'肾上腺素无法启动', detail:'至少需要 1 点生命。'};
-            }
+            const hpCost=Math.max(0,1-Math.floor(p.synergyState?.adrenalineDurationBonus || 0));
+            if(p.hp<=hpCost)return {consume:0,message:'生命不足',detail:'注射后必须保留生命，未消耗充能。'};
+            if(p.roomBuff?.effects.some(e=>e.type==='adrenaline'))return {consume:0,message:'药效仍在持续',detail:'同房间不重复扣血与充能。'};
             const roomKey = `${room.i},${room.j}`;
             const synergy = p?.synergyState || null;
             let damageBonus = 2;
@@ -1550,18 +1563,13 @@
               rangeMultiplier,
               speedMultiplier,
             });
-            let hpCost = 1;
-            if(synergy){
-              const reduction = Math.max(0, Math.floor(Number(synergy.adrenalineDurationBonus) || 0));
-              hpCost = Math.max(0, hpCost - reduction);
-            }
             p.hp = Math.max(0, p.hp - hpCost);
             if(p.hp<=0){ gameOver(); }
             else {
               p.recalculateDamage();
               p.updateHolyHeartBlessing?.();
             }
-            const detail = `当前房间属性飙升，伤害 +${damageBonus.toFixed(1)}，射速 +${fireRateBonus.toFixed(1)}，射程 x${rangeMultiplier.toFixed(2)}，移速 x${speedMultiplier.toFixed(2)}，生命 -${hpCost}.`;
+            const detail = `当前房间属性飙升，伤害 +${damageBonus.toFixed(1)}，射速 +${fireRateBonus.toFixed(1)}，射程 x${rangeMultiplier.toFixed(2)}，弹速 x${speedMultiplier.toFixed(2)}，生命 -${hpCost}.`;
             return {message:'肾上腺素·爆发', detail};
           }
         };
@@ -1901,7 +1909,7 @@
       slug:'pocket-watch',
       name: ITEM_REF_POCKET_WATCH?.name || '怀表',
       weight: WEIGHT_PRESETS.boss,
-      description: ITEM_REF_POCKET_WATCH?.description || '主动道具 · 4 充能。时间停止 4 秒。',
+      description: ITEM_REF_POCKET_WATCH?.description || '主动道具 · 4 充能。时间停止 3.5 秒。',
       apply(player){ ITEM_REF_POCKET_WATCH?.apply?.(player); }
     }
   ];
@@ -1986,7 +1994,7 @@
       slug:'bomb-progenitor',
       name:'炸弹鼻祖',
       weight: 0.35,
-      description:'被动：按下射击键在脚下生成可操控准星，2 秒后导引导弹瞬间爆炸，造成 2000% 攻击力。与瞳类或额外鼻祖叠加时会连续轰炸（最多 16 枚）。',
+      description:'被动：按下射击键在脚下生成可操控准星，2 秒后导引导弹瞬间爆炸，造成至多 800% 攻击力（遵守敌人受伤上限）。与瞳类或额外鼻祖叠加时会连续轰炸。',
       lifeTradeCost:{type:'flat', amount:3},
       apply(player){
         if(!player) return;
@@ -2223,7 +2231,7 @@
   for(const pool of [ITEM_POOL,SHOP_ITEM_POOL,SHOP_RARE_ITEM_POOL,BOSS_ITEM_POOL,BOSS_RARE_ITEM_POOL,LIFE_TRADE_EXTRA_POOL,LIFE_TRADE_POOL,SECRET_ROOM_POOL]){
     for(const item of pool){
       if(!item?.apply || item.cappedApply)continue;
-      const apply=item.apply;item.apply=function(p,...args){if(getItemStack(p,item.slug)>=3)return false;return apply.call(this,p,...args);};item.cappedApply=true;
+      const apply=item.apply;item.apply=function(p,...args){if(getItemStack(p,item.slug)>=3)return false;return withPermanentStats(p,()=>apply.call(this,p,...args));};item.cappedApply=true;
     }
   }
   const ITEM_ID_REGISTRY = (()=>{
@@ -3236,7 +3244,18 @@
     }
   }
 
-  function evaluateItemSynergies(player){
+  function withPermanentStats(p,operation){
+    if(!p?.roomBuff || p._permanentStatsTransaction)return operation();
+    const effects=p.roomBuff.effects.map(effect=>({...effect})),cooldown=p.fireCd;
+    p._permanentStatsTransaction=true;p.clearRoomBuff();
+    try{return operation();}
+    finally{
+      for(const effect of effects)p.applyRoomBuff(effect);
+      p.fireCd=Math.min(cooldown,p.fireInterval);p._permanentStatsTransaction=false;
+    }
+  }
+  function evaluateItemSynergies(player){return withPermanentStats(player,()=>evaluatePermanentSynergies(player));}
+  function evaluatePermanentSynergies(player){
     if(!player) return;
     const stacks = player.itemStacks && typeof player.itemStacks === 'object' ? player.itemStacks : {};
     const counts = new Map();
@@ -3320,7 +3339,8 @@
     }
   }
 
-  function recordItemAcquired(player, item){
+  function recordItemAcquired(player,item){return withPermanentStats(player,()=>recordPermanentItem(player,item));}
+  function recordPermanentItem(player, item){
     if(!player || !item) return 0;
     const slug = item.slug || null;
     if(slug && getItemStack(player,slug)>=BALANCE.stacks){player.coins=Math.min(99,player.coins+2);runtime.itemPickupDesc='该遗物已达三层上限，折算为 2 枚金币。';return BALANCE.stacks;}
@@ -3340,6 +3360,7 @@
         player.items.push(item.name);
       }
     }
+    if(slug){player.costumeOrder=(player.costumeOrder || []).filter(id=>id!==slug);player.costumeOrder.push(slug);}
     registerItemDiscovery(item);
     evaluateItemSynergies(player);safeStats(player);updateLoadout();
     return stackCount;
@@ -4199,7 +4220,7 @@
     if(enemy.brain)return enemy.brain;
     const phase=((enemy.x*17+enemy.y*31+(enemy.r || 12)*13)%997)/997*Math.PI*2;
     const type=enemy.archetype || enemy.constructor.name.replace('Enemy','').toLowerCase();
-    const ranged=['bomber','elderfly','sentry','spark','cutpurse','brood','lantern'].includes(type);
+    const ranged=['bomber','elderfly','sentry','spark','brood','lantern','crab'].includes(type);
     enemy.brain={type,phase,time:0,side:Math.sin(phase)>=0 ? 1 : -1,ranged,
       think:0,intentX:0,intentY:0,action:0,cooldown:1+phase*.2,dodge:0,dodgeCooldown:1,
       tactic:null,tacticCooldown:3+phase*.2,sequence:0,recover:0,lunge:0};
@@ -4221,10 +4242,15 @@
     // Keep a chosen side briefly rather than alternating at an obstacle corner.
     return {x:enemy.x+(target.y-enemy.y)*b.side,y:enemy.y-(target.x-enemy.x)*b.side};
   }
+  function hasCommittedEnemyMotion(enemy){
+    return isPhasedActor(enemy) || enemy.fuse>0 || enemy.windup>0 || enemy.telegraphTimer>0 || enemy.burstShots>0
+      || enemy.reengageTimer>0 || enemy.recovery>0 || (enemy.state && !['stalk','chase','surface','prowl','drift','patrol','idle'].includes(enemy.state));
+  }
   function updateEnemyIntent(enemy,dt){
     const b=enemyBrain(enemy);b.time+=dt;b.cooldown-=dt;b.dodgeCooldown-=dt;
     if(enemy.isBossEntity)return updateBossIntent(enemy,dt);
-    if(isPhasedActor(enemy) || ['dash','charge','emerge','fuse'].includes(enemy.state) || enemy.fuse>0)return null;
+    if(hasCommittedEnemyMotion(enemy))return null;
+    if(b.type==='sentry')return {x:0,y:0};
     b.think-=dt;
     if(b.action>0){
       b.action=Math.max(0,b.action-dt);
@@ -4244,8 +4270,8 @@
     let strafe=(b.ranged ? .65 : .22)*b.side*(.7+.3*Math.sin(b.time*1.7+b.phase));
     if(b.type==='tinyfly')strafe=.65*Math.sin(b.time*2.1+b.phase);
     let vx=nx*forward-ny*strafe,vy=ny*forward+nx*strafe;
-    if(['chaser','dashling','volatile','beetle'].includes(b.type) && b.cooldown<=0 && distance>70 && distance<205){
-      b.action=.28;b.aimX=nx;b.aimY=ny;b.cooldown=2.7+(1+Math.sin(b.phase))*.4;
+    if(['beetle'].includes(b.type) && b.cooldown<=0 && distance>70 && distance<205){
+      b.action=.5;b.aimX=nx;b.aimY=ny;b.cooldown=2.7+(1+Math.sin(b.phase))*.4;
       return {x:0,y:0};
     }
     if(b.ranged && b.dodgeCooldown<=0){
@@ -4410,8 +4436,10 @@
     runtime.corpses=(runtime.corpses || []).filter(c=>(c.life-=worldDt)>0).slice(-28);
     runtime.relicFlights=(runtime.relicFlights || []).filter(c=>(c.life-=dt)>0).slice(-12);
     runtime.chainLinks=(runtime.chainLinks || []).filter(c=>(c.life-=worldDt)>0).slice(-20);
+    player.pickupPose=Math.max(0,(player.pickupPose || 0)-dt);player.activePose=Math.max(0,(player.activePose || 0)-dt);
+    runtime.tearSplashes=(runtime.tearSplashes || []).filter(s=>(s.age+=worldDt)<s.duration).slice(-80);
     safeStats(player);player.shotPose=Math.max(0,(player.shotPose || 0)-dt);player.hurtPose=Math.max(0,(player.hurtPose || 0)-dt);
-    runtime.timeStopTimer=Math.min(3.5,runtime.timeStopTimer || 0);
+    runtime.timeStopTimer=Math.min(5,runtime.timeStopTimer || 0);
     if(runtime.bullets.length>BALANCE.projectiles)runtime.bullets.splice(0,runtime.bullets.length-BALANCE.projectiles);
     if(runtime.effects.length>220)runtime.effects.splice(0,runtime.effects.length-220);
     for(const e of dungeon.current.enemies){
@@ -4451,13 +4479,15 @@
     for(const s of shots)s.damage=Math.min(BALANCE.damage,s.damage*scale);
     if(echo){
       const s=shots[0];
-      for(const sign of [-1,1])runtime.bullets.push(new Bullet(s.originX-sign*9,s.originY+sign*9,s.vx,s.vy,Math.min(.9,s.life),s.damage*.15,{color:'#bda6d2'}));
+      for(const sign of [-1,1])runtime.bullets.push(new Bullet(s.originX-sign*9,s.originY+sign*9,s.vx,s.vy,Math.min(.9,s.life),s.damage*.15,{color:'#bda6d2',launchHeight:player.flying ? 56 : 38}));
     }
   }
   function updateLoadout(){
     const node=document.getElementById('loadout-list');if(!node || !player)return;
     const items=CODEX_ALL_ITEMS.filter(i=>getItemStack(player,i.slug)>0);
     player.gearItems=items;
+    const order=player.costumeOrder || items.map(i=>i.slug);
+    player.costume=Object.fromEntries(order.filter(id=>getItemStack(player,id)>0 && COSTUME_STYLES[id]).map(id=>[COSTUME_STYLES[id][0],{id,style:COSTUME_STYLES[id]}]));
     node.replaceChildren();
     for(const item of items){
       const entry=document.createElement('button');entry.type='button';entry.className='relic-slot';entry.title=item.name+'：'+item.description;
@@ -4495,7 +4525,9 @@
     }
   }
   function updateEnemyMotion(enemy, dt){
-    if(!(dt>0) || enemy.dead) return;
+    if(enemy.dead) return;
+    enemy.previousX=enemy.x;enemy.previousY=enemy.y;
+    if(!(dt>0))return;
     prepareEnemy(enemy);
     const x=enemy.x, y=enemy.y;
     enemy.previousX=x; enemy.previousY=y;
@@ -4507,14 +4539,16 @@
     }
     enemy.knock=0; enemy.knockVx=0; enemy.knockVy=0;
     const wasKnocked=enemy.hitKnockTimer>0;
-    const intent=updateEnemyIntent(enemy,dt);
+    let intent;runtime.attackSource=enemy;
+    try{intent=updateEnemyIntent(enemy,dt);}finally{runtime.attackSource=null;}
     enemy.wallTouch=Math.max(0,(enemy.wallTouch || 0)-dt);
     if(intent && enemy.base && enemy.range){const angle=enemy.t ?? enemy.theta ?? 0;enemy.base.x=enemy.x-Math.cos(angle)*enemy.range;enemy.base.y=enemy.y-Math.sin(angle)*enemy.range;}
     enemy._motionStep=true;
-    try { enemy.update(dt); } finally { enemy._motionStep=false; }
+    try { runtime.attackSource=enemy;enemy.update(dt); } finally { enemy._motionStep=false;runtime.attackSource=null; }
+    if(!enemy.isBossEntity && hasCommittedEnemyMotion(enemy))intent=null;
     const dx=enemy.x-x, dy=enemy.y-y;
     const scripted=(!intent && (enemy.isBossEntity || !!enemy.base)) || isPhasedActor(enemy)
-      || ['dash','charge','leap','jumping','emerge','reappear'].includes(enemy.state) || intent?.scripted
+      || ['dash','charge','leap','jumping','emerge','reappear','lunge','strike','escape'].includes(enemy.state) || intent?.scripted
       || Math.hypot(dx,dy)>Math.max(40,(enemy.speed || 100)*dt*5);
     if(Math.hypot(dx,dy)>40){enemy.previousX=enemy.x;enemy.previousY=enemy.y;}
     if(!scripted){
@@ -4596,7 +4630,7 @@
   }
   function projectileHitTime(projectile, target){
     const px=projectile.prevX ?? projectile.x, py=projectile.prevY ?? projectile.y;
-    const tx=target.previousX ?? target.x, ty=target.previousY ?? target.y;
+    const tx=target.previousX ?? target.prevX ?? target.x, ty=target.previousY ?? target.prevY ?? target.y;
     const dx=px-tx, dy=py-ty;
     const vx=(projectile.x-px)-(target.x-tx), vy=(projectile.y-py)-(target.y-ty);
     const radius=(projectile.r || 0)+(target.r || 0);
@@ -4620,7 +4654,8 @@
   function damageEnemyAtImpact(enemy, damage, vx, vy){
     const previousHp=enemy.hp;
     const oldKnock={x:enemy.hitKnockVx || 0,y:enemy.hitKnockVy || 0,t:enemy.hitKnockTimer || 0};
-    const killed=enemy.damage(Math.min(BALANCE.damage,damage));
+    let killed;enemy.incomingHit={vx,vy};
+    try{killed=enemy.damage(Math.min(BALANCE.damage,damage));}finally{enemy.incomingHit=null;}
     if(enemy.hp<previousHp){
       enemy.hurtPose=.18;relicImpact(enemy,damage);
       // Replace the legacy "away from player" impulse with actual projectile momentum.
@@ -7420,6 +7455,7 @@
         vx += lvx * carry;
         vy += lvy * carry;
       }
+      const shotSpeed=Math.hypot(vx,vy);if(shotSpeed>BALANCE.tearSpeed){vx*=BALANCE.tearSpeed/shotSpeed;vy*=BALANCE.tearSpeed/shotSpeed;}
       let damageScale = Number.isFinite(options.damageScale) ? options.damageScale : 1;
       damageScale = Math.max(0.01, damageScale);
       const life = Math.min(BALANCE.tearLife,Number.isFinite(options.life) ? options.life : this.tearLife);
@@ -7428,7 +7464,8 @@
         pierce: this.canPierceObstacles,
         pierceEnemies: this.canPierceEnemies,
         homing: this.homingTears,
-        homingStrength: this.homingStrength
+        homingStrength: this.homingStrength,
+        color:tearMaterial(this),launchHeight:this.flying ? 56 : 38
       };
       const synergyState = this.synergyState || null;
       if(typeof options.color === 'string') bulletOptions.color = options.color;
@@ -8543,8 +8580,7 @@
         reticle.y += (rawY/len) * speed * dt;
       }
       const margin = Math.max(32, (state.reticleRadius || 28) + 8);
-      reticle.x = clamp(reticle.x, margin, CONFIG.roomW - margin);
-      reticle.y = clamp(reticle.y, margin, CONFIG.roomH - margin);
+      Object.assign(reticle,projectRoomPoint(reticle.x,reticle.y,margin));
       const duration = Math.max(0.2, Number(state.chargeDuration) || 2);
       if(reticle.timer >= duration){
         this.triggerBombProgenitorStrike(state);
@@ -8553,7 +8589,7 @@
     triggerBombProgenitorStrike(state){
       const reticle = state.reticle;
       if(!reticle) return;
-      const position = {x: reticle.x, y: reticle.y};
+      const position = projectRoomPoint(reticle.x,reticle.y,36);
       state.reticle = null;
       if(state.reticleEffect){
         state.reticleEffect.life = Math.min(state.reticleEffect.life, 0.12);
@@ -10090,9 +10126,9 @@
       dash.trailVisualIntensity = intensity;
       dash.trailSparkleRate = extra>0 ? Math.min(22, 6 + extra * 4) : 0;
       dash.trailSparkleLife = clamp(0.3 + extra * 0.04, 0.3, 0.6);
-      dash.trailSparkleColor = stacks>=4 ? '#f0fdf4' : '#e0f2fe';
+      dash.trailSparkleColor = stacks>=3 ? '#f0fdf4' : '#e0f2fe';
 
-      dash.canBreakObstacles = stacks>3;
+      dash.canBreakObstacles = stacks>=3;
       const synergy = this.synergyState || null;
       if(synergy){
         if(Number.isFinite(synergy.dashDistanceBonus) && synergy.dashDistanceBonus!==0){
@@ -10520,12 +10556,11 @@
         }
       }
       this.recalculateDamage();
-      if(typeof this.onHolyHeartRoomChange === 'function'){
-        this.onHolyHeartRoomChange();
-      }
+      this.updateHolyHeartBlessing();
     }
     handleRoomChange(room){
       if(!room){ this.clearRoomBuff(); return; }
+      if(this._holyRoom!==room){this._holyRoom=room;this.onHolyHeartRoomChange();}
       const key = `${room.i},${room.j}`;
       if(this.roomBuff && this.roomBuff.roomKey && this.roomBuff.roomKey !== key){
         this.clearRoomBuff();
@@ -10637,9 +10672,9 @@
       } else if(result && typeof result === 'object' && Number.isFinite(result.consume)){
         consume = clamp(Math.floor(result.consume), 0, this.activeMaxCharge);
       }
-      if(consume<=0) consume = this.activeMaxCharge;
+      // Explicit zero means the effect refused to run; preserve the stored charge.
       this.activeCharge = Math.max(0, this.activeCharge - consume);
-      return result || true;
+      return result ?? true;
     }
     recalculateDamage(){
       let dmg = this.baseDamage;
@@ -11252,7 +11287,7 @@
       this.y=y;
       this.vx=vx;
       this.vy=vy;
-      this.life=life;this.totalLife=life;
+      this.life=life;this.totalLife=life;this.launchHeight=options.launchHeight || 23;
       this.damage=damage;
       this.alive=true;
       this.r=calcTearRadius(damage);
@@ -11288,17 +11323,10 @@
     destroy(options={}){
       if(!this.alive) return;
       this.alive = false;
-      if(options.groundImpact){addFloorStain(this.x,this.y,3,'#c9b98b',{life:.7,alpha:.3});audio.play('tearLand',{volume:.055,x:this.x});}
-      const count = Math.max(4, Math.round(4 + Math.sqrt(Math.max(this.damage, 0.25)) * 1.5));
-      spawnBulletDisperse(this.x, this.y, {
-        color: this.color,
-        accent: this.trailColor,
-        count,
-        radius: this.r,
-        speed: 120 + this.r * 9,
-        glowStrength: 0.75 + Math.min(0.6, this.damage * 0.08),
-        ...options,
-      });
+      const ground=!!options.groundImpact;
+      (runtime.tearSplashes ||= []).push({x:this.x,y:this.y,z:ground ? 0 : this.contactAltitude ?? shotAltitude(this),color:this.color,r:this.r,
+        age:0,duration:ground ? .38 : .24,ground,seed:(this.x*17+this.y*31)%97});
+      if(ground)audio.play('tearLand',{volume:.12,x:this.x});
     }
     update(dt){
       this.prevX=this.x; this.prevY=this.y;
@@ -11308,7 +11336,7 @@
           let target=null;
           let best=Infinity;
           for(const enemy of room.enemies){
-            if(enemy.dead) continue;
+            if(isPhasedActor(enemy)) continue;
             const d = dist(this, enemy);
             if(d < best){ best = d; target = enemy; }
           }
@@ -11332,24 +11360,13 @@
           }
         }
       }
-      this.x += this.vx*dt;
-      this.y += this.vy*dt;
-      this.life -= dt;
-      if(this.life<=0){ this.destroy({groundImpact:true}); return; }
-      if(!roomContainsPoint(this.x,this.y,this.r+1)){ this.destroy(); return; }
-      if(!this.pierceObstacles){
-        for(const obs of dungeon.current.obstacles){
-          if(obs.destroyed) continue;
-          if(obs.projectileSolid === false) continue;
-          if(circleRectOverlap(this, obs)){
-            if(handleBulletObstacleHit(this, obs)){
-              break;
-            }
-            this.destroy({glowStrength:0.45});
-            break;
-          }
-        }
-      }
+      this.previousAltitude=shotAltitude(this);
+      const travelDt=Math.min(dt,Math.max(0,this.life));
+      this.x += this.vx*travelDt;
+      this.y += this.vy*travelDt;
+      this.life = Math.max(0,this.life-travelDt);
+      this.pendingSolid=firstShotBarrier(this,this.pierceObstacles);
+      this.pendingGround=this.life<=1e-8;
       if(this.holyAura){
         this.updateHolyAura(dt);
       }
@@ -13676,9 +13693,23 @@
     return 'chaser';
   }
 
+  const ENEMY_ROLES=Object.freeze({
+    chaser:{hp:3,role:'追击'},orbiter:{hp:3,role:'绕行'},gasbag:{hp:5,role:'孵化'},bomber:{hp:4,role:'布雷'},
+    tinyfly:{hp:1,role:'骚扰'},elderfly:{hp:3,role:'瞄准'},spider:{hp:3,role:'跃击'},splitter:{hp:4,role:'分裂'},
+    volatile:{hp:2,role:'自爆'},sentry:{hp:5,role:'定点压制'},dashling:{hp:3,role:'冲刺'},burrower:{hp:4,role:'伏击'},
+    spark:{hp:2,role:'环射'},brood:{hp:6,role:'召唤'},mirrormimic:{hp:4,role:'镜像'},cutpurse:{hp:3,role:'偷袭'},
+    warper:{hp:3,role:'传送'},crab:{hp:5,role:'侧行炮击'},rat:{hp:2,role:'游走'},warden:{hp:7,role:'正面盾防'},
+    lantern:{hp:3,role:'扇射'},beetle:{hp:4,role:'蓄势冲撞'}
+  });
+  function tuneEnemyRole(enemy,type){
+    const role=ENEMY_ROLES[type] || ENEMY_ROLES.chaser;
+    enemy.archetype=type;enemy.role=role.role;if(type==='splitter')enemy.seedHp=role.hp;
+    enemy.hp=enemy.maxHp=Math.max(1,Math.round(role.hp*(enemy.scaling?.hp || 1)));
+    return prepareEnemy(enemy);
+  }
   function makeEnemy(type, pos, depth){
     const hp = Math.max(1, Math.round(CONFIG.enemy.baseHP + depth*0.24 + rand()*1.0));
-    if(['rat','warden','lantern','beetle'].includes(type))return prepareEnemy(new EnemyCrypt(type,pos.x,pos.y,hp+(type==='warden' ? 2 : 0)));
+    if(['rat','warden','lantern','beetle'].includes(type))return tuneEnemyRole(new EnemyCrypt(type,pos.x,pos.y,hp),type);
     let enemy;
     if(type==='chaser') enemy = new EnemyChaser(pos.x,pos.y,hp);
     else if(type==='orbiter') enemy = new EnemyOrbiter(pos.x,pos.y,hp);
@@ -13699,8 +13730,7 @@
     else if(type==='warper') enemy = new EnemyWarper(pos.x,pos.y, Math.max(hp+1, 4));
     else if(type==='crab') enemy = new EnemyCrab(pos.x,pos.y, Math.max(hp+1, 4));
     else enemy = new EnemyChaser(pos.x,pos.y,hp);
-    enemy.archetype=type;
-    return prepareEnemy(enemy);
+    return tuneEnemyRole(enemy,type);
   }
 
   const BOSS_TUNING = Object.freeze({
@@ -14032,7 +14062,7 @@
         const dy = this.y - player.y;
         const d = Math.hypot(dx,dy)||1;
         if(this.fuse<=0 && d < cfg.triggerRange){
-          this.cooldown -= dt * this.aggression;
+          this.cooldown -= dt;
           if(this.cooldown<=0){
             if(rand() < Math.min(0.98, this.triggerChance)){ this.startFuse(); }
             this.cooldown = this.triggerCooldownBase;
@@ -14278,7 +14308,7 @@
       const l = Math.hypot(to.x,to.y)||1;
       const nx = to.x/l, ny = to.y/l;
       if(this.state==='fuse'){
-        this.fuseTimer = Math.max(0, this.fuseTimer - dt * this.aggression);
+        this.fuseTimer = Math.max(0, this.fuseTimer - dt);
         this.flashTimer += dt * 10;
         if(this.fuseTimer<=0){ this.triggerExplosion(); return; }
       } else {
@@ -14439,7 +14469,7 @@
       this.x = clamp(this.x, 50, CONFIG.roomW-50);
       this.y = clamp(this.y, 54, CONFIG.roomH-54);
       resolveEntityObstacles(this);
-      this.fireTimer -= dt * this.aggression;
+      this.fireTimer -= dt;
       if(this.fireTimer <= 0){
         const angle = Math.atan2(player.y - this.y, player.x - this.x);
         const speed = this.projectileSpeed + rand()*50;
@@ -14512,7 +14542,7 @@
     update(dt){
       const cfg = CONFIG.enemy.sentry;
       const targetAngle = Math.atan2(player.y - this.y, player.x - this.x);
-      this.rotation = stepTowardsAngle(this.rotation, targetAngle, this.rotateSpeed * dt);
+      if(this.telegraphTimer<=0 && this.burstShots<=0)this.rotation = stepTowardsAngle(this.rotation, targetAngle, this.rotateSpeed * dt);
       if(this.knock>0){
         this.x += this.knockVx * dt;
         this.y += this.knockVy * dt;
@@ -14524,7 +14554,7 @@
       this.y = clamp(this.y, 46, CONFIG.roomH-46);
       resolveEntityObstacles(this);
       if(this.telegraphTimer>0){
-        this.telegraphTimer -= dt * this.aggression;
+        this.telegraphTimer -= dt;
         if(this.telegraphTimer<=0){
           this.burstShots = cfg.burst;
           this.burstSpacing = 0;
@@ -14548,7 +14578,7 @@
           this.burstSpacing = this.burstShots>0 ? this.burstSpacingBase : 0;
         }
       } else {
-        this.fireTimer -= dt * this.aggression;
+        this.fireTimer -= dt;
         if(this.fireTimer<=0){
           this.telegraphTimer = cfg.telegraph;
           this.fireTimer = this.fireInterval;
@@ -14646,7 +14676,7 @@
         const dy = player.y - this.y;
         const distLen = Math.hypot(dx,dy)||1;
         if(this.state==='stalk'){
-          this.timer -= dt * this.aggression;
+          this.timer -= dt;
           this.strafeSwapTimer -= dt;
           if(this.strafeSwapTimer<=0){
             this.strafeDir *= -1;
@@ -14668,7 +14698,7 @@
             this.windupProgress = 0;
           }
         } else if(this.state==='windup'){
-          this.timer -= dt * this.aggression;
+          this.timer -= dt;
           this.windupProgress = clamp(1 - this.timer/Math.max(0.001,this.windupDuration), 0, 1);
           this.x -= Math.cos(this.dashDir) * this.speed * 0.2 * dt;
           this.y -= Math.sin(this.dashDir) * this.speed * 0.2 * dt;
@@ -14687,7 +14717,7 @@
             this.timer = this.recoverDuration;
           }
         } else if(this.state==='recover'){
-          this.timer -= dt * this.aggression;
+          this.timer -= dt;
           this.x -= Math.cos(this.dashDir) * this.speed * 0.6 * dt;
           this.y -= Math.sin(this.dashDir) * this.speed * 0.6 * dt;
           if(this.timer<=0){
@@ -15628,7 +15658,7 @@
         return;
       }
       if(this.state==='surface'){
-        this.surfaceTimer -= dt * this.aggression;
+        this.surfaceTimer -= dt;
         this.wanderTimer -= dt;
         if(this.wanderTimer<=0){
           const bias = Math.atan2(player.y - this.y, player.x - this.x);
@@ -15650,7 +15680,7 @@
           this.emergeTarget = {x: player.x, y: player.y};
         }
       } else if(this.state==='burrow'){
-        this.burrowTimer -= dt * this.aggression;
+        this.burrowTimer -= dt;
         if(this.emergeTarget){
           this.emergeTarget.x = clamp(this.emergeTarget.x + (player.x - this.emergeTarget.x)*dt*1.6, 38, CONFIG.roomW-38);
           this.emergeTarget.y = clamp(this.emergeTarget.y + (player.y - this.emergeTarget.y)*dt*1.6, 44, CONFIG.roomH-44);
@@ -15806,11 +15836,11 @@
           this.burstSpacing = this.burstShots>0 ? this.burstSpacingBase : 0;
         }
       } else {
-        this.fireTimer -= dt * this.aggression;
+        this.fireTimer -= dt;
         if(this.fireTimer<=0){
           this.fireTimer = this.fireInterval;
           this.burstShots = cfg.burst;
-          this.burstSpacing = 0;
+          this.burstSpacing = .65;
         }
       }
       if(dist(this, player) < this.r + player.r){ player.hurt(1); }
@@ -15902,7 +15932,7 @@
       this.x = clamp(this.x, 40, CONFIG.roomW-40);
       this.y = clamp(this.y, 46, CONFIG.roomH-46);
       resolveEntityObstacles(this);
-      this.spawnTimer -= dt * this.aggression;
+      this.spawnTimer -= dt;
       if(this.spawnTimer<=0 && this.minionRefs.length < this.maxMinions){
         if(dungeon?.current && dungeon.current.enemies.length < (CONFIG.enemy.maxPerRoom||5) + this.maxMinions){
           const angle = rand()*Math.PI*2;
@@ -16009,13 +16039,13 @@
         return;
       }
       if(this.state==='idle'){
-        this.cooldown -= dt * this.aggression;
+        this.cooldown -= dt;
         if(this.cooldown<=0){
           this.state='telegraph';
           this.telegraphTimer = this.telegraphDuration;
         }
       } else if(this.state==='telegraph'){
-        this.telegraphTimer -= dt * this.aggression;
+        this.telegraphTimer -= dt;
         if(this.telegraphTimer<=0){
           this.beginLeap();
         }
@@ -16104,7 +16134,7 @@
     update(dt){
       const drift = (40 + (this.enraged?25:0)) * this.speedScale;
       if(this.state==='charge'){
-        this.chargeTimer -= dt * this.aggression;
+        this.chargeTimer -= dt;
         this.x += this.vx*dt; this.y += this.vy*dt;
         if(this.chargeTimer<=0){
           this.state='recover';
@@ -16123,17 +16153,17 @@
         this.x += Math.cos(performance.now()/480) * 18 * dt;
         this.y += Math.sin(performance.now()/360) * 18 * dt;
         if(this.state==='recover'){
-          this.recoverTimer -= dt * this.aggression;
+          this.recoverTimer -= dt;
           if(this.recoverTimer<=0){
             this.state='idle';
             this.attackTimer = this.nextCooldown || scaleBossTempo(this.enraged ? 1.6 : 2.2);
             this.nextCooldown = 0;
           }
         } else if(this.state==='windup'){
-          this.telegraphTimer -= dt * this.aggression;
+          this.telegraphTimer -= dt;
           if(this.telegraphTimer<=0){ this.executeAttackPlan(); }
         } else {
-          this.attackTimer -= dt * this.aggression;
+          this.attackTimer -= dt;
           if(this.attackTimer<=0){ this.chooseAttack(); }
         }
       }
@@ -16330,7 +16360,7 @@
       this.hitFlash = Math.max(0, this.hitFlash - dt*3.5);
       if(!this.enraged && this.hp <= this.maxHp*0.45){ this.enraged = true; }
       if(this.state==='idle'){
-        this.attackCooldown -= dt * this.aggression;
+        this.attackCooldown -= dt;
         const drift = (this.enraged ? 95 : 70) * this.speedScale;
         const dx = player.x - this.x;
         const dy = player.y - this.y;
@@ -16343,7 +16373,7 @@
         if(this.attackCooldown<=0){ this.chooseAttack(); }
         this.altitude = Math.max(0, this.altitude - dt*2.8*this.aggression);
       } else if(this.state==='telegraph-jump' || this.state==='telegraph-wave'){
-        this.telegraphTimer -= dt * this.aggression;
+        this.telegraphTimer -= dt;
         if(this.state==='telegraph-jump'){ this.altitude = 0.12 + 0.04*Math.sin(performance.now()/90); }
         else { this.altitude = Math.max(0, this.altitude - dt*3*this.aggression); }
         if(this.telegraphTimer<=0){
@@ -16364,7 +16394,7 @@
           this.recoverTimer = scaleBossTempo(this.enraged ? 0.6 : 0.75);
         }
       } else if(this.state==='slam'){
-        this.recoverTimer -= dt * this.aggression;
+        this.recoverTimer -= dt;
         this.altitude = Math.max(0, this.altitude - dt*4*this.aggression);
         if(this.recoverTimer<=0){
           this.state='recover';
@@ -16372,7 +16402,7 @@
           this.recoverTimer = scaleBossTempo(this.enraged ? 0.5 : 0.7);
         }
       } else if(this.state==='wave'){
-        this.recoverTimer -= dt * this.aggression;
+        this.recoverTimer -= dt;
         this.altitude = Math.max(0, this.altitude - dt*3.5*this.aggression);
         if(this.recoverTimer<=0){
           this.state='recover';
@@ -16380,7 +16410,7 @@
           this.recoverTimer = scaleBossTempo(this.enraged ? 0.45 : 0.6);
         }
       } else if(this.state==='recover'){
-        this.recoverTimer -= dt * this.aggression;
+        this.recoverTimer -= dt;
         this.altitude = Math.max(0, this.altitude - dt*3*this.aggression);
         if(this.recoverTimer<=0){ this.state='idle'; }
       }
@@ -16577,23 +16607,23 @@
       if(dist(this, player) < this.r + player.r - 6){ player.hurt(1); }
 
       if(this.state==='windup'){
-        this.telegraphTimer -= dt * this.aggression;
+        this.telegraphTimer -= dt;
         if(this.telegraphTimer<=0){ this.executeAttackPlan(); }
       } else if(this.state==='recover'){
-        this.recoverTimer -= dt * this.aggression;
+        this.recoverTimer -= dt;
         if(this.recoverTimer<=0){
           this.state='orbit';
           this.attackTimer = this.nextCooldown || scaleBossTempo(this.enraged ? 1.6 : 2.0);
           this.nextCooldown = 0;
         }
       } else {
-        this.attackTimer -= dt * this.aggression;
+        this.attackTimer -= dt;
         if(this.attackTimer<=0){ this.chooseAttack(); }
       }
 
       for(let i=this.pendingBursts.length-1;i>=0;i--){
         const burst = this.pendingBursts[i];
-        burst.delay -= dt * this.aggression;
+        burst.delay -= dt;
         if(burst.delay<=0){
           this.executeBurst(burst);
           this.pendingBursts.splice(i,1);
@@ -16602,7 +16632,7 @@
 
       if(this.spiralTimer>0){
         this.spiralTimer = Math.max(0, this.spiralTimer - dt);
-        this.spiralCooldown -= dt * this.aggression;
+        this.spiralCooldown -= dt;
         if(this.spiralCooldown<=0){
           this.spiralCooldown += 0.08;
           this.spiralAngle += this.spiralDir * (0.32 + (this.enraged?0.05:0));
@@ -16872,11 +16902,11 @@
         this.y += (player.y - this.y) * 0.08 * dt;
       }
       resolveEntityObstacles(this);
-      this.attackTimer -= dt * this.aggression;
+      this.attackTimer -= dt;
       if(this.attackTimer<=0){ this.chooseAttack(); }
     }
     handleWarp(dt){
-      this.telegraphTimer -= dt * this.aggression;
+      this.telegraphTimer -= dt;
       const ratio = this.telegraphTotal>0 ? this.telegraphTimer / this.telegraphTotal : 0;
       this.fade = clamp(ratio, 0.35, 1);
       if(this.telegraphTimer<=0){
@@ -16895,14 +16925,14 @@
       }
     }
     handleChannel(dt){
-      this.channelTimer -= dt * this.aggression;
+      this.channelTimer -= dt;
       if(this.channelTimer<=0){
         this.executeAttack(this.channelType);
         this.state='recover';
       }
     }
     handleRecover(dt){
-      this.recoverTimer -= dt * this.aggression;
+      this.recoverTimer -= dt;
       if(this.recoverTimer<=0){
         this.state='glide';
         this.fade = 1;
@@ -17019,7 +17049,7 @@
     updateRunes(dt){
       for(let i=this.runes.length-1;i>=0;i--){
         const rune = this.runes[i];
-        rune.timer -= dt * this.aggression;
+        rune.timer -= dt;
         if(!rune.fired && rune.timer<=0){
           this.fireRune(rune);
         }
@@ -17166,7 +17196,7 @@
       else if(this.state==='recover') this.handleRecover(dt);
       for(let i=this.pendingEvents.length-1;i>=0;i--){
         const evt = this.pendingEvents[i];
-        evt.delay -= dt * this.aggression;
+        evt.delay -= dt;
         if(evt.delay<=0){
           this.executeEvent(evt);
           this.pendingEvents.splice(i,1);
@@ -17186,7 +17216,7 @@
       this.y = clamp(this.y, 96, CONFIG.roomH-96);
       resolveEntityObstacles(this);
       if(player && dist(this, player) < this.r + player.r - 4){ player.hurt(1); }
-      this.attackTimer -= dt * this.aggression;
+      this.attackTimer -= dt;
       if(this.attackTimer<=0){ this.chooseAttack(); }
     }
     handleWindup(dt){
@@ -17201,11 +17231,11 @@
       this.x = clamp(this.x, 80, CONFIG.roomW-80);
       this.y = clamp(this.y, 96, CONFIG.roomH-96);
       resolveEntityObstacles(this);
-      this.telegraphTimer -= dt * this.aggression;
+      this.telegraphTimer -= dt;
       if(this.telegraphTimer<=0){ this.executeAttackPlan(); }
     }
     handleLeap(dt){
-      this.leapTimer += dt * this.aggression;
+      this.leapTimer += dt;
       const ratio = Math.min(1, this.leapTimer / this.leapDuration);
       const ease = ratio<0.5 ? 2*ratio*ratio : -1 + (4 - 2*ratio)*ratio;
       this.x = this.leapStart.x + (this.leapEnd.x - this.leapStart.x) * ease;
@@ -17223,7 +17253,7 @@
       }
     }
     handleBrace(dt){
-      this.telegraphTimer -= dt * this.aggression;
+      this.telegraphTimer -= dt;
       this.altitude = Math.max(0, this.altitude - dt*2.4);
       if(this.telegraphTimer<=0){
         this.performQuakeImpact();
@@ -17235,7 +17265,7 @@
       }
     }
     handleRecover(dt){
-      this.recoverTimer -= dt * this.aggression;
+      this.recoverTimer -= dt;
       if(this.recoverTimer<=0){
         this.state='stalk';
         this.altitude = 0;
@@ -18036,23 +18066,23 @@
         this.teleportTimer = Math.min(this.teleportTimer, scaleBossTempo(1.3));
       }
       if(this.state==='vanish'){
-        this.teleportProgress += dt * this.aggression / this.teleportDuration;
+        this.teleportProgress += dt / this.teleportDuration;
         if(this.teleportProgress>=1){ this.performTeleport(); }
         return;
       }
       if(this.state==='reappear'){
-        this.teleportProgress += dt * this.aggression / (this.teleportDuration*0.8);
+        this.teleportProgress += dt / (this.teleportDuration*0.8);
         if(this.teleportProgress>=1){ this.state='stalk'; this.teleportProgress=0; }
       }
       const slow = this.state==='windup' ? 0.55 : (this.state==='recover' ? 0.65 : 1);
       this.floatMovement(dt, slow);
       if(this.state==='windup'){
-        this.telegraphTimer -= dt * this.aggression;
+        this.telegraphTimer -= dt;
         if(this.telegraphTimer<=0){ this.executeAttackPlan(); }
         return;
       }
       if(this.state==='recover'){
-        this.recoverTimer -= dt * this.aggression;
+        this.recoverTimer -= dt;
         if(this.recoverTimer<=0){
           this.state='stalk';
           this.attackTimer = this.nextCooldown || scaleBossTempo(this.enraged?1.2:1.7);
@@ -18061,9 +18091,9 @@
         return;
       }
       if(this.state==='stalk'){
-        this.teleportTimer -= dt * this.aggression;
+        this.teleportTimer -= dt;
         if(this.teleportTimer<=0){ this.beginTeleport(); }
-        this.attackTimer -= dt * this.aggression;
+        this.attackTimer -= dt;
         if(this.attackTimer<=0){ this.chooseAttack(); }
       }
     }
@@ -18297,12 +18327,12 @@
       this.cleanupSummons();
       if(!this.enraged && this.hp <= this.maxHp*0.52){ this.enterPhaseTwo(); }
       if(this.state==='warp-out'){
-        this.warpProgress += dt * this.aggression / this.warpDuration;
+        this.warpProgress += dt / this.warpDuration;
         if(this.warpProgress>=1){ this.performWarp(); }
         return;
       }
       if(this.state==='warp-in'){
-        this.warpProgress += dt * this.aggression / (this.warpDuration*0.75);
+        this.warpProgress += dt / (this.warpDuration*0.75);
         if(this.warpProgress>=1){ this.state='float'; this.warpProgress=0; }
       }
       const slow = this.state==='windup' ? 0.6 : (this.state==='recover' ? 0.7 : 1);
@@ -18314,12 +18344,12 @@
       resolveEntityObstacles(this);
       if(player && dist(this, player) < this.r + player.r - 3){ player.hurt(1); }
       if(this.state==='windup'){
-        this.telegraphTimer -= dt * this.aggression;
+        this.telegraphTimer -= dt;
         if(this.telegraphTimer<=0){ this.executeAttackPlan(); }
         return;
       }
       if(this.state==='recover'){
-        this.recoverTimer -= dt * this.aggression;
+        this.recoverTimer -= dt;
         if(this.recoverTimer<=0){
           this.state='float';
           this.attackTimer = this.nextCooldown || scaleBossTempo(1.5);
@@ -18327,9 +18357,9 @@
         }
         return;
       }
-      this.teleportTimer -= dt * this.aggression;
+      this.teleportTimer -= dt;
       if(this.teleportTimer<=0){ this.beginWarp(); }
-      this.attackTimer -= dt * this.aggression;
+      this.attackTimer -= dt;
       if(this.attackTimer<=0){ this.performAttack(); }
     }
     cleanupSummons(){
@@ -19273,7 +19303,7 @@
       outerColor: colorWithAlpha(baseColor, 0),
     });
     addFloorStain(enemy.x, enemy.y, Math.max(18, (enemy.r||12)*1.6), colorWithAlpha(baseColor, 0.68));
-    audio.play('enemyDeath', {volume: enemy.isBossEntity ? 1 : 0.8});
+    audio.play('enemyDeath', {volume: enemy.isBossEntity ? .7 : .38,x:enemy.x,rate:enemy.isBossEntity ? .8 : 1.1});
     if(enemy.isBossEntity){
       const shake = BOSS_TUNING.deathShake || {};
       addScreenShake(Number.isFinite(shake.intensity) ? shake.intensity : 6.5, Number.isFinite(shake.duration) ? shake.duration : 0.48);
@@ -19284,6 +19314,7 @@
 
   function triggerItemPickupAnimation({item, isActive=false, source=null}={}){
     if(!player) return;
+    player.pickupPose=.7;player.pickupRelic=item?.slug;
     (runtime.relicFlights ||= []).push({key:item?.slug || 'heart',x:source?.x ?? player.x,y:source?.y ?? player.y,life:.7,ttl:.7});
     const center = {x: player.x, y: player.y};
     const origin = source ? {x: source.x, y: source.y} : center;
@@ -19333,6 +19364,7 @@
 
   function triggerActiveUseAnimation(item){
     if(!player) return;
+    player.activePose=.6;player.activeRelic=item?.slug;
     const base = '#fbbf24';
     runtime.effects.push({
       type:'active-aura',
@@ -19516,7 +19548,7 @@
     dungeon.current = exchange;
     clearBossSummonTracker();
     clearRoomDecals();
-    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];
+    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];
     exchange.visited = true;
     exchange.cleared = true;
     exchange.combatRoom = false;
@@ -19558,7 +19590,7 @@
     dungeon.current = targetRoom;
     clearBossSummonTracker();
     clearRoomDecals();
-    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];
+    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];
     targetRoom.visited = true;
     player.handleRoomChange(targetRoom);
     const fallback = targetRoom.center ? targetRoom.center() : {x: CONFIG.roomW/2, y: CONFIG.roomH/2};
@@ -20052,7 +20084,7 @@
     runtime.exchangeRoom = null;
     runtime.effects.length = 0;
     clearRoomDecals();
-    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];
+    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];
     clearBossSummonTracker();
     runtime.timeStopTimer = 0;
     runtime.timeStopDuration = 0;
@@ -20118,7 +20150,7 @@
     runtime.exchangeRoom = null;
     runtime.effects.length = 0;
     clearRoomDecals();
-    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];
+    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];
     clearBossSummonTracker();
     runtime.timeStopTimer = 0;
     runtime.timeStopDuration = 0;
@@ -20181,7 +20213,7 @@
     runtime.exchangeRoom = null;
     runtime.effects.length = 0;
     clearRoomDecals();
-    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];
+    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];
     clearBossSummonTracker();
     runtime.timeStopTimer = 0;
     runtime.timeStopDuration = 0;
@@ -20306,7 +20338,7 @@
     dungeon.revealRoom(nextRoom);
     clearBossSummonTracker();
     clearRoomDecals();
-    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];
+    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];
     player.handleRoomChange(nextRoom);
 
     const dir = direction || 'center';
@@ -20671,37 +20703,14 @@
     for(const eb of runtime.enemyProjectiles){
       eb.prevX=eb.x; eb.prevY=eb.y;
       eb.update(enemyProjectileDt);
-      if(eb.alive && eb.r && !(eb instanceof FallingShard) && !(eb instanceof LobbedRock) && !roomContainsPoint(eb.x,eb.y,eb.r+1)){
+      if(eb.alive && eb.r && !(eb instanceof EnemyProjectile) && !(eb instanceof FallingShard) && !(eb instanceof LobbedRock) && !roomContainsPoint(eb.x,eb.y,eb.r+1)){
         if(typeof eb.destroy==='function')eb.destroy({glowStrength:.25});else eb.alive=false;
       }
     }
     runtime.enemyProjectiles = runtime.enemyProjectiles.filter(p=>p.alive);
 
-    // Swept relative motion catches fast tears and moving targets in travel order.
-    for(const b of runtime.bullets){
-      if(!b.alive) continue;
-      const hits=[];
-      for(const e of enemies){
-        if(e.dead) continue;
-        if(b.pierceEnemies && b.hasHitEnemy?.(e)) continue;
-        const time=projectileHitTime(b,e);
-        if(time!==null) hits.push({enemy:e,time});
-      }
-      for(const bomb of bombs){if(bomb.exploded || bomb.done || b.bombContacts?.has(bomb))continue;const time=projectileHitTime(b,bomb);if(time!==null)hits.push({bomb,time});}
-      hits.sort((a,b)=>a.time-b.time);
-      for(const hit of hits){
-        if(hit.bomb){hitBombWithShot(b,hit.bomb);if(!b.alive)break;continue;}
-        const e=hit.enemy;
-        if(e.dead) continue;
-        const killed=damageEnemyAtImpact(e,b.damage,b.vx,b.vy);
-        if(killed) handleEnemyDeath(e,dungeon.current);
-        if(b.pierceEnemies){ b.markEnemyHit?.(e); continue; }
-        b.x=(b.prevX ?? b.x)+(b.x-(b.prevX ?? b.x))*hit.time;
-        b.y=(b.prevY ?? b.y)+(b.y-(b.prevY ?? b.y))*hit.time;
-        b.destroy({glowStrength:0.5});
-        break;
-      }
-    }
+    // Resolve enemies, bombs, walls and range expiry in actual travel order.
+    for(const b of runtime.bullets)resolvePlayerShot(b,enemies,bombs);
     // 清理死亡
     const survivors = [];
     for(const e of enemies){
@@ -20716,12 +20725,24 @@
     // 玩家被弹幕命中
     if(!timeStopActive){
       for(const eb of runtime.enemyProjectiles){
-        const playerTime=eb.r && Number.isFinite(eb.vx) && Number.isFinite(eb.vy) ? projectileHitTime(eb,player):null;
-        const contacts=bombs.map(bomb=>({bomb,time:projectileHitTime(eb,bomb)})).filter(c=>c.time!==null && (playerTime===null || c.time<playerTime)).sort((a,b)=>a.time-b.time);
-        for(const {bomb} of contacts)if(hitBombWithShot(eb,bomb,true)&&!eb.alive)break;
-        if(eb.alive && eb.checkHit(player) && eb.alive){
-          if(typeof eb.destroy==='function') eb.destroy({glowStrength:0.45});
-          else eb.alive=false;
+        if(!eb.alive)continue;
+        if(eb instanceof EnemyProjectile){
+          const contacts=[];
+          if(eb.pendingSolid)contacts.push({...eb.pendingSolid,solid:true});
+          const playerTime=projectileHitTime(eb,player);if(playerTime!==null)contacts.push({hero:true,time:playerTime});
+          for(const bomb of bombs){if(bomb.done || bomb.exploded)continue;const time=projectileHitTime(eb,bomb);if(time!==null)contacts.push({bomb,time});}
+          contacts.sort((a,b)=>a.time-b.time || Number(!!b.solid)-Number(!!a.solid));
+          for(const hit of contacts){
+            if(hit.solid){placeShotAtContact(eb,hit.time);eb.destroy();break;}
+            if(hit.bomb){placeShotAtContact(eb,hit.time);hitBombWithShot(eb,hit.bomb,true,true);if(!eb.alive)break;}
+            if(hit.hero){eb.checkHit(player);placeShotAtContact(eb,hit.time);eb.destroy();break;}
+          }
+          if(eb.alive && eb.pendingGround)eb.destroy();
+        }else{
+          const playerTime=eb.r && Number.isFinite(eb.vx) && Number.isFinite(eb.vy) ? projectileHitTime(eb,player):null;
+          const contacts=bombs.map(bomb=>({bomb,time:projectileHitTime(eb,bomb)})).filter(c=>c.time!==null && (playerTime===null || c.time<playerTime)).sort((a,b)=>a.time-b.time);
+          for(const {bomb} of contacts)if(hitBombWithShot(eb,bomb,true)&&!eb.alive)break;
+          if(eb.alive && eb.checkHit(player) && eb.alive){if(typeof eb.destroy==='function')eb.destroy({glowStrength:.45});else eb.alive=false;}
         }
       }
     }
@@ -22281,9 +22302,13 @@
     constructor(x,y,vx,vy,life,type){
       this.x=x; this.y=y; this.vx=vx; this.vy=vy; this.life=life; this.alive=true; this.r= type==='needle'?6:(type==='spark'?5:7);
       this.type=type;
-      if(type==='needle') this.color='#f973a6';
-      else if(type==='spark') this.color='#fbbf24';
-      else this.color='#ff7aa9';
+      const source=runtime.attackSource;this.owner=source || null;
+      const speed=Math.hypot(vx,vy),limit=source?.isBossEntity ? 260 : 225;
+      if(speed>limit){this.vx*=limit/speed;this.vy*=limit/speed;}
+      if(source){source.attackPose=.22;audio.play('enemyShoot',{volume:.12,x});}
+      if(type==='needle') this.color='#efb473';
+      else if(type==='spark') this.color='#e9a4ce';
+      else this.color='#ed8c77';
     }
     destroy(options={}){
       if(!this.alive) return;
@@ -22303,22 +22328,17 @@
         const angle=this.curve*Math.min(dt,this.curveTime),cos=Math.cos(angle),sin=Math.sin(angle),vx=this.vx;
         this.vx=vx*cos-this.vy*sin;this.vy=vx*sin+this.vy*cos;this.curveTime=Math.max(0,this.curveTime-dt);
       }
-      this.x += this.vx*dt;
-      this.y += this.vy*dt;
-      this.life -= dt;
-      if(this.life<=0){ this.destroy(); return; }
-      if(!roomContainsPoint(this.x,this.y,this.r+1)){ this.destroy(); return; }
-      if(this.alive){
-        for(const obs of dungeon.current.obstacles){
-          if(obs.destroyed || obs.projectileSolid===false) continue;
-          if(circleRectOverlap(this, obs)){ this.destroy({glowStrength:0.4}); break; }
-        }
-      }
+      const travelDt=Math.min(dt,Math.max(0,this.life));
+      this.x += this.vx*travelDt;
+      this.y += this.vy*travelDt;
+      this.life=Math.max(0,this.life-travelDt);
+      this.pendingSolid=firstShotBarrier(this);
+      this.pendingGround=this.life<=1e-8;
     }
     checkHit(target){
       if(!this.alive) return false;
       if(projectileHitTime(this,target)!==null){
-        target.hurt(this.type==='needle'?2:1);
+        target.hurt(1);
         applyProjectileContact(target,this);
         return true;
       }
@@ -22701,6 +22721,7 @@
   function queueEnemySpawn(enemy, options={}){
     if(!enemy) return false;
     const opts = options || {};
+    if((dungeon.current.enemies || []).filter(e=>!e.dead).length+runtime.pendingEnemySpawns.length>=14)return false;
     const flagged = !!(opts.bossSummon || enemy.isBossSummon);
     let summoner = opts.summoner || enemy.bossSummoner;
     if(!summoner && enemy?.master && enemy.master.isBossEntity){
@@ -22775,7 +22796,7 @@
     const context = {runtime, dungeon, config: CONFIG};
     const outcome = player.useActiveItem(context);
     if(outcome === false) return;
-    triggerActiveUseAnimation(item);
+    if(outcome!==0 && outcome?.consume!==0)triggerActiveUseAnimation(item);
     if(runtime.itemPickupTimer<=0){
       let name = `${item.name || '主动道具'} 已释放`;
       let desc = item.description || '主动效果发动。';
@@ -22937,25 +22958,36 @@
       this.flying=type==='lantern';
     }
     update(dt){
-      this.tacticClock-=dt;
+      this.tacticClock-=dt;this.recovery=Math.max(0,(this.recovery || 0)-dt);
+      if(this.recovery>0)return;
       if(this.windup>0){
-        this.windup-=dt;
-        if(this.windup<=0 && this.cryptType==='lantern'){
+        this.windup=Math.max(0,this.windup-dt);
+        if(this.windup===0){
           const angle=this.lockedAngle;
-          for(const offset of [-.2,0,.2])runtime.enemyProjectiles.push(new EnemyProjectile(this.x,this.y,Math.cos(angle+offset)*145,Math.sin(angle+offset)*145,3,'spark'));
-          this.attackPose=.3;
+          if(this.cryptType==='lantern'){
+            for(const offset of [-.24,0,.24])runtime.enemyProjectiles.push(new EnemyProjectile(this.x,this.y,Math.cos(angle+offset)*145,Math.sin(angle+offset)*145,3,'spark'));
+          }else if(this.cryptType==='warden'){
+            const dx=player.x-this.x,dy=player.y-this.y,d=Math.hypot(dx,dy),facing=Math.atan2(Math.sin(Math.atan2(dy,dx)-angle),Math.cos(Math.atan2(dy,dx)-angle));
+            if(d<58+player.r && Math.abs(facing)<.8){player.hurt(1);addBodyImpulse(player,Math.cos(angle)*130,Math.sin(angle)*130);}
+            emitRoomDust(this.x+Math.cos(angle)*32,this.y+Math.sin(angle)*32,Math.cos(angle)*35,Math.sin(angle)*35,8,'#b8ae8b');
+            this.recovery=.8;
+          }
+          this.attackPose=.28;
         }
-      }else if(this.tacticClock<=0 && ['lantern','warden'].includes(this.cryptType)){
-        this.tacticClock=this.cryptType==='lantern' ? 3.4 : 2.7;
-        this.windup=.7;this.lockedAngle=Math.atan2(player.y-this.y,player.x-this.x);
+        return;
       }
-      if(this.cryptType==='rat')this.speed=(100+20*Math.sin((this.brain?.time || 0)*3))*(this.scaling?.speed || 1);
+      if(this.tacticClock<=0 && (this.cryptType==='lantern' || this.cryptType==='warden' && dist(this,player)<110)){
+        this.tacticClock=this.cryptType==='lantern' ? 3.6 : 2.8;
+        this.windup=this.cryptType==='warden' ? .8 : .75;this.lockedAngle=Math.atan2(player.y-this.y,player.x-this.x);
+      }
+      if(this.cryptType==='rat')this.speed=(98+16*Math.sin((this.brain?.time || 0)*3))*(this.scaling?.speed || 1);
       if(dist(this,player)<this.r+player.r)player.hurt(1);
     }
     damage(amount){
-      const guarded=this.cryptType==='warden' && this.windup>0;
-      const killed=super.damage(amount*(guarded ? .65 : 1));
-      if(guarded)emitRoomDust(this.x,this.y,0,0,4,'#cbbd8e');
+      const hit=this.incomingHit,angle=this.lockedAngle || 0,speed=hit ? Math.hypot(hit.vx,hit.vy):0;
+      const guarded=this.cryptType==='warden' && this.windup>0 && speed>0 && (hit.vx*Math.cos(angle)+hit.vy*Math.sin(angle))/speed<-.45;
+      const killed=super.damage(amount*(guarded ? .45 : 1));
+      if(guarded){emitRoomDust(this.x,this.y,0,0,4,'#cbbd8e');audio.play('shieldHit',{volume:.24,x:this.x});}
       return killed;
     }
   }
@@ -23001,6 +23033,137 @@
     const p=viewPoint(actor.x,actor.y),r=(actor.r || 12)*.85;
     ctx.fillStyle='#060605a8';ctx.beginPath();ctx.ellipse(p.x+3,p.y+2,r*1.1,r*.34,0,0,Math.PI*2);ctx.fill();
   }
+  // Clothing is assembled by body slot, so boots, a mask, a cloak and a backpack coexist.
+  const COSTUME_STYLES=Object.freeze({
+    'onion':['face','tears','#8fbcc8'],'tar':['coat','drips','#554c62'],
+    'sneaker':['boots','sole','#b78364'],'winged-socks':['boots','wings','#c9c5a7'],
+    'wind-sprint-medal':['cape','scarf','#9da8b0'],'lightstep-tonic':['pack','bottle','#a2b584'],
+    'pepper-steak':['coat','muscle','#ac6b58'],'rope':['cape','rope','#bca576'],
+    'spirit-date':['hood','spectral','#b1a5c4'],'compressed-peach':['hood','flower','#d6a0aa'],
+    'lightsaber':['coat','runes','#7f9c9a'],'short-sword':['shoulder','plate','#a8aaa0'],
+    'betrayal-hound':['hood','hound','#af8c6d'],'despair-shout':['face','mouth','#9d7072'],
+    'bad-thing':['face','skull','#c6b99e'],'good-thing':['hood','flower','#bfbb80'],
+    'double-gaze':['eyes','two','#d3bd9b'],'triple-gaze':['eyes','three','#bc98aa'],
+    'quad-gaze':['eyes','four','#c6a573'],'impact-chocolate':['shoulder','slab','#926c50'],
+    'hot-chocolate':['hood','steam','#b28d72'],'soy-milk':['hood','carton','#d9d3ba'],
+    'seer-map':['pack','scroll','#c6b78d'],'outdoor-pouch':['pack','bag','#9b9d72'],
+    'pocket-watch':['face','monocle','#c9ad6b'],'adrenaline':['coat','veins','#a76b67'],
+    'bomb-cousin':['coat','bandolier','#b9a37e'],'bomb-uncle':['hood','fuse','#999d82'],
+    'bomb-grandpa':['face','beard','#c1bbaa'],'magic-bullet':['hood','third-eye','#ae90be'],
+    'younger-cousin':['hood','small-horns','#ad947d'],'aunt-brimstone':['cape','split','#ac7161'],
+    'black-buddy':['coat','patch','#6c6579'],'holy-heart':['hood','crown','#d3bd77'],
+    'blood-power':['coat','veins','#b57873'],'money-power':['coat','coins','#c0a064'],
+    'despair-power':['face','scar','#bc8c86'],'dog-food':['face','muzzle','#b29977'],
+    'vital-broth':['coat','apron','#b7a983'],'guardian-core':['shoulder','bone','#b7b69b'],
+    'ember-heart':['coat','ember','#ba8358'],'ending-note':['pack','book','#b3a68b'],
+    'kettle':['hood','kettle','#aaa387'],'brimstone':['hood','horns','#b78273'],
+    'brother':['cape','hooded','#9ca693'],'sister':['cape','split','#b5a0b4'],
+    'cousin':['face','bandana','#9ba584'],'bomb-elder':['coat','bandolier','#848c78'],
+    'bomb-progenitor':['hood','crown','#b99b7a'],'abaddon':['hood','horns','#8c7d9d'],
+    'escape-tool':['cape','torn','#a5aa98'],'wax-seal':['shoulder','wax','#c2a57c'],
+    'mirror-shard':['shoulder','mirror','#9fbbc2'],'copper-spool':['shoulder','coil','#bc9169'],
+    'salt-pouch':['pack','bag','#c9c0a4'],'grave-bell':['pack','bell','#b59e6e'],
+    'moss-charm':['shoulder','moss','#8caa77'],'bone-die':['hood','bone','#c2bea5'],
+    'pilgrim-thread':['coat','stitches','#b3a285']
+  });
+  function drawPlayerCostume(actor,p,frame,hit){
+    const c=actor.costume || {},clock=Math.floor((runtime.visualTime || 0)*8)/8;
+    const part=slot=>c[slot]?.style,shade=slot=>part(slot)?.[2];
+    const aimX=actor.facingX || 0,look=Math.round(aimX*2);
+    const lift=actor.pickupPose>0 ? 7 : actor.shotPose>0 ? 2 : 0,step=frame===1 ? -2 : frame===3 ? 2 : 0;
+    const px=(x,y,w,h,color)=>{ctx.fillStyle=color;ctx.fillRect(Math.round(p.x+x),Math.round(p.y+y),w,h);};
+    const poly=(points,color,edge='#292720')=>polygon(points.map(([x,y])=>({x:p.x+x,y:p.y+y})),color,edge);
+    const icon=(key,x,y,w,h,color)=>drawGlyph(ctx,key,p.x+x,p.y+y,w,h,color);
+    // Rear silhouette first: fabric moves in four held frames, never a smooth rubber wobble.
+    if(c.cape){
+      const col=shade('cape'),tail=part('cape')[1]==='scarf' ? 9 : 0;
+      poly([[-10,-31],[10,-31],[17+step,-2],[-16+step,-3],[-13,-12]],shadeColor(col,-.35));
+      poly([[-8,-29],[9,-29],[12+step,tail-9],[-9+step,-8]],col);
+      if(part('cape')[1]==='rope'){ctx.strokeStyle='#d1bb8b';ctx.lineWidth=2;ctx.beginPath();ctx.arc(p.x,p.y-19,15,0,Math.PI*1.7);ctx.stroke();}
+      if(part('cape')[1]==='split'){px(-1,-22,3,19,'#3c3033');}
+    }
+    if(actor.flying){
+      const flap=Math.round(Math.sin(clock*5)*2),dark=getItemStack(actor,'abaddon')>0;
+      for(const sign of [-1,1])poly([[sign*7,-28],[sign*24,-42+flap],[sign*29,-29],[sign*18,-15],[sign*11,-16]],dark ? '#71637e':'#bdb69d');
+    }
+    if(c.pack){
+      const type=part('pack')[1],col=shade('pack');
+      poly([[-18,-28],[-6,-30],[-5,-8],[-19,-9]],shadeColor(col,-.3));
+      px(-18,-25,11,16,col);px(-17,-23,9,2,shadeColor(col,.2));px(-15,-15,3,4,'#665039');
+      const key={bottle:'standing-potion',scroll:'scroll-unfurled',bag:'knapsack',book:'open-book',bell:'ringing-bell'}[type];
+      icon(key,-23,-27,18,20,col);
+    }
+    // Thick soles keep grounded feet distinct from the ground shadow.
+    if(!actor.flying){
+      const col=shade('boots') || '#6f6048',large=c.boots ? 2 : 0;
+      px(-9-large,-5+step,8+large,6,'#292720');px(3,-5-step,8+large,6,'#292720');
+      px(-8-large,-5+step,6+large,4,col);px(4,-5-step,6+large,4,col);
+      if(c.boots){px(-10,-1+step,9,2,'#d0be96');px(3,-1-step,10,2,'#d0be96');}
+      if(part('boots')?.[1]==='wings'){icon('wingfoot',-19,-13+step,14,13,col);icon('wingfoot',8,-13-step,14,13,col);}
+    }
+    const coat=hit ? '#bb8675' : shade('coat') || '#797b5d',skin=hit ? '#e9b6a0':'#c8af8a';
+    poly([[-9,-27],[8,-27],[12,-6],[-11,-6]],shadeColor(coat,-.32));
+    poly([[-7,-25],[6,-25],[9,-8],[-8,-8]],coat);px(-7,-24,3,13,shadeColor(coat,.18));
+    // Forearms lift at pickup and recoil on firing; their attachment remains at the shoulders.
+    poly([[-9,-25],[-14,-23-lift],[-15,-14-lift],[-11,-13-lift]],coat);
+    poly([[8,-25],[13,-23-lift],[15,-14-lift],[10,-13-lift]],shadeColor(coat,-.12));
+    px(-15,-15-lift,4,5,skin);px(11,-15-lift,4,5,skin);
+    const pattern=part('coat')?.[1];
+    if(pattern==='bandolier'){for(let i=0;i<4;i++)icon('unlit-bomb',-9+i*4,-25+i*4,8,9,'#d4be8c');}
+    else if(pattern==='veins'){ctx.strokeStyle='#df9a88';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.x-3,p.y-25);ctx.lineTo(p.x+2,p.y-17);ctx.lineTo(p.x-4,p.y-10);ctx.stroke();px(4,-21,2,7,'#974e4d');}
+    else if(pattern==='stitches'){for(let i=0;i<4;i++){px(-6+i*3,-21+i*3,5,1,'#e0cf9f');px(-4+i*3,-23+i*3,1,5,'#e0cf9f');}}
+    else if(pattern==='drips'){for(let i=0;i<4;i++)px(-9+i*5,-13,3,7+i%2*3,'#493b50');}
+    else if(pattern==='apron'){px(-5,-24,11,17,'#d7c8a5');px(-4,-15,8,4,'#8d8064');}
+    else if(pattern==='muscle'){px(-13,-24,6,10,'#c18d6d');px(9,-24,6,10,'#ad765c');}
+    else if(pattern==='coins'){for(let i=0;i<4;i++)icon('coins',-9+i%2*9,-23+Math.floor(i/2)*8,9,9,'#e0bd73');}
+    else if(pattern){icon({runes:'rune-sword',patch:'relic-black-buddy',ember:'mineral-heart'}[pattern] || 'health-heart',-6,-24,12,15,pattern==='ember' ? '#e8b076':'#cbc5aa');}
+    px(-9,-11,19,2,'#b7a078');px(-2,-12,4,4,'#dcc28e');
+    // The face is drawn, not hidden inside a monochrome icon: eyes can aim, blink and multiply.
+    const hood=hit ? '#d3aa93' : shade('hood') || '#a5a386';
+    poly([[-15,-30],[-12,-40],[-7,-47],[5,-48],[13,-40],[16,-29],[11,-25],[-10,-25]],shadeColor(hood,-.35));
+    poly([[-14,-32],[-9,-42],[-3,-46],[5,-45],[12,-37],[14,-30],[9,-28],[-10,-28]],hood);
+    poly([[-9,-34],[-5,-40],[4,-40],[10,-34],[8,-27],[-6,-27]],'#302c27');
+    px(-6+look,-35,13,8,skin);px(-4+look,-36,9,2,skin);px(-6+look,-28,10,2,shadeColor(skin,-.18));
+    const eyeStyle=part('eyes')?.[1],blink=Math.floor(clock*8)%37===0 && !actor.shotPose;
+    const eyeColor=actor.shotPose>0 ? tearMaterial(actor) : '#28262a';
+    const eyes=eyeStyle==='four' ? [[-5,-35],[4,-35],[-5,-30],[4,-30]] : eyeStyle==='three' ? [[-5,-32],[4,-32],[0,-37]] : [[-4,-33],[4,-33]];
+    if(eyeStyle==='two'){px(-10,-38,22,10,'#574839');px(-9,-37,20,8,'#d0b58a');}
+    for(const [x,y] of eyes){px(x+look,y,3,blink ? 1:3,eyeColor);if(!blink)px(x+look,y,1,1,'#e9d6ad');}
+    if(actor.shotPose>0)px(look,-28,3,2,'#533c3b');
+    const face=part('face')?.[1],faceColor=shade('face');
+    if(face==='tears'){px(-5+look,-30,2,7,faceColor);px(5+look,-30,2,6,faceColor);}
+    if(face==='mouth'){px(-3,-31,8,7,'#38292c');px(-2,-31,6,2,'#d9c4a6');}
+    if(face==='scar'){px(-7,-34,2,9,faceColor);px(-9,-31,6,1,'#62413a');}
+    if(face==='monocle'){ctx.strokeStyle=faceColor;ctx.lineWidth=2;ctx.strokeRect(p.x+1+look,p.y-36,7,7);px(9,-29,1,10,faceColor);}
+    if(face==='bandana'){px(-9,-30,20,6,faceColor);poly([[9,-30],[19+step,-28],[13,-23]],faceColor);}
+    if(face==='beard'){poly([[-7,-29],[9,-29],[5,-18],[-2,-20]],faceColor);px(-6,-28,14,2,'#e2d4b4');}
+    if(face==='skull')icon('skull-mask',-11,-40,24,21,faceColor);
+    if(face==='muzzle'){px(-7,-30,16,6,faceColor);px(-2,-31,6,3,'#4f4236');}
+    const hat=part('hood')?.[1];
+    if(hat==='horns' || hat==='small-horns')for(const sign of [-1,1]){const h=hat==='horns'?12:7;poly([[sign*9,-41],[sign*18,-48-h],[sign*17,-39],[sign*11,-36]],hood);}
+    if(hat==='hound')for(const sign of [-1,1])poly([[sign*8,-42],[sign*16,-51],[sign*20,-32],[sign*11,-35]],shadeColor(hood,-.2));
+    if(hat==='flower'){for(let i=0;i<5;i++)icon(c.hood.id==='compressed-peach'?'peach':'twirly-flower',-15+i*6,-48+(i%2)*2,11,11,hood);}
+    if(hat==='crown')icon(c.hood.id==='holy-heart'?'crown-coin':'skull-ring',-14,-58,29,23,'#d8bd83');
+    if(hat==='bone'){icon('skull-mask',-15,-54,30,23,hood);}
+    if(hat==='third-eye'){icon('relic-three-eyes',-9,-47,19,14,'#d1b1dc');}
+    if(hat==='carton'){poly([[-12,-42],[-9,-54],[4,-56],[13,-47],[13,-41]],hood);px(-7,-51,5,10,'#96a9a4');}
+    if(hat==='fuse'){px(-2,-53,3,9,'#bba476');px(-1,-54,3,3,Math.floor(clock*8)%2?'#d2a865':'#eee0a2');}
+    if(hat==='kettle')icon('teapot',-15,-55,30,22,hood);
+    if(hat==='steam'){for(let i=0;i<3;i++){px(-8+i*8,-51-(Math.floor(clock*8)+i)%3*3,2,4,'#bda98a');}}
+    if(hat==='spectral'){ctx.strokeStyle='#d5c9df';ctx.lineWidth=1;ctx.setLineDash([2,3]);ctx.strokeRect(p.x-16,p.y-46,32,23);ctx.setLineDash([]);}
+    if(c.shoulder){
+      const type=part('shoulder')[1],col=shade('shoulder');
+      poly([[7,-29],[17,-31],[21,-20],[11,-17]],shadeColor(col,-.25));
+      poly([[7,-29],[16,-30],[19,-22],[10,-20]],col);
+      const key={plate:'winged-shield',slab:'relic-chocolate',bone:'skull-shield',wax:'wax-seal',mirror:'mirror-mirror',coil:'copper-wire-spool',moss:'mushroom'}[type];
+      icon(key,8,-32,16,18,shadeColor(col,.2));
+      if(type==='wax')px(17,-20,2,7,'#c6aa7d');
+      if(type==='moss'){px(9,-18,3,5,'#8d9f68');px(18,-22,3,7,'#728453');}
+    }
+    if(actor.holyHeartState?.blessingActive){ctx.strokeStyle='#e0ca8d';ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(p.x,p.y-60,14,3,0,0,Math.PI*2);ctx.stroke();}
+    if(actor.pickupPose>0){icon(actor.pickupRelic || 'health-heart',-10,-72,22,22,'#ead2a3');}
+    if(actor.activePose>0){icon(actor.activeRelic || 'clockwork',19,-43,19,22,'#e3c488');}
+  }
   function drawCryptActor(actor){
     const hero=actor===player,boss=actor.isBossEntity,r=actor.r || 12;
     const clock=Math.floor((runtime.visualTime || 0)*8)/8;
@@ -23021,25 +23184,13 @@
     if(hero && actor.ifr>0 && Math.floor(clock*10)%2)ctx.globalAlpha=.45;
     if(isPhasedActor(actor))ctx.globalAlpha*=.35;
     const width=hero ? 30 : Math.max(22,r*(boss ? 2.5 : 2.25)),height=hero ? 40 : width*(boss ? 1.2 : 1.08);
-    const color=hit ? '#e6cda5' : hero ? '#b4b49a' : actor.enraged ? '#be755d' : actor.windup>0 ? '#c0a66e' : boss ? '#af7b77' : actor.cryptType==='warden' ? '#919d82' : '#ad9275';
-    if(!actor.flying){
+    const color=hit ? '#e6cda5' : hero ? '#b4b49a' : actor.enraged ? '#be755d' : actor.windup>0 ? '#c0a66e' : boss ? '#af7b77' : actor.cryptType==='warden' ? '#919d82' : ['sentry','crab'].includes(actor.archetype) ? '#b8a17e' : actor.flying ? '#ad9cb9' : actor.archetype==='volatile' ? '#bd8d70' : '#ad9275';
+    if(!hero && !actor.flying){
       ctx.fillStyle='#504637';const step=frame===1 ? -2 : frame===3 ? 2 : 0;
       ctx.fillRect(p.x-width*.23,p.y-4+step,Math.max(3,width*.17),5);ctx.fillRect(p.x+width*.08,p.y-4-step,Math.max(3,width*.17),5);
     }
     if(hero){
-      polygon([{x:p.x-9,y:p.y-24},{x:p.x+8,y:p.y-24},{x:p.x+12,y:p.y-5},{x:p.x-11,y:p.y-5}],hit ? '#b77b66' : '#686950','#272b22');
-      drawGlyph(ctx,'hood',p.x-16,p.y-44+frame%2,32,32,color);
-      ctx.fillStyle='#c7b28a';ctx.fillRect(p.x-9,p.y-12,18,2);
-      const gear=actor.gearItems || [];
-      for(let i=0;i<Math.min(8,gear.length);i++){
-        const item=gear[gear.length-1-i],angle=Math.PI+(i%4)*Math.PI/3;
-        const x=p.x+Math.cos(angle)*13,y=p.y-16-Math.floor(i/4)*10;
-        drawGlyph(ctx,item.slug,x-4,y-4,8,8,['#bda570','#a49d7e','#9b8098'][i%3]);
-      }
-      // Every passive also contributes a small belt bead, even with a full equipment silhouette.
-      gear.forEach((item,i)=>{ctx.fillStyle=['#ad8b52','#7e9a7d','#ac7270','#9b87ac'][i%4];ctx.fillRect(p.x-11+(i%12)*2,p.y-10+Math.floor(i/12)*2,1,2);});
-      if(actor.flying){drawGlyph(ctx,'angel-wings',p.x-26,p.y-36,52,26,'#b9b09b');}
-      if(actor.holyHeartState?.blessingActive){ctx.strokeStyle='#bba76b';ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(p.x,p.y-44,12,3,0,0,Math.PI*2);ctx.stroke();}
+      drawPlayerCostume(actor,p,frame,hit);
       const aimX=actor.facingX || (keys.has('ArrowLeft') ? -1 : 1),attack=actor.shotPose>0;
       const weapon={lightsaber:'rune-sword',shortsword:'broadsword',brimstone:'wizard-staff','bomb-elder':'unlit-bomb','bomb-progenitor':'skull-ring'}[actor.attackMode];
       if(weapon)drawGlyph(ctx,weapon,p.x+(aimX<0 ? -25 : 10)+(attack ? aimX*3 : 0),p.y-27-(attack ? 2 : 0),18,24,'#a89673');
@@ -23048,8 +23199,20 @@
       const recipes=relicRecipes(actor);
       if(recipes.length){ctx.strokeStyle=recipes.some(r=>r.key==='cinder') ? '#b5774b' : '#9987ac';ctx.globalAlpha*=.5;ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(foot.x,foot.y,20,7,0,0,Math.PI*2);ctx.stroke();}
     }else{
-      const lean=actor.attackPose>0 || actor.windup>0 ? (frame%2 ? 2 : -2) : moving ? (frame%2 ? 1 : -1) : 0;
-      drawGlyph(ctx,actorArtKey(actor),p.x-width/2+lean,p.y-height,width,height,color);
+      const preparing=actor.windup>0 || actor.telegraphTimer>0 || /windup|telegraph/.test(actor.state || '');
+      const compression=hit ? .88 : preparing ? .9 : actor.attackPose>0 ? 1.08 : 1;
+      const poseWidth=width*(2-compression),poseHeight=height*compression;
+      const lean=actor.attackPose>0 ? Math.sign(player.x-actor.x)*3 : moving ? Math.round(clamp(actor.motionVx || 0,-120,120)/60) : 0;
+      if(actor.flying && !boss){
+        const wing=frame%2 || Math.floor(clock*8)%2;
+        for(const sign of [-1,1])polygon([{x:p.x+sign*width*.3,y:p.y-height*.6},{x:p.x+sign*width*.7,y:p.y-height*(wing ? .85:.35)},{x:p.x+sign*width*.4,y:p.y-height*.4}],'#aaa28a88');
+      }
+      drawGlyph(ctx,actorArtKey(actor),p.x-poseWidth/2+lean,p.y-poseHeight,poseWidth,poseHeight,color);
+      if(actor.cryptType==='warden'){
+        const direction=actor.lockedAngle ?? Math.atan2(player.y-actor.y,player.x-actor.x),dx=Math.cos(direction)*13,dy=Math.sin(direction)*7;
+        drawGlyph(ctx,'skull-shield',p.x+dx-11,p.y-height*.6+dy-8,22,25,actor.windup>0 ? '#d6c18f':'#7c8c79');
+      }
+      if(actor.attackPose>0){ctx.fillStyle='#e8c79e';ctx.fillRect(p.x-3,p.y-height*.55,6,3);}
       if(boss){drawGlyph(ctx,'crown-coin',p.x-13,p.y-height-13,26,18,'#bd955a');}
       if(actor.cinder){drawGlyph(ctx,'candle-flame',p.x-7,p.y-height-13,14,18,'#c98651');}
       if(actor.mossSlow>0){ctx.fillStyle='#8b9c74';ctx.fillRect(p.x-10,p.y-6,3,2);ctx.fillRect(p.x+7,p.y-9,2,3);}
@@ -23171,17 +23334,48 @@
     ctx.fillStyle='#dfbe7e';ctx.fillRect(p.x+6,p.y-23,2,2);
   }
   function drawCryptShot(b,hostile=false){
-    const altitude=shotAltitude(b,hostile),p=viewPoint(b.x,b.y,altitude),ground=viewPoint(b.x,b.y),r=Math.max(2,b.r || 4);
-    ctx.save();ctx.fillStyle='#08090690';ctx.beginPath();ctx.ellipse(ground.x+2,ground.y+1,r*.95,r*.32,0,0,Math.PI*2);ctx.fill();
+    const altitude=shotAltitude(b,hostile),p=viewPoint(b.x,b.y,altitude),ground=viewPoint(b.x,b.y),r=clamp(b.r || 5,2,15);
+    const color=b.color || (hostile ? '#ed8c77':'#9bc9d2');
+    ctx.save();
+    ctx.fillStyle=`rgba(7,8,6,${.42+clamp(1-altitude/38,0,1)*.26})`;
+    ctx.beginPath();ctx.ellipse(ground.x+1,ground.y+1,r*(.65+altitude/65),r*.3,0,0,Math.PI*2);ctx.fill();
     if(hostile && (b instanceof LobbedRock || b instanceof FallingShard)){
       drawGlyph(ctx,b instanceof LobbedRock ? 'rock-golem' : 'crystal-shine',p.x-r,p.y-r,r*2,r*2,'#c1a07d');ctx.restore();return;
     }
-    const previous=viewPoint(b.prevX ?? b.x-(b.vx || 0)*.025,b.prevY ?? b.y-(b.vy || 0)*.025,altitude);
-    ctx.strokeStyle=hostile ? '#ba6c5480' : '#cbb88b70';ctx.lineWidth=Math.max(1,r*.7);ctx.beginPath();ctx.moveTo(previous.x,previous.y);ctx.lineTo(p.x,p.y);ctx.stroke();
-    if(b.holyAura){ctx.strokeStyle='#dbc78988';ctx.lineWidth=1;const radius=b.holyAura.radius || r*(b.holyAura.radiusMultiplier || 3);ctx.beginPath();ctx.ellipse(p.x,p.y,radius*.9,radius*.72,0,0,Math.PI*2);ctx.stroke();}
-    ctx.fillStyle=hostile ? '#653d32' : '#5c6258';ctx.beginPath();ctx.ellipse(p.x,p.y,r,r*.94,0,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle=hostile ? '#f29b76' : '#d9e3ce';ctx.beginPath();ctx.ellipse(p.x-r*.15,p.y-r*.2,r*.78,r*.7,0,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#fff2cf';ctx.fillRect(Math.round(p.x-r*.4),Math.round(p.y-r*.6),Math.max(1,r*.5),Math.max(1,r*.3));ctx.restore();
+    const previous=viewPoint(b.prevX ?? b.x,b.prevY ?? b.y,b.previousAltitude ?? altitude);
+    const dx=p.x-previous.x,dy=p.y-previous.y,length=Math.hypot(dx,dy);
+    if(length>1 && (b.homing || hostile || Math.hypot(b.vx || 0,b.vy || 0)>300)){
+      ctx.strokeStyle=colorWithAlpha(color,.24);ctx.lineWidth=Math.max(1,r*.6);
+      ctx.beginPath();ctx.moveTo(p.x-dx*Math.min(3,12/length),p.y-dy*Math.min(3,12/length));ctx.lineTo(p.x,p.y);ctx.stroke();
+    }
+    if(b.holyAura){ctx.strokeStyle='#dbc78988';ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(p.x,p.y,r*2.5,r*1.8,0,0,Math.PI*2);ctx.stroke();}
+    if(hostile && b.type==='needle'){
+      ctx.translate(p.x,p.y);ctx.rotate(Math.atan2((b.vy || 0)*.72,(b.vx || 0)*.9+(b.vy || 0)*.12));
+      polygon([{x:-r*1.4,y:0},{x:-r*.3,y:-r*.65},{x:r*1.4,y:0},{x:-r*.3,y:r*.65}],color,'#4f332c');
+      ctx.fillStyle='#ffe2b0';ctx.fillRect(0,-1,r,2);
+    }else if(hostile && b.type==='spark'){
+      polygon([{x:p.x,y:p.y-r*1.3},{x:p.x+r,y:p.y},{x:p.x,y:p.y+r*1.3},{x:p.x-r,y:p.y}],color,'#493444');
+      ctx.fillStyle='#fff1d1';ctx.fillRect(p.x-1,p.y-2,3,4);
+    }else{
+      const fall=!hostile && b instanceof Bullet ? clamp(1-b.life/b.totalLife,0,1):0,stretch=1+Math.max(0,fall-.65)*.75;
+      ctx.fillStyle=shadeColor(color,-.5);ctx.beginPath();ctx.ellipse(p.x,p.y,r,r*stretch,0,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle=color;ctx.beginPath();ctx.ellipse(p.x-r*.08,p.y-r*.16,r*.77,r*.77*stretch,0,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle=shadeColor(color,.45);ctx.fillRect(Math.round(p.x-r*.42),Math.round(p.y-r*.55),Math.max(1,r*.48),Math.max(1,r*.3));
+    }
+    ctx.restore();
+  }
+  function drawTearSplashes(){
+    for(const s of runtime.tearSplashes || []){
+      const t=s.age/s.duration,ground=viewPoint(s.x,s.y),base=viewPoint(s.x,s.y,s.z);
+      ctx.save();ctx.globalAlpha=(1-t)*.65;ctx.fillStyle=s.color;
+      if(s.ground){ctx.beginPath();ctx.ellipse(ground.x,ground.y,s.r*(.8+t*1.5),s.r*(.2+t*.35),0,0,Math.PI*2);ctx.fill();}
+      for(let i=0;i<5;i++){
+        const a=i*2.399+s.seed,d=(s.ground ? 12:9)*t,z=Math.max(0,(s.ground ? 9:5)*4*t*(1-t));
+        const x=base.x+Math.cos(a)*d,y=base.y+Math.sin(a)*d*.45-z;
+        ctx.fillRect(Math.round(x),Math.round(y),i%2+1,i%2+1);
+      }
+      ctx.restore();
+    }
   }
   function drawLocalLight(x,y,radius,strength=.15){
     const g=ctx.createRadialGradient(x,y,2,x,y,radius);g.addColorStop(0,`rgba(209,160,78,${strength})`);g.addColorStop(1,'rgba(209,160,78,0)');
@@ -23202,11 +23396,18 @@
     }
   }
   function drawCryptFX(){
+    drawTearSplashes();
     for(const e of runtime.effects){
-      if(e.type==='gib'){
+      if(e.type==='bomb-progenitor-reticle'){
+        if(!e.state?.reticle)continue;
+        const p=viewPoint(e.x,e.y),r=e.radius || 28,progress=e.progress || 0;
+        ctx.save();ctx.strokeStyle='#d9b377';ctx.lineWidth=2;ctx.setLineDash([4,4]);ctx.beginPath();ctx.ellipse(p.x,p.y,r*.9,r*.72,0,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+        ctx.strokeStyle='#f3d59e';ctx.lineWidth=3;ctx.beginPath();ctx.ellipse(p.x,p.y,r*.9,r*.72,0,-Math.PI/2,-Math.PI/2+progress*Math.PI*2);ctx.stroke();
+        ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.x-10,p.y);ctx.lineTo(p.x+10,p.y);ctx.moveTo(p.x,p.y-8);ctx.lineTo(p.x,p.y+8);ctx.stroke();ctx.restore();
+      }else if(e.type==='gib'){
         const p=viewPoint(e.x,e.y,4),size=Math.max(2,Math.round((e.size || 4)*.6));ctx.save();ctx.globalAlpha=clamp(e.life/e.ttl,0,1);ctx.translate(Math.round(p.x),Math.round(p.y));ctx.rotate(Math.round((e.rotation || 0)*4)/4);ctx.fillStyle='#925c45';ctx.fillRect(-size/2,-size/2,size,size);ctx.restore();
       }else if(e.particles){
-        for(const p of e.particles){if(p.life<=0)continue;const a=viewPoint(p.x,p.y,5+Math.max(0,p.life)*5);ctx.globalAlpha=clamp(p.life/(p.ttl || 1),0,.8);ctx.fillStyle=e.type.includes('gib') ? '#7b4439' : '#b3a07b';const size=Math.max(1,Math.min(4,p.size || 2));ctx.fillRect(Math.round(a.x),Math.round(a.y),size,size);}
+        for(const p of e.particles){if(p.life<=0)continue;const a=viewPoint(p.x,p.y,5+Math.max(0,p.life)*5);ctx.globalAlpha=clamp(p.life/(p.ttl || 1),0,.8);ctx.fillStyle=p.color || (e.type.includes('gib') ? '#7b4439' : e.color || '#b3a07b');const size=Math.max(1,Math.min(4,p.size || 2));ctx.fillRect(Math.round(a.x),Math.round(a.y),size,size);}
       }else if(Number.isFinite(e.x) && Number.isFinite(e.y)){
         const p=viewPoint(e.x,e.y,3),fraction=clamp(e.life/(e.ttl || 1),0,1);ctx.globalAlpha=fraction*.5;ctx.strokeStyle='#bca47b';ctx.lineWidth=1;
         ctx.beginPath();ctx.ellipse(p.x,p.y,Math.max(2,(e.radius || 12)*(1.2-fraction*.4)),Math.max(1,(e.radius || 12)*.35),0,0,Math.PI*2);ctx.stroke();
@@ -23230,6 +23431,15 @@
   function drawCryptTelegraphs(){
     for(const e of dungeon.current.enemies){
       drawEnemyIntent(e);
+      if(e.windup>0 && e.cryptType==='warden'){
+        ctx.fillStyle='#c3a06b30';ctx.strokeStyle='#d7bb85';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.arc(e.x,e.y,58,e.lockedAngle-.8,e.lockedAngle+.8);ctx.closePath();ctx.fill();ctx.stroke();
+      }
+      if(e.archetype==='sentry' && e.telegraphTimer>0){
+        ctx.strokeStyle='#d3ab7b';ctx.setLineDash([4,5]);ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(e.x+Math.cos(e.rotation)*180,e.y+Math.sin(e.rotation)*180);ctx.stroke();ctx.setLineDash([]);
+      }
+      if(e.archetype==='spark' && e.burstShots>0 && e.burstSpacing>.1){
+        ctx.strokeStyle='#be99b9';ctx.lineWidth=1;for(let i=0;i<6;i++){const a=i*Math.PI/3;ctx.beginPath();ctx.moveTo(e.x+Math.cos(a)*18,e.y+Math.sin(a)*18);ctx.lineTo(e.x+Math.cos(a)*38,e.y+Math.sin(a)*38);ctx.stroke();}
+      }
       if(e.windup>0 && e.cryptType==='lantern'){
         ctx.strokeStyle='#c5a364';ctx.lineWidth=1;ctx.setLineDash([4,5]);ctx.beginPath();ctx.moveTo(e.x,e.y);ctx.lineTo(e.x+Math.cos(e.lockedAngle)*150,e.y+Math.sin(e.lockedAngle)*150);ctx.stroke();ctx.setLineDash([]);
       }
@@ -23254,7 +23464,7 @@
       const geometry=beam.getGeometry?.();if(!geometry)continue;
       const a=viewPoint(geometry.startX,geometry.startY,20),b=viewPoint(geometry.endX,geometry.endY,20);
       ctx.strokeStyle='#6d493f88';ctx.lineWidth=beam.getWidth?.() || 10;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
-      ctx.strokeStyle='#c2a16a';ctx.lineWidth=4;ctx.stroke();ctx.strokeStyle='#e3d2a5';ctx.lineWidth=1;ctx.stroke();drawLocalLight(a.x,a.y,42,.14);
+      ctx.strokeStyle=beam.type==='brimstone' || beam.owner?.attackMode==='brimstone' ? '#d17a65':'#c2a16a';ctx.lineWidth=4;ctx.stroke();ctx.strokeStyle='#f2cfad';ctx.lineWidth=1;ctx.stroke();drawLocalLight(a.x,a.y,42,.14);
     }
     const held=player.shortSword;
     if(player.attackMode==='shortsword' && held && !held.projectile && held.attached!==false){
@@ -23363,20 +23573,76 @@
     if(closing>0)bomb.applyImpulse(nx,ny,Math.min(110,closing*.7));
     resolveBombObstacles(bomb);keepBombInBounds(bomb);constrainActor(body);
   }
-  function hitBombWithShot(shot,bomb,hostile=false){
+  function hitBombWithShot(shot,bomb,hostile=false,confirmed=false){
     if(!shot.alive || !shot.r || !Number.isFinite(shot.vx) || !Number.isFinite(shot.vy) || bomb.exploded || bomb.done)return false;
     if(shot.bombContacts?.has(bomb))return false;
-    if(projectileHitTime(shot,bomb)===null)return false;
+    if(!confirmed && projectileHitTime(shot,bomb)===null)return false;
     (shot.bombContacts ||= new WeakSet()).add(bomb);
     bomb.applyImpulse(shot.vx || bomb.x-shot.x,shot.vy || bomb.y-shot.y,hostile ? 42 : 55+Math.min(8,shot.damage || 1)*5);
     audio.play('bombTap',{volume:.32,x:bomb.x});
     if(!shot.pierceEnemies){if(shot.destroy)shot.destroy({glowStrength:.3});else shot.alive=false;}
     return true;
   }
+  function tearMaterial(p){
+    if(p.holyHeartState?.blessingActive)return '#ead68d';
+    if(getItemStack(p,'soy-milk'))return '#e3dfc5';
+    if(getItemStack(p,'hot-chocolate'))return '#b98767';
+    if(getItemStack(p,'tar'))return '#7b7191';
+    if(p.homingTears)return '#b6a1d0';
+    return '#9bc9d2';
+  }
   function shotAltitude(shot,hostile=false){
     if(hostile)return 18;
-    const end=Math.min(.24,Math.max(.06,(shot.totalLife || shot.life || .65)*.3));
-    return 23*clamp((shot.life || 0)/end,0,1);
+    // Orbiting peach seeds are floating familiars, not range-limited tears.
+    if(!(shot instanceof Bullet))return 22+Math.round(Math.sin((runtime.visualTime || 0)*4+(shot.angle || 0))*2);
+    const u=clamp(1-shot.life/Math.max(.001,shot.totalLife),0,1);
+    // One smooth parabola: a small initial lift, then continuously increasing gravity.
+    return Math.max(0,(shot.launchHeight || 23)*(1+.65*u-1.65*u*u));
+  }
+  function firstShotBarrier(shot,pierce=false){
+    const x=shot.prevX ?? shot.x,y=shot.prevY ?? shot.y,dx=shot.x-x,dy=shot.y-y,r=shot.r || 0;
+    let hit=null;
+    const accept=(time,obstacle=null)=>{if(time>=0 && time<=1 && (!hit || time<hit.time))hit={time,obstacle};};
+    for(const edge of getRoomProfile().edges){
+      const a=(x-edge.a.x)*edge.nx+(y-edge.a.y)*edge.ny-r-1,b=dx*edge.nx+dy*edge.ny;
+      if(a<0)accept(0);else if(b<0)accept(-a/b);
+    }
+    if(!pierce)for(const o of dungeon.current.obstacles){
+      if(o.destroyed || o.projectileSolid===false)continue;
+      let lo=0,hi=1;
+      for(const [origin,delta,min,max] of [[x,dx,o.x-r,o.x+o.w+r],[y,dy,o.y-r,o.y+o.h+r]]){
+        if(Math.abs(delta)<1e-9){if(origin<min || origin>max){hi=-1;break;}}
+        else{const a=(min-origin)/delta,b=(max-origin)/delta;lo=Math.max(lo,Math.min(a,b));hi=Math.min(hi,Math.max(a,b));}
+      }
+      if(lo<=hi)accept(lo,o);
+    }
+    return hit;
+  }
+  function placeShotAtContact(shot,time){
+    if(shot instanceof Bullet)shot.contactAltitude=(shot.previousAltitude ?? shotAltitude(shot))*(1-time)+shotAltitude(shot)*time;
+    shot.x=(shot.prevX ?? shot.x)+(shot.x-(shot.prevX ?? shot.x))*time;
+    shot.y=(shot.prevY ?? shot.y)+(shot.y-(shot.prevY ?? shot.y))*time;
+  }
+  function resolvePlayerShot(b,enemies,bombs){
+    if(!b.alive)return;
+    const hits=[];
+    for(const e of enemies){
+      if(isPhasedActor(e) || (b.pierceEnemies && b.hasHitEnemy?.(e)))continue;
+      const time=projectileHitTime(b,e);if(time!==null)hits.push({enemy:e,time});
+    }
+    for(const bomb of bombs){if(bomb.exploded || bomb.done || b.bombContacts?.has(bomb))continue;const time=projectileHitTime(b,bomb);if(time!==null)hits.push({bomb,time});}
+    if(b.pendingSolid)hits.push({...b.pendingSolid,solid:true});
+    hits.sort((a,b)=>a.time-b.time || Number(!!b.solid)-Number(!!a.solid));
+    for(const hit of hits){
+      if(hit.solid){placeShotAtContact(b,hit.time);if(hit.obstacle)handleBulletObstacleHit(b,hit.obstacle);b.destroy();break;}
+      if(hit.bomb){if(!b.pierceEnemies)placeShotAtContact(b,hit.time);hitBombWithShot(b,hit.bomb,false,true);if(!b.alive)break;continue;}
+      if(hit.enemy.dead)continue;
+      const killed=damageEnemyAtImpact(hit.enemy,b.damage,b.vx,b.vy);
+      if(killed)handleEnemyDeath(hit.enemy,dungeon.current);
+      if(b.pierceEnemies){b.markEnemyHit?.(hit.enemy);continue;}
+      placeShotAtContact(b,hit.time);b.destroy();break;
+    }
+    if(b.alive && b.pendingGround)b.destroy({groundImpact:true});
   }
   function chargeFeedback(p=player){
     if(!p)return null;
@@ -23394,7 +23660,7 @@
     if(actor.footDistance<stride)return;
     actor.footDistance%=stride;
     const distance=hero ? 0 : dist(actor,player),volume=hero ? .24 : .085*clamp(1-distance/520,0,1);
-    if(volume>.015)audio.play(hero ? 'playerStep' : 'enemyStep',{volume,x:actor.x,rate:hero ? 1 : .85+Math.min(.3,12/(actor.r || 12)*.15)});
+    if(volume>.015)audio.play(hero && getRoomProfile().surface.name==='潮石' ? 'wetStep' : hero ? 'playerStep' : 'enemyStep',{volume,x:actor.x,rate:(hero ? 1 : .85+Math.min(.3,12/(actor.r || 12)*.15))*(actor.gaitPhase%2<1 ? .96:1.04)});
   }
 
   const padInput={index:null,buttons:new Set(),moveX:0,moveY:0,aimX:0,aimY:0,blocked:false,name:''};
