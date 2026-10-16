@@ -556,6 +556,8 @@
 
   // ======= 基础工具 =======
   const rand = mulberry32(CONFIG.rngSeed);
+  const visualRandom=mulberry32(CONFIG.rngSeed ^ 0x6a09e667);
+  const visualRange=(lo,hi)=>lo+(hi-lo)*visualRandom();
   function mulberry32(a){return function(){let t=a+=0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}};
   function randRange(min,max){return min + (max-min)*rand()}
   function randInt(min,max){
@@ -1056,6 +1058,7 @@
   const ENEMY_DAMAGE_FLASH_DURATION = 0.1;
   function prepareEnemy(enemy){
     if(!enemy) return enemy;
+    if(!Number.isFinite(enemy.maxHp) && Number.isFinite(enemy.hp))enemy.maxHp=enemy.hp;
     if(typeof enemy.damageFlashTimer !== 'number'){ enemy.damageFlashTimer = 0; }
     if(typeof enemy.damage === 'function' && !enemy._damageFlashWrapped){
       const originalDamage = enemy.damage;
@@ -1072,6 +1075,7 @@
         if(prevHp !== null && typeof this.hp === 'number' && this.hp < prevHp){
           if(this.damageWindow)this.damageWindow.spent+=prevHp-this.hp;
           this.damageFlashTimer = ENEMY_DAMAGE_FLASH_DURATION;
+          onCreatureHit(this,prevHp-this.hp);
           audio.play('enemyHit',{volume:.26,x:this.x});
         }
         return result;
@@ -4413,6 +4417,7 @@
   }
   function updateRemaster(dt,worldDt){
     runtime.visualTime=(runtime.visualTime || 0)+dt;
+    updateLivingDetails(dt,worldDt);
     runtime.corpses=(runtime.corpses || []).filter(c=>(c.life-=worldDt)>0).slice(-28);
     runtime.relicFlights=(runtime.relicFlights || []).filter(c=>(c.life-=dt)>0).slice(-12);
     runtime.chainLinks=(runtime.chainLinks || []).filter(c=>(c.life-=worldDt)>0).slice(-20);
@@ -4423,7 +4428,7 @@
     if(runtime.bullets.length>BALANCE.projectiles)runtime.bullets.splice(0,runtime.bullets.length-BALANCE.projectiles);
     if(runtime.effects.length>220)runtime.effects.splice(0,runtime.effects.length-220);
     for(const e of dungeon.current.enemies){
-      e.attackPose=Math.max(0,(e.attackPose || 0)-dt);e.hurtPose=Math.max(0,(e.hurtPose || 0)-dt);
+      e.attackPose=Math.max(0,(e.attackPose || 0)-worldDt);e.hurtPose=Math.max(0,(e.hurtPose || 0)-worldDt);
       e.chainCooldown=Math.max(0,(e.chainCooldown || 0)-worldDt);
       if(e.cinder && !e.dead && worldDt>0){
         e.cinder.time-=worldDt;e.cinder.tick+=worldDt;
@@ -4648,8 +4653,332 @@
     return killed;
   }
 
+  // Visual state never changes collision bodies, damage or the gameplay random stream.
+  const CREATURE_ANIMATIONS=Object.freeze({
+    player:{motion:'pilgrim',material:'blood',color:'#bda580',rate:6,breath:2.4},
+    chaser:{motion:'claws',material:'blood',color:'#ad806b',rate:7,breath:1.9},
+    orbiter:{motion:'bat',material:'blood',color:'#a49bb2',rate:9,breath:2.7},
+    gasbag:{motion:'sacs',material:'ichor',color:'#9aa47b',rate:4,breath:2.1},
+    bomber:{motion:'fuse',material:'oil',color:'#b19a6d',rate:5,breath:3.1},
+    tinyfly:{motion:'fly',material:'ichor',color:'#adb18b',rate:12,breath:0},
+    elderfly:{motion:'proboscis',material:'ichor',color:'#b4a17d',rate:10,breath:0},
+    spider:{motion:'legs',material:'ichor',color:'#a29783',rate:8,breath:0},
+    splitter:{motion:'gel',material:'ichor',color:'#b19bb6',rate:4,breath:0},
+    volatile:{motion:'wick',material:'blood',color:'#c48b6b',rate:8,breath:1.3},
+    sentry:{motion:'barrel',material:'metal',color:'#b5a486',rate:4,breath:0},
+    dashling:{motion:'runner',material:'blood',color:'#b7a182',rate:9,breath:1.5},
+    burrower:{motion:'soil',material:'ichor',color:'#a8a080',rate:5,breath:0},
+    spark:{motion:'prism',material:'crystal',color:'#bd9fb9',rate:6,breath:0},
+    brood:{motion:'eggs',material:'ichor',color:'#ad9c7b',rate:4,breath:1.8},
+    mirrormimic:{motion:'mirror',material:'glass',color:'#9aabb5',rate:6,breath:0},
+    cutpurse:{motion:'purse',material:'blood',color:'#b9a17b',rate:8,breath:1.7},
+    warper:{motion:'rift',material:'wisp',color:'#b59bbd',rate:6,breath:0},
+    crab:{motion:'pincers',material:'shell',color:'#b2a081',rate:6,breath:0},
+    rat:{motion:'tail',material:'blood',color:'#ac9777',rate:10,breath:1.6},
+    warden:{motion:'shield',material:'metal',color:'#a6b09a',rate:5,breath:2.8},
+    lantern:{motion:'lantern',material:'wisp',color:'#d0ae72',rate:5,breath:0},
+    beetle:{motion:'elytra',material:'shell',color:'#a291a9',rate:7,breath:0},
+    idol:{motion:'idol',material:'bone',color:'#c3ad8b',rate:4,breath:2.5},
+    master:{motion:'masonry',material:'stone',color:'#b6a38b',rate:4,breath:3.4},
+    hydra:{motion:'tentacles',material:'ichor',color:'#b58c92',rate:6,breath:1.9},
+    seer:{motion:'orbitals',material:'wisp',color:'#c0a1c7',rate:5,breath:0},
+    titan:{motion:'chains',material:'blood',color:'#bc9378',rate:4,breath:1.6},
+    umbra:{motion:'shroud',material:'wisp',color:'#afa2c0',rate:6,breath:0},
+    paradox:{motion:'rings',material:'crystal',color:'#b4b3ca',rate:7,breath:0},
+    shadowecho:{motion:'echo',material:'wisp',color:'#b5a1c5',rate:7,breath:0},
+    paradoxshard:{motion:'shard',material:'crystal',color:'#c2b6d3',rate:8,breath:0},
+    brother:{motion:'copy',material:'wisp',color:'#b4b895',rate:6,breath:0},
+    'sister-left':{motion:'ribbon-left',material:'wisp',color:'#c3a2ae',rate:6,breath:0},
+    'sister-right':{motion:'ribbon-right',material:'wisp',color:'#a6b8c2',rate:6,breath:0},
+    cousin:{motion:'scope',material:'wisp',color:'#b6a7c9',rate:7,breath:0},
+    'younger-cousin':{motion:'sprout',material:'wisp',color:'#aabf98',rate:8,breath:0},
+    'aunt-brimstone':{motion:'chalice',material:'wisp',color:'#c69b8b',rate:5,breath:0},
+    'black-buddy':{motion:'collector',material:'wisp',color:'#9b96a2',rate:5,breath:0}
+  });
+  function creatureKey(actor){
+    if(actor===player)return 'player';
+    if(actor.isBossEntity)return actor.bossArchetype || 'idol';
+    const id=actor.archetype || actor.cryptType || actor.slug || actor.constructor?.name.replace('Enemy','').toLowerCase() || 'chaser';
+    return id==='spiderleaper' ? 'spider':id;
+  }
+  function creatureProfile(actor){return CREATURE_ANIMATIONS[creatureKey(actor)] || CREATURE_ANIMATIONS.chaser;}
+  function healthBand(actor){
+    if(!Number.isFinite(actor.hp))return 'full';
+    const ratio=actor.hp/Math.max(1,actor.maxHp || actor.hp);
+    return ratio<=.25 ? 'critical':ratio<=.5 ? 'half':ratio<.99 ? 'hurt':'full';
+  }
+  function creaturePose(actor){
+    const a=actor.animation || {},profile=creatureProfile(actor),clock=a.clock || 0;
+    const moving=(actor.groundSpeed || a.speed || 0)>12,frame=Math.floor(clock*profile.rate)%4;
+    const charge=actor===player ? chargeFeedback(actor):null;
+    const preparing=!!(charge?.active || actor.charging || actor.windup>0 || actor.telegraphTimer>0 || actor.burstShots>0 && actor.burstSpacing>.1 || actor.brain?.tactic || /windup|telegraph|charging/.test(actor.state || ''));
+    const attack=actor.shotPose>0 || actor.attackPose>0 || actor.brimstoneFiring || actor.brimstoneBeam?.alive===true || /^(dash|charge|strike|lunge|leap)$/.test(actor.state || '');
+    return {profile,clock,frame,moving,preparing,attack,charge:charge?.ratio || actor.chargeProgress || 0,
+      hurt:actor.hurtPose>0 || actor.damageFlashTimer>0,band:healthBand(actor),born:clamp((a.age || 0)/.5,0,1),
+      phased:isPhasedActor(actor),frozen:actor!==player && !actor.slug && runtime.timeStopTimer>0};
+  }
+  function addRoomMark(x,y,r,color,kind='blood'){
+    const a=getRoomAtmosphere();if(!a || !roomContainsPoint(x,y,Math.min(5,r)))return;
+    (a.marks ||= []).push({x,y,r:Math.min(14,r),color,kind,age:0,ttl:kind==='footprint' ? 8:80});
+    if(a.marks.length>96)a.marks.shift();
+  }
+  function emitDetail(x,y,z,kind,color,count=3,options={}){
+    const a=getRoomAtmosphere();if(!a)return;
+    const list=runtime.detailParticles ||= [],cap=matchMedia('(pointer:coarse)').matches ? 180:320;
+    for(let i=0;i<count && list.length<cap;i++){
+      const angle=a.random()*Math.PI*2,ttl=options.ttl || (kind==='breath' || kind==='smoke' ? .9:.35+a.random()*.35),speed=options.speed ?? (kind==='breath' ? 5:18+a.random()*25);
+      list.push({x,y,z,vx:Math.cos(angle)*speed+(options.vx || 0),vy:Math.sin(angle)*speed*.6+(options.vy || 0),
+        vz:options.vz ?? (kind==='breath' || kind==='smoke' ? 10:25+a.random()*35),gravity:['breath','smoke','wisp','ember'].includes(kind) ? -3:180,
+        kind,color,size:options.size || (kind==='breath' || kind==='smoke' ? 3:1+a.random()*2),life:ttl,ttl,room:dungeon.current,playerClock:!!options.playerClock,marked:false});
+    }
+  }
+  function onCreatureHit(actor,amount,soul=false){
+    const profile=creatureProfile(actor),a=actor.animation ||= {clock:0,age:.5,lastX:actor.x,lastY:actor.y,step:0,breath:0};
+    a.hitAge=0;a.bleed=soul ? 0:Math.min(1.8,.6+amount*.2);a.bleedTimer=0;
+    const material=soul ? 'crystal':profile.material,color=soul ? '#abc4ce':{blood:'#9f5149',ichor:'#8d9866',oil:'#716448',metal:'#dbc293',stone:'#a8987d',bone:'#c7bd9e',glass:'#b1c4c9',crystal:'#c5afd4',wisp:'#b7a4bf',shell:'#a39173'}[material];
+    a.hitColor=color;
+    emitDetail(actor.x,actor.y,actor===player ? 29:Math.min(35,(actor.r || 12)*1.4),material,color,Math.min(10,4+Math.ceil(amount)),{vx:(actor.incomingHit?.vx || 0)*.08,vy:(actor.incomingHit?.vy || 0)*.08,playerClock:actor===player});
+    if(['blood','ichor','oil'].includes(material))addRoomMark(actor.x,actor.y,3+Math.min(4,amount),color,material);
+  }
+  function tickCreatureAnimation(actor,dt){
+    const profile=creatureProfile(actor),a=actor.animation ||= {clock:0,age:0,lastX:actor.x,lastY:actor.y,step:0,breath:profile.breath*.5,bleed:0};
+    if(!(dt>0))return;
+    a.clock+=dt;a.age+=dt;a.hitAge=(a.hitAge ?? 9)+dt;
+    const moved=Math.hypot(actor.x-a.lastX,actor.y-a.lastY);a.speed=moved/Math.max(dt,.001);
+    a.lastX=actor.x;a.lastY=actor.y;a.step+=moved<35 ? moved:0;
+    const pose=creaturePose(actor),signature=`${actor.state || ''}:${pose.preparing}:${pose.attack}:${pose.band}`;
+    if(a.signature!==signature){
+      if(a.signature && (pose.preparing || pose.band==='critical'))emitDetail(actor.x,actor.y,12,'wisp',profile.color,2,{speed:12,playerClock:actor===player || !!actor.slug});
+      a.signature=signature;a.stateAge=0;
+    }else a.stateAge=(a.stateAge || 0)+dt;
+    if(a.age<.5 && !a.birthEmitted){a.birthEmitted=true;emitDetail(actor.x,actor.y,0,['wisp','crystal','glass'].includes(profile.material) ? profile.material:'dust',profile.color,5,{speed:25,playerClock:actor===player || !!actor.slug});}
+    a.breath-=dt;
+    if(profile.breath>0 && a.breath<=0 && !actor.dead && !pose.phased){
+      a.breath=profile.breath*(pose.band==='critical' ? .55:1);
+      const faceX=actor===player ? actor.facingX || 0 : Math.sign(player.x-actor.x),faceY=actor===player ? actor.facingY || -1:0;
+      emitDetail(actor.x+faceX*7,actor.y+faceY*4,actor===player ? 35:(actor.r || 12)*1.9,'breath','#c5c8b0',2,{vx:faceX*8,vy:faceY*8,size:2,playerClock:actor===player});
+    }
+    a.bleed=Math.max(0,(a.bleed || 0)-dt);a.bleedTimer=(a.bleedTimer || 0)-dt;
+    if(a.bleed>0 && a.bleedTimer<=0 && ['blood','ichor','oil'].includes(profile.material)){
+      a.bleedTimer=.35;emitDetail(actor.x,actor.y,12,profile.material,a.hitColor || '#9f5149',1,{speed:4,playerClock:actor===player});
+    }
+    if(a.step>32 && pose.moving && !actor.flying && !pose.phased){
+      a.step%=32;
+      if(healthBand(actor)==='critical' && a.bleed>0)addRoomMark(actor.x,actor.y,2,a.hitColor || '#9f5149','footprint');
+      if(profile.material==='stone' || profile.motion==='soil')emitDetail(actor.x,actor.y,0,'stone','#a89b78',2,{speed:15,vz:14});
+    }
+  }
+  function updateLivingDetails(dt,worldDt){
+    runtime.detailBirths=0;
+    tickCreatureAnimation(player,dt);
+    for(const actor of dungeon.current.enemies)tickCreatureAnimation(actor,worldDt);
+    for(const ally of player.followers || []){tickCreatureAnimation(ally,dt);ally.shotPose=Math.max(0,(ally.shotPose || 0)-dt);}
+    advanceDetailParticles(dt,worldDt);
+  }
+  function advanceDetailParticles(dt,worldDt){
+    const list=runtime.detailParticles ||= [];
+    for(const p of list){
+      if(p.room!==dungeon.current){p.life=0;continue;}
+      const step=p.playerClock ? dt:worldDt;p.life-=step;
+      p.x+=p.vx*step;p.y+=p.vy*step;p.z+=p.vz*step;p.vz-=p.gravity*step;
+      if(p.z<0){p.z=0;p.vz=0;p.vx*=.5;p.vy*=.5;
+        if(!p.marked && p.kind==='water'){p.marked=true;getRoomAtmosphere().ripples.push({x:p.x,y:p.y,life:1});}
+        if(!p.marked && ['blood','ichor','oil'].includes(p.kind)){p.marked=true;addRoomMark(p.x,p.y,p.size,p.color,p.kind);}}
+    }
+    runtime.detailParticles=list.filter(p=>p.life>0).slice(-320);
+  }
+  function airborneContact(shot,target){
+    const enter=projectileHitTime(shot,target);if(enter===null || shot.z>36)return false;
+    const before=shot.previousZ ?? shot.z,active=before>36 ? clamp((before-36)/Math.max(.0001,before-shot.z),0,1):0,time=Math.max(active,enter);
+    const x=(shot.prevX ?? shot.x)+(shot.x-(shot.prevX ?? shot.x))*time,y=(shot.prevY ?? shot.y)+(shot.y-(shot.prevY ?? shot.y))*time;
+    const tx=(target.previousX ?? target.x)+(target.x-(target.previousX ?? target.x))*time,ty=(target.previousY ?? target.y)+(target.y-(target.previousY ?? target.y))*time;
+    return Math.hypot(x-tx,y-ty)<=(shot.r || 0)+(target.r || 0)+.001;
+  }
+  function homingRadius(shot){
+    const speed=shot.launchSpeed || Math.hypot(shot.vx || 0,shot.vy || 0) || shot.speed || 180;
+    const range=shot.nominalRange || shot.travelDistance || shot.maxDistance || speed*(shot.totalLife || Math.min(1.5,shot.life || .65));
+    const natural=clamp(range*.55,64,180);
+    return shot.homingRange>0 ? Math.min(natural,shot.homingRange):natural;
+  }
+  function nearHomingTarget(shot){
+    const radius=homingRadius(shot),speed=Math.hypot(shot.vx,shot.vy) || 1;let target=null,best=Infinity;
+    for(const enemy of dungeon.current.enemies){
+      if(isPhasedActor(enemy) || enemy.invulnerable || enemy.invuln>0 || shot.hasHitEnemy?.(enemy))continue;
+      const dx=enemy.x-shot.x,dy=enemy.y-shot.y,d=Math.hypot(dx,dy),heading=(dx*shot.vx+dy*shot.vy)/(Math.max(1,d)*speed);
+      if(d>radius+(enemy.r || 0) || heading<.05)continue;
+      if(!shot.pierceObstacles && dungeon.current.obstacles.some(o=>!o.destroyed && o.projectileSolid!==false && segmentRectOverlap(shot.x,shot.y,enemy.x,enemy.y,o,0)))continue;
+      const score=d*(1.3-heading*.3)*(enemy===shot.homingTarget ? .8:1);if(score<best){best=score;target=enemy;}
+    }
+    return target;
+  }
+  function steerNearTarget(shot,dt,strength=8){
+    shot.homingActive=false;if(!(dt>0))return;
+    const speed=Math.hypot(shot.vx,shot.vy);if(speed<1)return;
+    const target=nearHomingTarget(shot);shot.homingTarget=target;if(!target)return;
+    const radius=homingRadius(shot)+(target.r || 0),distance=dist(shot,target),proximity=clamp((radius-distance)/(radius*.55),0,1);
+    if(proximity<=0)return;
+    const angle=Math.atan2(shot.vy,shot.vx),wanted=Math.atan2(target.y-shot.y,target.x-shot.x),difference=Math.atan2(Math.sin(wanted-angle),Math.cos(wanted-angle));
+    const turn=clamp(difference,-dt*Math.min(4,strength*.42)*proximity,dt*Math.min(4,strength*.42)*proximity);
+    shot.vx=Math.cos(angle+turn)*speed;shot.vy=Math.sin(angle+turn)*speed;shot.homingActive=true;
+  }
+  function shotWobble(shot){
+    if(!(shot instanceof Bullet))return {x:0,y:0};
+    const speed=Math.hypot(shot.vx,shot.vy),amplitude=1.3*clamp((280-speed)/130,0,1);
+    const age=shot.totalLife-shot.life,phase=Math.floor(age*12)/12*12+(shot.visualSeed || 0),offset=Math.sin(phase)*amplitude;
+    return {x:-shot.vy/Math.max(1,speed)*offset,y:shot.vx/Math.max(1,speed)*offset};
+  }
+  function recordShotDetail(shot,dt,hostile=false){
+    if(!(dt>0) || !shot.alive || !Number.isFinite(shot.vx+shot.vy))return;
+    shot.visualAge=(shot.visualAge || 0)+dt;
+    const step=Math.hypot(shot.x-(shot.prevX ?? shot.x),shot.y-(shot.prevY ?? shot.y));
+    shot.traceDistance=(shot.traceDistance || 0)+Math.min(30,step);
+    if(shot.traceDistance<11 || (runtime.detailBirths || 0)>8)return;
+    shot.traceDistance%=11;runtime.detailBirths=(runtime.detailBirths || 0)+1;
+    const z=shotAltitude(shot,hostile),trail=shot.visualTrail ||= [];
+    trail.push({x:shot.x,y:shot.y,z});if(trail.length>5)trail.shift();
+    emitDetail(shot.x,shot.y,z,shot.holyAura ? 'spark':'tear',shot.trailColor || shot.color || '#b2c9c9',1,{speed:3,vz:2,ttl:.2,playerClock:!hostile,size:1});
+  }
+  function drawDetailParticles(){
+    for(const p of runtime.detailParticles || []){
+      const point=viewPoint(p.x,p.y,p.z),t=1-p.life/p.ttl,smoke=['breath','smoke','wisp'].includes(p.kind);
+      ctx.save();ctx.globalAlpha=(1-t)*(smoke ? .16:.75);ctx.fillStyle=p.color;
+      const size=smoke ? p.size*(1+t*3):Math.max(1,p.size*(1-t*.5));
+      if(smoke){for(let i=0;i<3;i++)ctx.fillRect(Math.round(point.x+(i-1)*size),Math.round(point.y+(i%2)*size*.4),Math.ceil(size),Math.ceil(size*.6));}
+      else if(['metal','glass','crystal','bone'].includes(p.kind)){ctx.translate(point.x,point.y);ctx.rotate(Math.round(t*8)/4);ctx.fillRect(-size,-1,size*2,2);}
+      else ctx.fillRect(Math.round(point.x),Math.round(point.y),Math.ceil(size),Math.ceil(size));
+      ctx.restore();
+    }
+  }
+
   // Everything is procedural and inline: each visited room owns a cached floor and
   // a bounded population of purely decorative life. Its RNG never advances gameplay RNG.
+  const AMBIENT_GROUND_FEATURES=Object.freeze(['moss','roots','bones','pottery','pebbles','wax','scuffs','drain','puddle','rubble','fungus','salt','feathers','paper','footprints','cobweb','runes','damp-crack','lichen','soot','rust','petals','eggs','skeleton']);
+  const AMBIENT_AIR_FEATURES=Object.freeze(['fog','drip','ripple','ember','mote','spore','smoke','draft']);
+  const AMBIENT_CRITTERS=Object.freeze(['fly','ant','larva','moth','beetle','slug','centipede','spider']);
+  function drawGroundFeature(g,f){
+    g.save();g.translate(Math.round(f.x),Math.round(f.y));g.rotate(f.angle);g.globalAlpha=f.alpha || .42;
+    const pixel=(x,y,w,h,c)=>{g.fillStyle=c;g.fillRect(x,y,w,h);};
+    const line=(points,c='#8d876b',width=1)=>{g.strokeStyle=c;g.lineWidth=width;g.beginPath();points.forEach(([x,y],i)=>i ? g.lineTo(x,y):g.moveTo(x,y));g.stroke();};
+    const oval=(x,y,r,ry,c)=>{g.fillStyle=c;g.beginPath();g.ellipse(x,y,r,ry,0,0,Math.PI*2);g.fill();};
+    switch(f.kind){
+      case 'moss':for(let i=0;i<7;i++)pixel(i*3-9,(i%3)*2,4,3,i%2 ? '#70825b':'#43573d');break;
+      case 'roots':line([[-13,-3],[-5,0],[0,4],[9,5],[15,9]],'#857455',2);line([[0,4],[5,-4],[12,-5]],'#67573f');break;
+      case 'bones':line([[-9,-4],[9,3]],'#bdb49a',2);for(const x of [-9,8]){oval(x,x/3,2,2,'#bdb49a');}line([[-5,5],[7,-6]],'#96907c',2);break;
+      case 'pottery':for(let i=0;i<3;i++)line([[i*6-9,0],[i*6-5,-5],[i*6-1,2],[i*6-9,0]],i%2 ? '#8d694b':'#b08c61',2);break;
+      case 'pebbles':for(let i=0;i<6;i++)oval((i-3)*3,(i%3-1)*3,2+i%2,1.5,'#7d806b');break;
+      case 'wax':oval(0,0,10,5,'#aa9869');pixel(-3,-6,6,7,'#bba67a');pixel(-1,-8,2,3,'#534b37');for(let i=0;i<3;i++)oval(7+i*3,i%2*3,2,1,'#bba67a');break;
+      case 'scuffs':for(let i=0;i<5;i++)line([[-12+i*3,4],[1+i*2,-5]],'#c2b08b');break;
+      case 'drain':oval(0,0,12,8,'#32382d');for(let i=-2;i<=2;i++)line([[i*4,-6],[i*4,6]],'#777c66');line([[-10,0],[10,0]],'#5c614e');break;
+      case 'puddle':oval(0,0,17,7,'#849d971f');line([[-12,-2],[-7,-4],[8,-3],[13,-1]],'#9cbbb66b');break;
+      case 'rubble':for(let i=0;i<5;i++)pixel((i-2)*5,(i%2)*3,3+i%3,3,i%2 ? '#373c30':'#86866a');break;
+      case 'fungus':for(let i=0;i<4;i++){pixel(i*5-9,0,1,5,'#b4b194');oval(i*5-9,-1-i%2*2,3,2,i%2 ? '#879571':'#a2a584');}break;
+      case 'salt':for(let i=0;i<16;i++)pixel(Math.sin(i*11)*10,Math.cos(i*7)*5,1,1,'#d3cab0');break;
+      case 'feathers':line([[-9,5],[7,-5]],'#b0ab93');for(let i=0;i<5;i++)line([[-7+i*3,4-i*2],[-8+i*3,-1-i*2]],'#929580');break;
+      case 'paper':pixel(-7,-5,14,10,'#a09572');line([[-7,-5],[3,-5],[7,-1],[7,5]],'#d0bd8c');for(let i=0;i<3;i++)pixel(-4,-2+i*3,7,1,'#67624d');break;
+      case 'footprints':for(let i=0;i<4;i++)oval((i-2)*7,(i%2)*5,3,1.7,'#23271dcc');break;
+      case 'cobweb':for(let i=0;i<5;i++)line([[0,0],[Math.cos(i*.5)*17,Math.sin(i*.5)*12]],'#c0c1a767');for(let j=1;j<4;j++){const pts=[];for(let i=0;i<5;i++)pts.push([Math.cos(i*.5)*j*5,Math.sin(i*.5)*j*3.5]);line(pts,'#a9b0a04c');}break;
+      case 'runes':line([[-9,-5],[-4,5],[0,-3],[5,5],[9,-6]],'#b6a77c');line([[-7,0],[7,0]],'#8f835f');break;
+      case 'damp-crack':line([[-17,0],[-7,-3],[-2,2],[5,-1],[15,3]],'#262e2b',2);line([[-15,1],[-6,-1],[0,4],[8,0]],'#92b1a86b');break;
+      case 'lichen':for(let i=0;i<9;i++)oval(Math.sin(i*4)*10,Math.cos(i*3)*5,2,1.4,i%2 ? '#b5b88c':'#849264');break;
+      case 'soot':for(let i=0;i<5;i++)oval((i-2)*3,0,5,3,'#16191370');line([[-4,-1],[2,3],[7,1]],'#8b7c55');break;
+      case 'rust':for(let i=0;i<7;i++)pixel((i-3)*3,(i%3)*2,4,2,i%2 ? '#88583e':'#b08751');break;
+      case 'petals':for(let i=0;i<5;i++)oval(Math.cos(i*1.3)*7,Math.sin(i*1.3)*4,3,1.2,'#b79b91');break;
+      case 'eggs':for(let i=0;i<5;i++){oval((i-2)*4,(i%2)*3,2.5,2,'#b2b093');pixel((i-2)*4-1,(i%2)*3-1,1,1,'#d0cbae');}break;
+      case 'skeleton':oval(-8,0,4,3,'#b5ad90');pixel(-10,-1,2,1,'#3e4236');line([[-4,0],[12,0]],'#aaa488',2);for(let i=0;i<4;i++)line([[i*3,0],[i*3+1,-4],[i*3+3,0],[i*3+1,4]],'#aaa488');break;
+    }
+    g.restore();
+  }
+  function populateLivingRoom(a,room){
+    const roll=(lo,hi)=>lo+(hi-lo)*a.random(),theme=a.theme;
+    const themed={damp:['puddle','damp-crack','drain','lichen'],dust:['rubble','bones','scuffs','paper'],infested:['eggs','cobweb','fungus','roots'],gold:['wax','petals','salt','runes'],blood:['rust','skeleton','soot','bones'],void:['runes','feathers','lichen','cobweb']}[theme];
+    a.particles.forEach((p,i)=>{p.speckKind=theme==='infested' && i%4===0 ? 'spore':'mote';});
+    a.features=[];
+    for(let i=0;i<30;i++){
+      const p=projectRoomPoint(roll(35,765),roll(45,555),24,room);
+      a.features.push({x:p.x,y:p.y,angle:roll(0,Math.PI*2),kind:i<8 ? themed[i%4]:AMBIENT_GROUND_FEATURES[Math.floor(a.random()*AMBIENT_GROUND_FEATURES.length)],alpha:.25+a.random()*.25});
+    }
+    const texture=document.createElement('canvas');texture.width=800;texture.height=600;
+    const g=texture.getContext('2d');g.save();traceRoomPath(g,room);g.clip();for(const f of a.features)drawGroundFeature(g,f);g.restore();a.detailTexture=texture;
+    a.marks=[];a.ripples=[];
+    a.fog=Array.from({length:theme==='void' ? 5:3},(_,i)=>({x:roll(90,710),y:roll(80,520),r:roll(35,75),phase:roll(0,6.28),kind:AMBIENT_AIR_FEATURES[i%2 ? 6:0]}));
+    a.drips=Array.from({length:theme==='damp' ? 5:1},()=>({x:roll(90,710),y:roll(100,500),timer:roll(.5,3)}));
+    a.critters.forEach((b,i)=>{b.type=AMBIENT_CRITTERS[(i+(theme==='infested' ? 2:0))%AMBIENT_CRITTERS.length];b.markTimer=1;});
+    a.doorMotion={};a.doorTargets={};a.entryGust=0;
+  }
+  function tickLivingRoom(a,dt){
+    for(const mark of a.marks){mark.age+=dt;}
+    a.marks=a.marks.filter(m=>m.age<m.ttl);
+    for(const r of a.ripples)r.life-=dt;a.ripples=a.ripples.filter(r=>r.life>0).slice(-16);
+    for(const drip of a.drips){drip.timer-=dt;if(drip.timer<=0){drip.timer=2+a.random()*3;emitDetail(drip.x,drip.y,44,'water','#a4bfc0',1,{speed:0,vz:-12,ttl:1,size:1});}}
+    a.entryGust=Math.max(0,a.entryGust-dt);
+    const ready=isRoomReadyForExit(dungeon.current);
+    for(const [dir,d] of Object.entries(dungeon.current.doors)){
+      if(!d)continue;
+      const nr=dungeon.rooms[dungeon.current.i+(dir==='down')-(dir==='up')]?.[dungeon.current.j+(dir==='right')-(dir==='left')],target=ready && !nr?.locked ? 1:0;
+      const old=a.doorMotion[dir] ?? target;
+      a.doorMotion[dir]=old+(target-old)*(1-Math.exp(-dt*9));
+      if(a.doorTargets[dir]===0 && target===1){const door=computeDoorRectForRoom(dir);emitRoomDust(door.cx,door.cy,door.nx*20,door.ny*20,6);}
+      a.doorTargets[dir]=target;
+    }
+    a.emberTimer=(a.emberTimer || 0)-dt;
+    if(a.emberTimer<=0){
+      a.emberTimer=.45;const edge=getRoomProfile().edges[0],t=a.random()<.5 ? .18:.82;
+      emitDetail(edge.a.x+(edge.b.x-edge.a.x)*t,edge.a.y+(edge.b.y-edge.a.y)*t,34,'ember','#d5a66b',1,{vz:16,ttl:.8,size:1,speed:5});
+      emitDetail(edge.a.x+(edge.b.x-edge.a.x)*t,edge.a.y+(edge.b.y-edge.a.y)*t,37,'smoke','#a49b82',1,{vz:8,ttl:1.4,size:2,speed:3});
+    }
+    for(const b of a.critters)if(b.type==='slug'){
+      b.markTimer-=dt;if(b.markTimer<=0){b.markTimer=1.2;addRoomMark(b.x,b.y,1.5,'#a5b198','slime');}
+    }
+  }
+  function drawLivingFloor(){
+    const a=getRoomAtmosphere();if(!a)return;
+    ctx.save();traceRoomPath(ctx);ctx.clip();ctx.drawImage(a.detailTexture,0,0);
+    for(const m of a.marks){
+      ctx.globalAlpha=Math.min(.65,(1-m.age/m.ttl)*.7);ctx.fillStyle=m.color;
+      ctx.beginPath();ctx.ellipse(m.x,m.y,m.r*(1+Math.min(1,m.age)*.2),Math.max(.7,m.r*.45),m.x%3,0,Math.PI*2);ctx.fill();
+      if(m.kind==='blood' || m.kind==='ichor'){ctx.globalAlpha*=.5;ctx.fillRect(Math.round(m.x+m.r+2),Math.round(m.y-1),1,1);}
+    }
+    ctx.globalAlpha=1;
+    for(const r of a.ripples){ctx.globalAlpha=r.life*.2;ctx.strokeStyle='#b0c6bc';ctx.lineWidth=.7;ctx.beginPath();ctx.ellipse(r.x,r.y,(1-r.life)*13+2,(1-r.life)*6+1,0,0,Math.PI*2);ctx.stroke();}
+    for(const f of a.fog){
+      const x=f.x+Math.floor(Math.sin(a.time*.15+f.phase)*14),y=f.y+Math.floor(Math.cos(a.time*.12+f.phase)*6);
+      ctx.globalAlpha=a.theme==='void' ? .055:.025;ctx.fillStyle=a.theme==='blood' ? '#a78675':a.theme==='gold' ? '#c0b283':'#a9b7ad';
+      for(let i=0;i<3;i++){ctx.beginPath();ctx.ellipse(x+(i-1)*f.r*.6,y+i%2*3,f.r,f.r*.25,0,0,Math.PI*2);ctx.fill();}
+    }
+    ctx.restore();
+  }
+  function drawLivingCritter(b,time,air=false){
+    const flying=b.type==='fly' || b.type==='moth';if(flying!==air)return;
+    ctx.save();ctx.translate(Math.round(b.x),Math.round(b.y));ctx.rotate(b.angle);ctx.globalAlpha=.65;
+    const leg=Math.floor(time*12+b.phase)%2 ? 1:-1;
+    const px=(x,y,w,h,c)=>{ctx.fillStyle=c;ctx.fillRect(x,y,w,h);};
+    if(b.type==='fly'){px(-2,-leg,4,1,'#bfc2ac');px(0,0,2,1,'#6d715d');}
+    else if(b.type==='moth'){px(-3,-2-leg,3,2,'#b3ab87');px(1,-1+leg,3,2,'#aaa788');px(0,-1,1,3,'#696c57');}
+    else if(b.type==='ant'){for(let i=0;i<3;i++)px(-i*1.5,0,1,1,'#9e9574');px(-1,-leg,2,1,'#68694f');}
+    else if(b.type==='larva'){for(let i=0;i<4;i++)px(-i*1.5,Math.round(Math.sin(time*5+i)*.6),2,1,'#b6b291');}
+    else if(b.type==='beetle'){px(-2,-1,4,3,'#676e52');px(0,-1,1,3,'#a5a67f');px(-2-leg,-2,1,1,'#9a9875');}
+    else if(b.type==='slug'){px(-3,0,6,2,'#9eaa87');px(2,-1,2,1,'#bcc2a3');}
+    else if(b.type==='centipede'){for(let i=0;i<6;i++){const bend=Math.round(Math.sin(time*8-i)*.7);px(-i*1.4,bend,2,1,'#a09172');px(-i*1.4,bend+(i%2 ? leg:-leg),1,1,'#736849');}}
+    else if(b.type==='spider'){px(-1,-1,2,2,'#aaa58b');for(const s of [-1,1]){px(-2,s*(1+leg),3,1,'#78775e');px(1,s*(2-leg),2,1,'#78775e');}}
+    ctx.restore();
+  }
+  function drawWallPatina(a,b,height,index){
+    const atmosphere=getRoomAtmosphere(),clock=Math.floor(atmosphere.time*6)/6,len=Math.hypot(b.x-a.x,b.y-a.y),count=Math.floor(len/26);
+    ctx.save();
+    for(let i=1;i<count;i++){
+      const t=i/count,x=a.x+(b.x-a.x)*t,y=a.y+(b.y-a.y)*t;
+      ctx.strokeStyle=i%2 ? '#242a20':'#77775c66';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,y-height);ctx.lineTo(x+(i%2)*2,y-1);ctx.stroke();
+      if(index===0 && i%4===1){ctx.fillStyle='#65755388';ctx.fillRect(x-3,y-height+2,7,2);ctx.fillRect(x,y-height+4,2,5+(i%3));}
+      if(index===0 && i%5===2){ctx.fillStyle='#9d9e7c30';ctx.fillRect(x+2,y-height+4,1,13);}
+    }
+    if(index===0 && len>130){
+      const x=a.x+(b.x-a.x)*.7,y=a.y+(b.y-a.y)*.7,wave=Math.floor(Math.sin(clock*2)*2);
+      ctx.strokeStyle='#b7a16e';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,y-height+4);ctx.lineTo(x,y-11);ctx.stroke();
+      polygon([{x:x-5,y:y-height+7},{x:x+6,y:y-height+7},{x:x+5+wave,y:y-9},{x:x-3+wave,y:y-12}],getRoomProfile().style.color+'77','#63583e');
+    }
+    ctx.restore();
+  }
+
   function getRoomAtmosphere(room=dungeon?.current){
     if(!room) return null;
     const profile=getRoomProfile(room);
@@ -4726,6 +5055,7 @@
       type:i%3===0 ? 'fly' : i%3===1 ? 'ant' : 'larva',speed:roll(3,8),flee:0
     }));
     room.atmosphere={texture,theme,random,particles,critters,time:0,dust:[],tracks:[],stepTimer:0,profileKey:visualKey};
+    populateLivingRoom(room.atmosphere,room);
     return room.atmosphere;
   }
   function emitRoomDust(x,y,vx=0,vy=0,count=3,color='#9e9176'){
@@ -4739,7 +5069,7 @@
   function updateRoomAtmosphere(dt){
     if(!(dt>0)) return;
     const a=getRoomAtmosphere();if(!a) return;
-    a.time+=dt;
+    a.time+=dt;tickLivingRoom(a,dt);
     for(const p of a.particles){
       p.x+=(p.rain ? -12 : Math.sin(a.time*.5+p.phase)*5)*dt;
       p.y+=(p.rain ? 110+p.speed*3 : -p.speed*.4)*dt;
@@ -4752,7 +5082,13 @@
         b.angle=Math.atan2(dy,dx);b.flee=.8;
       }
       b.flee=Math.max(0,b.flee-dt);
-      const speed=(b.type==='fly' ? 18 : b.speed)*(b.flee>0 ? 3 : 1);
+      if(b.flee===0 && (b.type==='moth' || b.type==='fly' && a.marks.length)){
+        let target;if(b.type==='moth'){const edge=getRoomProfile().edges[0],t=Math.sin(b.phase)>0 ? .18:.82;target={x:edge.a.x+(edge.b.x-edge.a.x)*t,y:edge.a.y+(edge.b.y-edge.a.y)*t+18};}
+        else target=a.marks[a.marks.length-1];
+        const angle=Math.atan2(target.y-b.y,target.x-b.x)+Math.sin(a.time+b.phase)*.8;
+        b.angle+=Math.atan2(Math.sin(angle-b.angle),Math.cos(angle-b.angle))*Math.min(1,dt*2);
+      }
+      const speed=(b.type==='fly' || b.type==='moth' ? 18 : b.speed)*(b.flee>0 ? 3 : 1);
       b.angle+=Math.sin(a.time*.7+b.phase)*dt*.8;
       b.x+=Math.cos(b.angle)*speed*dt;b.y+=Math.sin(b.angle)*speed*dt;
       if(!roomContainsPoint(b.x,b.y,9)){const p=projectRoomPoint(b.x,b.y,10);b.x=p.x;b.y=p.y;b.angle+=Math.PI*.7;}
@@ -4780,20 +5116,8 @@
       ctx.strokeStyle=p.wet ? '#a3cad0' : '#a8936b';ctx.lineWidth=1;
       ctx.beginPath();ctx.ellipse(p.x,p.y,p.wet ? 8-p.life : 2,p.wet ? (8-p.life)*.35 : 1,0,0,Math.PI*2);ctx.stroke();
     }
-    ctx.globalAlpha=.65;
-    for(const b of a.critters){
-      if(b.type==='fly')continue;
-      ctx.save();ctx.translate(Math.round(b.x),Math.round(b.y));ctx.rotate(b.angle);
-      if(b.type==='ant'){
-        ctx.fillStyle='#827665';ctx.fillRect(-2,-.5,3,1);ctx.fillRect(2,-.5,1,1);
-        ctx.fillStyle='#4b463b';const leg=Math.sin(a.time*18+b.phase)>.0 ? 1 : -1;
-        ctx.fillRect(-1,-1.5,1,1);ctx.fillRect(leg,1,1,1);
-      }else{
-        ctx.fillStyle='#a8a186';
-        for(let i=0;i<4;i++)ctx.fillRect(-i*1.5,Math.sin(a.time*5+b.phase+i)*.6,1.5,1.2);
-      }
-      ctx.restore();
-    }
+    ctx.globalAlpha=1;drawLivingFloor();
+    for(const b of a.critters)drawLivingCritter(b,a.time);
     ctx.restore();
   }
   function drawRoomAir(){
@@ -4806,15 +5130,12 @@
         ctx.strokeStyle='#a1c9ce';ctx.lineWidth=.7;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x-1.4,p.y+7);ctx.stroke();
       }else{
         ctx.fillRect(p.x,p.y,p.size,p.size);
+        if(p.speckKind==='spore'){ctx.fillStyle='#a8b48c';ctx.fillRect(p.x-1,p.y+1,3,1);ctx.fillRect(p.x,p.y,1,3);}
         if(p.glow){ctx.globalAlpha=.035;ctx.beginPath();ctx.arc(p.x,p.y,4,0,Math.PI*2);ctx.fill();}
       }
     }
-    for(const b of a.critters){
-      if(b.type!=='fly')continue;
-      const wing=Math.sin(a.time*80+b.phase)>0 ? 1.8 : .7;
-      ctx.globalAlpha=.4;ctx.fillStyle='#c3c7b8';ctx.fillRect(b.x-wing,b.y-1,wing*2,.7);
-      ctx.globalAlpha=.75;ctx.fillStyle='#676b5a';ctx.fillRect(b.x,b.y,1.5,1.5);
-    }
+    for(const b of a.critters)drawLivingCritter(b,a.time,true);
+    if(a.entryGust>0){ctx.globalAlpha=a.entryGust*.08;ctx.fillStyle='#d5c49e';for(let i=0;i<6;i++)ctx.fillRect(100+i*113+(1-a.entryGust)*25,80+i%3*160,18,1);}
     for(const p of a.dust){
       ctx.globalAlpha=p.life/p.ttl*.5;ctx.fillStyle=p.color;ctx.fillRect(p.x,p.y,1.4,1.4);
     }
@@ -9706,7 +10027,7 @@
         if(remaining>0){ tookDamage = true; }
       }
       if(tookDamage){
-        this.hurtPose=.25;
+        this.hurtPose=.25;onCreatureHit(this,amount,!tookRedDamage);
         audio.play('playerHurt', {volume: 0.65});
         this.triggerAimIndicatorFlash?.('hurt', {intensity: Math.min(1.4, amount || 1)});
       }
@@ -10718,7 +11039,8 @@
     return function(follower, type, shot){
       if(type === 'tear'){
         if(!shot) return;
-        const cloneOptions = {...(shot.options || {})};
+        follower.shotPose=.25;
+        const cloneOptions = {...(shot.options || {}),launchHeight:28};
         const damage = Math.max(0.01, shot.damage * damageMultiplier);
         runtime.bullets.push(new Bullet(follower.x, follower.y, shot.vx, shot.vy, shot.life, damage, cloneOptions));
       } else if(type === 'brimstone-start' && enableBrimstone){
@@ -10948,6 +11270,7 @@
             bulletOptions.homingStrength = Math.max(baseStrength, baseStrength + bonus);
           }
         }
+        follower.shotPose=.25;bulletOptions.launchHeight=28;
         runtime.bullets.push(new Bullet(follower.x, follower.y, vx, vy, life, damageValue, bulletOptions));
         follower.fireTimer = actualCooldown;
       }
@@ -11268,6 +11591,7 @@
       this.vx=vx;
       this.vy=vy;
       this.life=life;this.totalLife=life;this.launchHeight=options.launchHeight || 23;
+      this.launchSpeed=Math.hypot(vx,vy);this.nominalRange=this.launchSpeed*life;this.visualSeed=(x*13+y*7)%17;
       this.damage=damage;
       this.alive=true;
       this.r=calcTearRadius(damage);
@@ -11306,40 +11630,12 @@
       const ground=!!options.groundImpact;
       (runtime.tearSplashes ||= []).push({x:this.x,y:this.y,z:ground ? 0 : this.contactAltitude ?? shotAltitude(this),color:this.color,r:this.r,
         age:0,duration:ground ? .38 : .24,ground,seed:(this.x*17+this.y*31)%97});
+      emitDetail(this.x,this.y,ground ? 0:this.contactAltitude ?? shotAltitude(this),'tear',this.color,6,{vx:-this.vx*.04,vy:-this.vy*.04,speed:24,playerClock:true});
       if(ground)audio.play('tearLand',{volume:.12,x:this.x});
     }
     update(dt){
       this.prevX=this.x; this.prevY=this.y;
-      if(this.homing){
-        const room = dungeon?.current;
-        if(room){
-          let target=null;
-          let best=Infinity;
-          for(const enemy of room.enemies){
-            if(isPhasedActor(enemy)) continue;
-            const d = dist(this, enemy);
-            if(d < best){ best = d; target = enemy; }
-          }
-          if(target){
-            const speed = Math.hypot(this.vx, this.vy);
-            if(speed>1e-3){
-              const toX = target.x - this.x;
-              const toY = target.y - this.y;
-              const len = Math.hypot(toX,toY) || 1;
-              const nx = toX / len;
-              const ny = toY / len;
-              const curX = this.vx / speed;
-              const curY = this.vy / speed;
-              const turn = clamp(this.homingStrength * dt, 0, 1);
-              const mixX = curX*(1-turn) + nx*turn;
-              const mixY = curY*(1-turn) + ny*turn;
-              const mixLen = Math.hypot(mixX, mixY) || 1;
-              this.vx = (mixX/mixLen) * speed;
-              this.vy = (mixY/mixLen) * speed;
-            }
-          }
-        }
-      }
+      if(this.homing)steerNearTarget(this,Math.min(dt,Math.max(0,this.life)),this.homingStrength);
       this.previousAltitude=shotAltitude(this);
       const travelDt=Math.min(dt,Math.max(0,this.life));
       this.x += this.vx*travelDt;
@@ -11533,63 +11829,7 @@
         this.destroy();
       }
     }
-    applyHoming(dt){
-      if(!this.homing) return;
-      this.homingAcquireTimer = Math.max(0, (this.homingAcquireTimer || 0) - dt);
-      const rangeLimit = this.homingRange>0 ? this.homingRange : Infinity;
-      let target = this.homingTarget;
-      if(target){
-        const distance = dist(this, target);
-        const radius = target?.r || 0;
-        if(!Number.isFinite(distance) || target.dead || distance > rangeLimit + radius){
-          target = null;
-        }
-      }
-      if(!target && this.homingAcquireTimer<=0){
-        target = this.acquireHomingTarget(rangeLimit);
-        this.homingTarget = target;
-        this.homingAcquireTimer = 0.12;
-      }
-      if(!target) return;
-      const baseSpeed = this.homingSpeed>0 ? this.homingSpeed : Math.hypot(this.vx, this.vy) || 0;
-      const desiredSpeed = Math.max(40, baseSpeed);
-      const currentSpeed = Math.hypot(this.vx, this.vy) || 0;
-      const effectiveSpeed = currentSpeed>1e-5 ? currentSpeed : desiredSpeed;
-      const toX = target.x - this.x;
-      const toY = target.y - this.y;
-      const len = Math.hypot(toX, toY) || 1;
-      const nx = toX / len;
-      const ny = toY / len;
-      const curX = effectiveSpeed>0 ? this.vx / effectiveSpeed : nx;
-      const curY = effectiveSpeed>0 ? this.vy / effectiveSpeed : ny;
-      const strength = this.homingStrength>0 ? this.homingStrength : Math.max(this.player?.homingStrength || 0, 8);
-      const turn = clamp(strength * dt, 0, 1);
-      const mixX = curX*(1-turn) + nx*turn;
-      const mixY = curY*(1-turn) + ny*turn;
-      const mixLen = Math.hypot(mixX, mixY) || 1;
-      const finalSpeed = Math.max(desiredSpeed, effectiveSpeed);
-      this.vx = (mixX/mixLen) * finalSpeed;
-      this.vy = (mixY/mixLen) * finalSpeed;
-    }
-    acquireHomingTarget(rangeLimit){
-      const room = dungeon?.current;
-      if(!room || !Array.isArray(room.enemies)) return null;
-      let best = Infinity;
-      let target = null;
-      const limitSq = Number.isFinite(rangeLimit) && rangeLimit < Infinity ? rangeLimit * rangeLimit : Infinity;
-      for(const enemy of room.enemies){
-        if(!enemy || enemy.dead) continue;
-        const dx = enemy.x - this.x;
-        const dy = enemy.y - this.y;
-        const distSq = dx*dx + dy*dy;
-        if(limitSq < Infinity && distSq > limitSq) continue;
-        if(distSq < best){
-          best = distSq;
-          target = enemy;
-        }
-      }
-      return target;
-    }
+    applyHoming(dt){if(this.homing)steerNearTarget(this,dt,this.homingStrength || 8);}
     split(){
       if(!this.alive) return;
       const config = this.fragmentConfig;
@@ -12092,55 +12332,13 @@
         }
       }
     }
-    updateHoming(dt, enemies, currentSpeed){
-      if(!this.homing || !Array.isArray(enemies) || !enemies.length) return;
-      if(this.homingDelay>0){
-        this.homingDelay = Math.max(0, this.homingDelay - dt);
-        if(this.homingDelay>0) return;
-      }
-      this.homingAcquireTimer = Math.max(0, this.homingAcquireTimer - dt);
-      let target = this.homingTarget;
-      const rangeLimit = this.homingRange>0 ? this.homingRange : 480;
-      if(target){
-        const distance = Math.hypot(target.x - this.x, target.y - this.y);
-        if(!target || target.dead || (rangeLimit>0 && distance > rangeLimit + (target.r || 12))){
-          target = null;
-        }
-      }
-      if(!target && this.homingAcquireTimer<=0){
-        let best=null;
-        let bestDist=Infinity;
-        for(const enemy of enemies){
-          if(!enemy || enemy.dead) continue;
-          const dx = enemy.x - this.x;
-          const dy = enemy.y - this.y;
-          const dist = Math.hypot(dx, dy);
-          if(rangeLimit>0 && dist > rangeLimit + (enemy.r || 12)) continue;
-          if(dist < bestDist){
-            bestDist = dist;
-            best = enemy;
-          }
-        }
-        this.homingTarget = best;
-        this.homingAcquireTimer = 0.12;
-        target = best;
-      }
-      if(!target) return;
-      const dx = target.x - this.x;
-      const dy = target.y - this.y;
-      const distance = Math.hypot(dx, dy) || 1;
-      const ndx = dx / distance;
-      const ndy = dy / distance;
-      const strength = Math.max(0, this.homingStrength || 8);
-      const turn = clamp(strength * dt, 0, 1);
-      this.dirX = this.dirX * (1 - turn) + ndx * turn;
-      this.dirY = this.dirY * (1 - turn) + ndy * turn;
-      const dirLen = Math.hypot(this.dirX, this.dirY) || 1;
-      this.dirX /= dirLen;
-      this.dirY /= dirLen;
-      if(Number.isFinite(currentSpeed) && currentSpeed>0){
-        this.speed = Math.max(currentSpeed, this.speed * 0.92);
-      }
+    updateHoming(dt,enemies,currentSpeed){
+      if(!this.homing)return;
+      if(this.homingDelay>0){this.homingDelay=Math.max(0,this.homingDelay-dt);if(this.homingDelay>0)return;}
+      const speed=currentSpeed || this.speed || 180;
+      const proxy={x:this.x,y:this.y,vx:this.dirX*speed,vy:this.dirY*speed,maxDistance:this.maxDistance,pierceObstacles:this.pierceObstacles,homingRange:this.homingRange};
+      steerNearTarget(proxy,dt,this.homingStrength || 8);this.homingActive=proxy.homingActive;
+      this.dirX=proxy.vx/speed;this.dirY=proxy.vy/speed;
     }
     applyDamage(enemies, dt){
       const baseX = this.tailX;
@@ -12453,66 +12651,10 @@
       }
     }
     updateHoming(dt){
-      if(!this.homing) return;
-      if(this.homingDelay>0){
-        this.homingDelay = Math.max(0, this.homingDelay - dt);
-        if(this.homingDelay>0) return;
-      }
-      if(this.phase === 1 && !this.homingActivated) return;
-      this.homingAcquireTimer = Math.max(0, (this.homingAcquireTimer || 0) - dt);
-      const rangeLimit = this.homingRange>0 ? this.homingRange : Infinity;
-      let target = this.homingTarget;
-      if(target){
-        const distance = dist(this, target);
-        const radius = target?.r || 0;
-        if(!Number.isFinite(distance) || target.dead || distance > rangeLimit + radius){
-          target = null;
-        }
-      }
-      if(!target && this.homingAcquireTimer<=0){
-        target = this.pickHomingTarget(rangeLimit);
-        this.homingTarget = target;
-        this.homingAcquireTimer = 0.12;
-      }
-      if(!target) return;
-      const baseSpeed = this.homingSpeed>0 ? this.homingSpeed : Math.hypot(this.vx, this.vy) || 0;
-      const desiredSpeed = Math.max(40, baseSpeed);
-      const currentSpeed = Math.hypot(this.vx, this.vy) || 0;
-      const effectiveSpeed = currentSpeed>1e-5 ? currentSpeed : desiredSpeed;
-      const toX = target.x - this.x;
-      const toY = target.y - this.y;
-      const len = Math.hypot(toX, toY) || 1;
-      const nx = toX / len;
-      const ny = toY / len;
-      const curX = effectiveSpeed>0 ? this.vx / effectiveSpeed : nx;
-      const curY = effectiveSpeed>0 ? this.vy / effectiveSpeed : ny;
-      const baseStrength = this.homingStrength>0 ? this.homingStrength : Math.max(this.player?.homingStrength || 0, 8);
-      const turn = clamp(baseStrength * dt, 0, 1);
-      const mixX = curX*(1-turn) + nx*turn;
-      const mixY = curY*(1-turn) + ny*turn;
-      const mixLen = Math.hypot(mixX, mixY) || 1;
-      const finalSpeed = Math.max(desiredSpeed, effectiveSpeed);
-      this.vx = (mixX/mixLen) * finalSpeed;
-      this.vy = (mixY/mixLen) * finalSpeed;
-    }
-    pickHomingTarget(rangeLimit){
-      const room = dungeon?.current;
-      if(!room || !Array.isArray(room.enemies)) return null;
-      let best = Infinity;
-      let target = null;
-      const limitSq = Number.isFinite(rangeLimit) && rangeLimit < Infinity ? rangeLimit * rangeLimit : Infinity;
-      for(const enemy of room.enemies){
-        if(!enemy || enemy.dead) continue;
-        const dx = enemy.x - this.x;
-        const dy = enemy.y - this.y;
-        const distSq = dx*dx + dy*dy;
-        if(limitSq < Infinity && distSq > limitSq) continue;
-        if(distSq < best){
-          best = distSq;
-          target = enemy;
-        }
-      }
-      return target;
+      if(!this.homing)return;
+      if(this.homingDelay>0){this.homingDelay=Math.max(0,this.homingDelay-dt);if(this.homingDelay>0)return;}
+      if(this.phase===1 && !this.homingActivated)return;
+      steerNearTarget(this,dt,this.homingStrength || 8);
     }
     enterHomingPhase(){
       if(this.phase === 2){
@@ -12778,33 +12920,9 @@
       }
     }
     updateHoming(dt){
-      if(!this.homing || !this.owner) return;
-      const room = dungeon?.current;
-      if(!room) return;
-      let target=null;
-      let best=Infinity;
-      for(const enemy of room.enemies){
-        if(enemy.dead) continue;
-        const dx = enemy.x - this.owner.x;
-        const dy = enemy.y - this.owner.y;
-        const d = Math.hypot(dx,dy);
-        if(d < best){ best = d; target = enemy; }
-      }
-      if(!target) return;
-      const toX = target.x - this.owner.x;
-      const toY = target.y - this.owner.y;
-      const len = Math.hypot(toX,toY) || 1;
-      const nx = toX / len;
-      const ny = toY / len;
-      const curLen = Math.hypot(this.dir.x, this.dir.y) || 1;
-      const curX = this.dir.x / curLen;
-      const curY = this.dir.y / curLen;
-      const turn = clamp(this.homingStrength * dt, 0, 1);
-      const mixX = curX*(1-turn) + nx*turn;
-      const mixY = curY*(1-turn) + ny*turn;
-      const mixLen = Math.hypot(mixX, mixY) || 1;
-      this.dir.x = mixX / mixLen;
-      this.dir.y = mixY / mixLen;
+      if(!this.homing || !this.owner)return;
+      const proxy={x:this.owner.x,y:this.owner.y,vx:this.dir.x*200,vy:this.dir.y*200,nominalRange:(this.owner.tearSpeed || 230)*Math.min(1.5,this.owner.tearLife || .65),pierceObstacles:true};
+      steerNearTarget(proxy,dt,this.homingStrength);this.dir.x=proxy.vx/200;this.dir.y=proxy.vy/200;
     }
     update(dt){
       if(!this.owner){ this.finish(); return; }
@@ -13088,9 +13206,9 @@
         const tail = pts[pts.length-1];
         let target=null;
         let best=Infinity;
-        const rangeLimit = this.homingRange>0 ? this.homingRange : Infinity;
+        const rangeLimit=Math.min(180,this.homingRange>0 ? this.homingRange:180);
         for(const enemy of room.enemies){
-          if(enemy.dead) continue;
+          if(isPhasedActor(enemy)) continue;
           const d = Math.hypot(enemy.x - tail.x, enemy.y - tail.y);
           if(rangeLimit>0 && d>rangeLimit) continue;
           if(d < best){ best = d; target = enemy; }
@@ -17019,6 +17137,7 @@
           vy: 160 + rand()*40,
           accel: 260 + (this.enraged?60:0),
           ground: CONFIG.roomH - 46,
+          targetY:clamp((player?.y || 300)+randRange(-90,90),70,CONFIG.roomH-60),
           damage: this.enraged?2:1,
           color: '#a855f7',
         }));
@@ -17366,6 +17485,8 @@
           vy: -(220 + i*30),
           gravity: 520 + rand()*60,
           ground: CONFIG.roomH - 52,
+          targetX:(player?.x || 400)+Math.cos(angle)*25,
+          targetY:(player?.y || 300)+Math.sin(angle)*25,
           damage: this.enraged?2:1,
         }));
       }
@@ -17560,46 +17681,30 @@
 
   class FallingShard{
     constructor(x,y,options={}){
-      this.x=x; this.y=y;
-      this.vx=options.vx ?? 0;
-      this.vy=options.vy ?? 160;
-      this.accel=options.accel ?? 220;
-      this.ground=options.ground ?? (CONFIG.roomH - 40);
-      this.life=options.life ?? 4;
-      this.alive=true;
-      this.r=options.r ?? 10;
-      this.damage=Math.max(1, options.damage ?? 1);
-      const landing=projectRoomPoint(this.x,this.ground,(options.r ?? 10)+8);this.x=landing.x;this.ground=landing.y;
-      this.color=options.color || '#c084fc';
-      this.impacted=false;
+      const landing=projectRoomPoint(x,options.targetY ?? options.ground ?? 520,(options.r || 10)+8);
+      this.x=landing.x;this.y=landing.y;this.ground=landing.y;this.targetX=landing.x;this.targetY=landing.y;
+      this.vx=0;this.vy=0;this.z=clamp((landing.y-y)*.72,90,260);this.initialZ=this.z;
+      this.vz=-Math.max(70,(options.vy || 160)*.6);this.accel=options.accel || 260;
+      this.life=options.life || 4;this.alive=true;this.r=options.r || 10;this.damage=Math.max(1,options.damage || 1);
+      this.color=options.color || '#c084fc';this.impacted=false;
     }
     update(dt){
-      if(!this.alive) return;
-      this.vy += this.accel * dt;
-      this.x += this.vx * dt;
-      this.y += this.vy * dt;
-      this.life -= dt;
-      if(this.y >= this.ground){
-        this.triggerImpact();
-      } else if(this.life<=0 || this.x<20 || this.x>CONFIG.roomW-20){
-        this.alive=false;
-      }
+      if(!this.alive || !(dt>0))return;
+      this.previousZ=this.z;this.vz-=this.accel*dt;this.z=Math.max(0,this.z+this.vz*dt);this.life-=dt;
+      if(this.z<=0 || this.life<=0)this.triggerImpact();
     }
     triggerImpact(){
       if(this.impacted) return;
       this.impacted=true;
+      if(!this.hitTarget && player && dist(this,player)<this.r+player.r)player.hurt(this.damage,{cause:'falling-shard'});
+      emitDetail(this.x,this.y,0,'crystal',this.color,8,{speed:40});
       this.alive=false;
       spawnCircularEffect(this.x, this.ground, this.r+14, {innerColor:'#ede9fe', midColor:this.color, outerColor:'#7c3aed'});
       addScreenShake(3,0.2);
     }
     checkHit(target){
-      if(!this.alive) return false;
-      if(projectileHitTime(this,target)!==null){
-        target.hurt(this.damage);
-        applyProjectileContact(target,this);
-        this.triggerImpact();
-        return true;
-      }
+      if(!this.alive || this.z>36)return false;
+      if(airborneContact(this,target)){this.hitTarget=true;target.hurt(this.damage);this.triggerImpact();return true;}
       return false;
     }
     draw(){
@@ -17658,36 +17763,26 @@
 
   class LobbedRock{
     constructor(x,y,options={}){
-      this.x=x; this.y=y;
-      this.vx=options.vx ?? 0;
-      this.vy=options.vy ?? -220;
-      this.gravity=options.gravity ?? 520;
-      this.ground=options.ground ?? (CONFIG.roomH - 54);
-      this.life=options.life ?? 6;
-      this.r=options.r ?? 12;
-      this.damage=Math.max(1, options.damage ?? 2);
-      const landing=projectRoomPoint(this.x,this.ground,(options.r ?? 12)+8);this.x=landing.x;this.ground=landing.y;
-      this.color=options.color || '#fb923c';
-      this.alive=true;
-      this.exploded=false;
+      this.x=x;this.y=y;this.startX=x;this.startY=y;
+      const landing=projectRoomPoint(options.targetX ?? x+(options.vx || 0)*.8,options.targetY ?? options.ground ?? 520,(options.r || 12)+8);
+      this.targetX=landing.x;this.targetY=landing.y;this.ground=landing.y;
+      this.flight=clamp(.8+Math.hypot(landing.x-x,landing.y-y)/380,.8,1.6);this.elapsed=0;
+      this.vx=(landing.x-x)/this.flight;this.vy=(landing.y-y)/this.flight;
+      this.z=18;this.arcHeight=95;this.life=options.life || 6;this.r=options.r || 12;this.damage=Math.max(1,options.damage || 1);
+      this.color=options.color || '#c59b72';this.alive=true;this.exploded=false;
     }
     update(dt){
-      if(!this.alive) return;
-      this.life -= dt;
-      if(this.life<=0){ this.explode(); return; }
-      this.vy += this.gravity * dt;
-      this.x += this.vx * dt;
-      this.y += this.vy * dt;
-      if(this.y >= this.ground){
-        this.y = this.ground;
-        this.explode();
-      } else if(this.x<30 || this.x>CONFIG.roomW-30){
-        this.explode();
-      }
+      if(!this.alive || !(dt>0))return;
+      this.previousZ=this.z;this.elapsed=Math.min(this.flight,this.elapsed+dt);const t=this.elapsed/this.flight;
+      this.x=this.startX+(this.targetX-this.startX)*t;this.y=this.startY+(this.targetY-this.startY)*t;
+      this.z=18*(1-t)+this.arcHeight*4*t*(1-t);this.life-=dt;
+      if(t>=1 || this.life<=0)this.explode();
     }
     explode(){
       if(this.exploded) return;
       this.exploded=true;
+      if(!this.hitTarget && player && dist(this,player)<this.r+player.r+4)player.hurt(this.damage,{cause:'rock-impact'});
+      emitDetail(this.x,this.y,0,'stone','#ad987b',10,{speed:45});
       this.alive=false;
       spawnCircularEffect(this.x, this.y, this.r+18, {innerColor:'#fee2e2', midColor:this.color, outerColor:'#f97316'});
       addScreenShake(5,0.3);
@@ -17699,13 +17794,8 @@
       }
     }
     checkHit(target){
-      if(!this.alive) return false;
-      if(projectileHitTime(this,target)!==null){
-        target.hurt(this.damage);
-        applyProjectileContact(target,this);
-        this.explode();
-        return true;
-      }
+      if(!this.alive || this.z>36)return false;
+      if(airborneContact(this,target)){this.hitTarget=true;target.hurt(this.damage);applyProjectileContact(target,this);this.explode();return true;}
       return false;
     }
     draw(){
@@ -18634,10 +18724,10 @@
     const count = Math.max(6, Math.floor(options.count ?? 16));
     const particles = [];
     for(let i=0;i<count;i++){
-      const angle = rand() * Math.PI * 2;
-      const speed = randRange(30, 90);
-      const drift = randRange(-20, 28);
-      const life = ttl * randRange(0.45, 1.05);
+      const angle = visualRandom() * Math.PI * 2;
+      const speed = visualRange(30, 90);
+      const drift = visualRange(-20, 28);
+      const life = ttl * visualRange(0.45, 1.05);
       particles.push({
         x,
         y,
@@ -18645,8 +18735,8 @@
         vy: Math.sin(angle) * speed * 0.6 + drift,
         life,
         ttl: life,
-        size: radius * randRange(0.18, 0.32),
-        alpha: randRange(0.25, 0.55),
+        size: radius * visualRange(0.18, 0.32),
+        alpha: visualRange(0.25, 0.55),
       });
     }
     const effect = {
@@ -18789,10 +18879,10 @@
       }
     };
     for(let i=0;i<particleCount;i++){
-      const angle = randRange(0, Math.PI*2);
-      const speedScale = 0.4 + rand() * scatter;
-      const life = ttl * (0.55 + rand()*0.35);
-      const color = rand()<0.35 ? accentColor : baseColor;
+      const angle = visualRange(0, Math.PI*2);
+      const speedScale = 0.4 + visualRandom() * scatter;
+      const life = ttl * (0.55 + visualRandom()*0.35);
+      const color = visualRandom()<0.35 ? accentColor : baseColor;
       effect.particles.push({
         x,
         y,
@@ -18800,7 +18890,7 @@
         vy: Math.sin(angle) * speed * speedScale,
         life,
         ttl: life,
-        size: sizeBase * (0.65 + rand()*0.55),
+        size: sizeBase * (0.65 + visualRandom()*0.55),
         color,
       });
     }
@@ -18873,15 +18963,15 @@
       }
     };
     for(let i=0;i<particleCount;i++){
-      const lateral = (rand() - 0.5) * 1.3;
-      const forward = (0.35 + rand()*0.9) * flow;
+      const lateral = (visualRandom() - 0.5) * 1.3;
+      const forward = (0.35 + visualRandom()*0.9) * flow;
       const px = nx * forward + perpX * lateral;
       const py = ny * forward + perpY * lateral;
       const len = Math.hypot(px, py) || 1;
-      const vx = (px/len) * speed * (0.6 + rand()*0.6);
-      const vy = (py/len) * speed * (0.6 + rand()*0.6);
-      const life = ttl * (0.6 + rand()*0.35);
-      const color = rand()<0.45 ? accentColor : baseColor;
+      const vx = (px/len) * speed * (0.6 + visualRandom()*0.6);
+      const vy = (py/len) * speed * (0.6 + visualRandom()*0.6);
+      const life = ttl * (0.6 + visualRandom()*0.35);
+      const color = visualRandom()<0.45 ? accentColor : baseColor;
       effect.particles.push({
         x: x + perpX * lateral * radiusRef * 0.25,
         y: y + perpY * lateral * radiusRef * 0.25,
@@ -18889,9 +18979,9 @@
         vy,
         life,
         ttl: life,
-        size: (options.size ?? (radiusRef*0.24)) * (0.8 + rand()*0.6),
+        size: (options.size ?? (radiusRef*0.24)) * (0.8 + visualRandom()*0.6),
         color,
-        swirlStrength: swirl ? randRange(4, 9) : 0,
+        swirlStrength: swirl ? visualRange(4, 9) : 0,
       });
     }
     runtime.effects.push(effect);
@@ -18965,7 +19055,7 @@
       const owner = beam?.owner;
       const baseWidth = owner?.getBrimstoneWidth?.() ?? beam?.width ?? 24;
       const width = Math.max(6, baseWidth);
-      if(typeof beam.visualSeed !== 'number'){ beam.visualSeed = rand(); }
+      if(typeof beam.visualSeed !== 'number'){ beam.visualSeed = visualRandom(); }
       const palette = {...(beam?.palette || {})};
       const samples = buildCurvedBeamSamples(geom, width, {
         phase: beam.wobblePhase || 0,
@@ -19221,8 +19311,8 @@
     if(!runtime.effects) runtime.effects = [];
     const count = Math.max(2, Math.floor(options.count ?? 8));
     for(let i=0;i<count;i++){
-      const angle = rand()*Math.PI*2;
-      const speed = randRange(options.speedMin ?? 80, options.speedMax ?? 220);
+      const angle = visualRandom()*Math.PI*2;
+      const speed = visualRange(options.speedMin ?? 80, options.speedMax ?? 220);
       runtime.effects.push({
         type:'gib',
         x: options.x ?? player?.x ?? CONFIG.roomW/2,
@@ -19230,9 +19320,9 @@
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
         gravity: options.gravity ?? 480,
-        rotation: rand()*Math.PI*2,
-        rotationSpeed: randRange(-8, 8),
-        size: randRange(options.minSize ?? 4, options.maxSize ?? 10),
+        rotation: visualRandom()*Math.PI*2,
+        rotationSpeed: visualRange(-8, 8),
+        size: visualRange(options.minSize ?? 4, options.maxSize ?? 10),
         color: options.color || '#f87171',
         life: options.life ?? 0.6,
         ttl: options.life ?? 0.6,
@@ -19258,9 +19348,9 @@
     const ttl = Math.max(3, options.life ?? 24);
     runtime.decals.push({
       x, y,
-      rx: radius * randRange(0.7, 1.2),
-      ry: radius * randRange(0.45, 0.9),
-      rotation: rand()*Math.PI,
+      rx: radius * visualRange(0.7, 1.2),
+      ry: radius * visualRange(0.45, 0.9),
+      rotation: visualRandom()*Math.PI,
       color,
       baseAlpha: options.alpha ?? 0.38,
       life: ttl,
@@ -19271,7 +19361,9 @@
 
   function triggerEnemyDeathEffects(enemy){
     if(!enemy) return;
-    (runtime.corpses ||= []).push({x:enemy.x,y:enemy.y,r:enemy.r,key:actorArtKey(enemy),life:.8,ttl:.8});
+    const profile=creatureProfile(enemy),ttl=enemy.isBossEntity ? 2:1.2;
+    (runtime.corpses ||= []).push({x:enemy.x,y:enemy.y,r:enemy.r,key:actorArtKey(enemy),profile:creatureKey(enemy),material:profile.material,color:profile.color,life:ttl,ttl});
+    emitDetail(enemy.x,enemy.y,12,profile.material,profile.color,enemy.isBossEntity ? 22:8,{speed:enemy.isBossEntity ? 55:30});
     if(relicRecipes().some(r=>r.key==='moss'))for(const e of dungeon.current.enemies){if(e!==enemy && dist(e,enemy)<95)e.mossSlow=1.3;}
     const baseColor = enemy.tint || enemy.color || '#f87171';
     const accent = enemy.tintLight || shadeColor(baseColor, 0.25);
@@ -19282,7 +19374,7 @@
       midColor: colorWithAlpha(accent, 0.55),
       outerColor: colorWithAlpha(baseColor, 0),
     });
-    addFloorStain(enemy.x, enemy.y, Math.max(18, (enemy.r||12)*1.6), colorWithAlpha(baseColor, 0.68));
+    if(['blood','ichor','oil'].includes(profile.material)){const fluid={blood:'#904d43',ichor:'#81885f',oil:'#6d6045'}[profile.material];addRoomMark(enemy.x,enemy.y,Math.min(14,enemy.r || 12),fluid,profile.material);addFloorStain(enemy.x,enemy.y,Math.max(12,(enemy.r || 12)*1.1),fluid,{alpha:.3});}
     audio.play('enemyDeath', {volume: enemy.isBossEntity ? .7 : .38,x:enemy.x,rate:enemy.isBossEntity ? .8 : 1.1});
     if(enemy.isBossEntity){
       const shake = BOSS_TUNING.deathShake || {};
@@ -19344,7 +19436,9 @@
 
   function triggerActiveUseAnimation(item){
     if(!player) return;
-    player.activePose=.6;player.activeRelic=item?.slug;
+    player.activePose=.75;player.activeRelic=item?.slug;
+    const activeColors={'pocket-watch':'#bdc9c7',adrenaline:'#d09a86','outdoor-pouch':'#cab586'};
+    emitDetail(player.x,player.y,42,'wisp',activeColors[item?.slug] || '#d5bc87',8,{vz:8,speed:14,playerClock:true});
     const base = '#fbbf24';
     runtime.effects.push({
       type:'active-aura',
@@ -19528,7 +19622,7 @@
     dungeon.current = exchange;
     clearBossSummonTracker();
     clearRoomDecals();
-    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];
+    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];runtime.detailParticles=[];
     exchange.visited = true;
     exchange.cleared = true;
     exchange.combatRoom = false;
@@ -19570,7 +19664,7 @@
     dungeon.current = targetRoom;
     clearBossSummonTracker();
     clearRoomDecals();
-    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];
+    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];runtime.detailParticles=[];
     targetRoom.visited = true;
     player.handleRoomChange(targetRoom);
     const fallback = targetRoom.center ? targetRoom.center() : {x: CONFIG.roomW/2, y: CONFIG.roomH/2};
@@ -19767,6 +19861,7 @@
     loopCount: 0,
     endingStats: null,
     weightedPity: Object.create(null),
+    lastRenderedRoom:null,
     roomTransition: null,
     roomEntryLock: 0,
   };
@@ -19819,8 +19914,12 @@
 
   function startRoomEntryTransition(direction, options={}){
     const duration = Math.max(0, Number(options.duration) || getRoomTransitionDuration());
+    let snapshot=null;
+    if(runtime.lastRenderedRoom && runtime.lastRenderedRoom!==dungeon.current){snapshot=document.createElement('canvas');snapshot.width=canvas.width;snapshot.height=canvas.height;snapshot.getContext('2d').drawImage(canvas,0,0);}
+    runtime.detailParticles=[];getRoomAtmosphere().entryGust=1;
     if(duration>0){
       runtime.roomTransition = {
+        snapshot,
         active: true,
         timer: duration,
         duration,
@@ -19870,54 +19969,13 @@
   }
 
   function drawRoomTransitionOverlay(){
-    const trans = runtime.roomTransition;
-    if(!trans) return;
-    const progress = clamp(trans.progress ?? 0, 0, 1);
-    const fade = Math.sin(progress * Math.PI);
-    if(fade <= 0.001) return;
+    const trans=runtime.roomTransition;if(!trans)return;
+    const p=clamp(trans.progress || 0,0,1),ease=p*p*(3-2*p),direction={left:[1,0],right:[-1,0],up:[0,1],down:[0,-1]}[trans.direction] || [0,0];
     ctx.save();
-    ctx.globalAlpha = 0.45 * fade;
-    ctx.fillStyle = '#080b12';
-    ctx.fillRect(0,0,CONFIG.roomW, CONFIG.roomH);
-    ctx.restore();
-
-    ctx.save();
-    const dir = trans.direction || 'center';
-    let startX = 0, startY = 0, endX = 0, endY = 0;
-    if(dir==='left'){
-      startX = CONFIG.roomW;
-      endX = 0;
-    } else if(dir==='right'){
-      startX = 0;
-      endX = CONFIG.roomW;
-    } else if(dir==='up'){
-      startY = CONFIG.roomH;
-      endY = 0;
-    } else if(dir==='down'){
-      startY = 0;
-      endY = CONFIG.roomH;
-    } else {
-      startX = CONFIG.roomW/2;
-      startY = CONFIG.roomH/2;
-      endX = startX;
-      endY = startY;
-    }
-    const gradient = ctx.createLinearGradient(startX, startY, endX, endY);
-    gradient.addColorStop(0, 'rgba(148,163,184,0)');
-    gradient.addColorStop(0.4, 'rgba(148,163,184,0.28)');
-    gradient.addColorStop(0.7, 'rgba(15,23,42,0.62)');
-    gradient.addColorStop(1, 'rgba(8,11,17,0.9)');
-    const slideBase = (dir==='left' || dir==='right') ? CONFIG.roomW : CONFIG.roomH;
-    const offset = (1 - progress) * slideBase * 0.6;
-    let tx = 0, ty = 0;
-    if(dir==='left') tx = -offset;
-    else if(dir==='right') tx = offset;
-    else if(dir==='up') ty = -offset;
-    else if(dir==='down') ty = offset;
-    ctx.translate(tx, ty);
-    ctx.globalAlpha = 0.7 * fade;
-    ctx.fillStyle = gradient;
-    ctx.fillRect(-CONFIG.roomW, -CONFIG.roomH, CONFIG.roomW*3, CONFIG.roomH*3);
+    if(trans.snapshot){ctx.globalAlpha=1-ease;ctx.drawImage(trans.snapshot,direction[0]*ease*120,direction[1]*ease*90,800,600);}
+    ctx.globalAlpha=Math.sin(p*Math.PI)*.2;ctx.fillStyle='#1e1a12';ctx.fillRect(0,0,800,600);
+    ctx.strokeStyle='#b7a171';ctx.lineWidth=1;ctx.globalAlpha=(1-p)*.18;
+    for(let i=0;i<7;i++){const x=75+i*103+direction[0]*p*20,y=60+(i%3)*170+direction[1]*p*20;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+direction[0]*16+3,y+direction[1]*16);ctx.stroke();}
     ctx.restore();
   }
 
@@ -20026,6 +20084,7 @@
   let dungeon, player;
 
   function startGame(){
+    runtime.lastRenderedRoom=null;
     overlayManager.clear();
     recentItemHistory.length = 0;
     recentShopItemHistory.length = 0;
@@ -20064,7 +20123,7 @@
     runtime.exchangeRoom = null;
     runtime.effects.length = 0;
     clearRoomDecals();
-    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];
+    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];runtime.detailParticles=[];
     clearBossSummonTracker();
     runtime.timeStopTimer = 0;
     runtime.timeStopDuration = 0;
@@ -20130,7 +20189,7 @@
     runtime.exchangeRoom = null;
     runtime.effects.length = 0;
     clearRoomDecals();
-    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];
+    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];runtime.detailParticles=[];
     clearBossSummonTracker();
     runtime.timeStopTimer = 0;
     runtime.timeStopDuration = 0;
@@ -20193,7 +20252,7 @@
     runtime.exchangeRoom = null;
     runtime.effects.length = 0;
     clearRoomDecals();
-    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];
+    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];runtime.detailParticles=[];
     clearBossSummonTracker();
     runtime.timeStopTimer = 0;
     runtime.timeStopDuration = 0;
@@ -20318,7 +20377,7 @@
     dungeon.revealRoom(nextRoom);
     clearBossSummonTracker();
     clearRoomDecals();
-    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];
+    runtime.corpses=[];runtime.chainLinks=[];runtime.relicFlights=[];runtime.tearSplashes=[];runtime.detailParticles=[];
     player.handleRoomChange(nextRoom);
 
     const dir = direction || 'center';
@@ -20587,7 +20646,12 @@
       simulationAccumulator = 0;
     }
     audio.setScene?.(state===STATE.PLAY,!!dungeon?.current?.isBoss);
-    if(state===STATE.OVER && player?.hp<=0)runtime.playerDeathTime=(runtime.playerDeathTime || 0)+Math.min(.05,frameDt);
+    if(state===STATE.OVER && player?.hp<=0){
+      const deathDt=Math.min(.05,frameDt);runtime.playerDeathTime=(runtime.playerDeathTime || 0)+deathDt;
+      advanceDetailParticles(deathDt,deathDt);
+      runtime.tearSplashes=(runtime.tearSplashes || []).filter(s=>(s.age+=deathDt)<s.duration);
+      runtime.corpses=(runtime.corpses || []).filter(c=>(c.life-=deathDt)>0);
+    }
     if(dungeon?.current && player) draw();else drawCryptMenu();
   }
   requestAnimationFrame(loop);
@@ -20633,7 +20697,7 @@
 
     // 子弹
     const bulletDt = entryLocked ? 0 : dt;
-    for(const b of runtime.bullets) b.update(bulletDt);
+    for(const b of runtime.bullets){b.update(bulletDt);recordShotDetail(b,bulletDt);}
     runtime.bullets = runtime.bullets.filter(b=>b.alive);
 
     // 敌人
@@ -20682,7 +20746,7 @@
     const enemyProjectileDt = entryLocked ? 0 : worldDt;
     for(const eb of runtime.enemyProjectiles){
       eb.prevX=eb.x; eb.prevY=eb.y;
-      eb.update(enemyProjectileDt);
+      eb.update(enemyProjectileDt);recordShotDetail(eb,enemyProjectileDt,true);
       if(eb.alive && eb.r && !(eb instanceof EnemyProjectile) && !(eb instanceof FallingShard) && !(eb instanceof LobbedRock) && !roomContainsPoint(eb.x,eb.y,eb.r+1)){
         if(typeof eb.destroy==='function')eb.destroy({glowStrength:.25});else eb.alive=false;
       }
@@ -20934,6 +20998,7 @@
   function drawFloorDecals(){
     if(!runtime.decals || runtime.decals.length===0) return;
     ctx.save();
+    traceRoomPath(ctx);ctx.clip();
     for(const decal of runtime.decals){
       const alpha = decal.alpha ?? 0;
       if(alpha<=0) continue;
@@ -23019,11 +23084,11 @@
     if(actor===player)return 'hood';
     if(actor.isBossEntity)return {idol:'skull-mask',master:'rock-golem',hydra:'tentacles-skull',seer:'wizard-staff',titan:'goblin-head',umbra:'ghost',paradox:'crystal-eye'}[actor.bossArchetype] || 'imp-laugh';
     const key=actor.archetype || actor.constructor.name.replace('Enemy','').toLowerCase();
-    return {chaser:'imp',orbiter:'evil-bat',gasbag:'goo-skull',bomber:'unlit-bomb',tinyfly:'dragonfly',elderfly:'fly',spider:'masked-spider',splitter:'slime',volatile:'candle-skull',sentry:'helmet-head-shot',dashling:'rogue',burrower:'mushroom',spark:'crystal-ball',brood:'goblin-head',mirrormimic:'floating-ghost',cutpurse:'cloak-dagger',warper:'ghost',crab:'spiked-shell',rat:'rat',warden:'chest-armor',lantern:'torch',beetle:'flying-beetle'}[key] || 'imp';
+    return {shadowecho:'ghost',paradoxshard:'crystal-eye',chaser:'imp',orbiter:'evil-bat',gasbag:'goo-skull',bomber:'unlit-bomb',tinyfly:'dragonfly',elderfly:'fly',spider:'masked-spider',splitter:'slime',volatile:'candle-skull',sentry:'helmet-head-shot',dashling:'rogue',burrower:'mushroom',spark:'crystal-ball',brood:'goblin-head',mirrormimic:'floating-ghost',cutpurse:'cloak-dagger',warper:'ghost',crab:'spiked-shell',rat:'rat',warden:'chest-armor',lantern:'torch',beetle:'flying-beetle'}[key] || 'imp';
   }
   function actorShadow(actor){
-    const p=viewPoint(actor.x,actor.y),r=(actor.r || 12)*.85;
-    ctx.fillStyle='#060605a8';ctx.beginPath();ctx.ellipse(p.x+3,p.y+2,r*1.1,r*.34,0,0,Math.PI*2);ctx.fill();
+    const p=viewPoint(actor.x,actor.y),altitude=Math.max(0,Number(actor.getAltitude?.()) || Number(actor.altitude) || (actor.flying ? .45:0)),r=(actor.r || 12)*.85*(1-Math.min(.35,altitude*.24));
+    ctx.fillStyle=`rgba(6,6,5,${.65-Math.min(.25,altitude*.18)})`;ctx.beginPath();ctx.ellipse(p.x+3,p.y+2,r*1.1,r*.34,0,0,Math.PI*2);ctx.fill();
   }
   // Clothing is assembled by body slot, so boots, a mask, a cloak and a backpack coexist.
   const COSTUME_STYLES=Object.freeze({
@@ -23059,10 +23124,10 @@
     'pilgrim-thread':['coat','stitches','#b3a285']
   });
   function drawPlayerCostume(actor,p,frame,hit){
-    const c=actor.costume || {},clock=Math.floor((runtime.visualTime || 0)*8)/8;
+    const c=actor.costume || {},clock=Math.floor((actor.animation?.clock ?? runtime.visualTime ?? 0)*8)/8;
     const part=slot=>c[slot]?.style,shade=slot=>part(slot)?.[2];
     const aimX=actor.facingX || 0,look=Math.round(aimX*2);
-    const lift=actor.pickupPose>0 ? 7 : actor.shotPose>0 ? 2 : 0,step=frame===1 ? -2 : frame===3 ? 2 : 0;
+    const lift=actor.pickupPose>0 || actor.activePose>0 ? 13 : actor.shotPose>0 ? 2 : 0,step=frame===1 ? -2 : frame===3 ? 2 : 0;
     const px=(x,y,w,h,color)=>{ctx.fillStyle=color;ctx.fillRect(Math.round(p.x+x),Math.round(p.y+y),w,h);};
     const poly=(points,color,edge='#292720')=>polygon(points.map(([x,y])=>({x:p.x+x,y:p.y+y})),color,edge);
     const icon=(key,x,y,w,h,color)=>drawGlyph(ctx,key,p.x+x,p.y+y,w,h,color);
@@ -23154,35 +23219,186 @@
     }
     if(actor.holyHeartState?.blessingActive){ctx.strokeStyle='#e0ca8d';ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(p.x,p.y-60,14,3,0,0,Math.PI*2);ctx.stroke();}
     if(actor.pickupPose>0){icon(actor.pickupRelic || 'health-heart',-10,-72,22,22,'#ead2a3');}
-    if(actor.activePose>0){icon(actor.activeRelic || 'clockwork',19,-43,19,22,'#e3c488');}
+    if(actor.activePose>0){icon(actor.activeRelic || 'clockwork',-12,-75,25,25,'#e3c488');}
   }
+  function drawCreatureParts(actor,p,w,h,pose,behind=false){
+    const {profile,frame,clock,preparing,attack,band}=pose,beat=[0,1,0,-1][frame],c=profile.color;
+    const at=(x,y)=>({x:p.x+x*w,y:p.y-y*h});
+    const path=(points,color=c,width=2)=>{ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();points.forEach(([x,y],i)=>{const q=at(x,y);i ? ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y);});ctx.stroke();};
+    const dot=(x,y,rx,ry,color=c)=>{const q=at(x,y);ctx.fillStyle=color;ctx.beginPath();ctx.ellipse(q.x,q.y,Math.max(.5,rx*w),Math.max(.5,ry*h),0,0,Math.PI*2);ctx.fill();};
+    const block=(x,y,bw,bh,color=c)=>{const q=at(x,y);ctx.fillStyle=color;ctx.fillRect(Math.round(q.x),Math.round(q.y),Math.max(1,bw*w),Math.max(1,bh*h));};
+    const eye=(x,y,size=.05)=>{dot(x,y,size,size*.7,'#d8cda9');dot(x+Math.sign(player.x-actor.x)*.012,y,size*.4,size*.65,preparing ? '#d69472':'#34312b');};
+    ctx.save();ctx.lineJoin='miter';
+    if(behind && pose.born<1){ctx.globalAlpha=.45*(1-pose.born);ctx.strokeStyle=c;ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(p.x,p.y,w*(.6-pose.born*.2),w*.14,0,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=1;}
+    switch(profile.motion){
+      case 'pilgrim':
+        if(!behind){
+          if(band==='critical'){path([[-.2,.54],[-.28,.35],[-.2,.2]],'#bc8a73',1);block(.24,.76,.04,.1,'#a2bfc3');}
+          if(preparing){dot(0,.66,.08,.045,'#8c4f4a');for(const s of [-1,1])dot(s*.22,.69,.05,.035,'#c9997f');}
+          if(attack){block(Math.sign(actor.facingX || 1)*.25,.68,.04,.04,'#d0d6bf');}
+          if(actor.roomBuff?.effects?.some(e=>e.type==='adrenaline'))path([[-.18,.5],[.03,.36],[-.1,.22]],frame%2 ? '#d3a18b':'#a66e65',1);
+        }break;
+      case 'claws':
+        if(behind)for(const s of [-1,1])path([[s*.3,.6],[s*(attack ? .76:.56),.48+beat*.04],[s*.6,.28+beat*.05]],'#685144',3);
+        else{eye(-.16,.67);eye(.15,.67);if(attack){path([[-.2,.4],[0,.3],[.22,.4]],'#d4ba94',2);}}
+        break;
+      case 'bat':
+        if(behind)for(const s of [-1,1])path([[s*.18,.7],[s*.8,.65+beat*.25],[s*.56,.2],[s*.3,.4]],c,2);
+        else{eye(-.13,.65);eye(.13,.65);path([[0,.25],[beat*.12,.05],[.1,-.1]],'#7e7186',1);}break;
+      case 'sacs':
+        if(!behind){for(let i=0;i<3;i++){dot((i-1)*.24,.42,preparing ? .16:.11,.12+beat*.015,'#b5b18a');dot((i-1)*.24,.43,.05,.04,'#6f7853');}path([[-.24,.68],[.24,.68]],'#d0c4a0',1);}break;
+      case 'fuse':case 'wick':
+        if(!behind){path([[.1,.8],[.18,1.04],[.31,1.12+beat*.04]],'#cab188',2);dot(.31,1.12+beat*.04,preparing || actor.fuse>0 ? .09:.04,.05,'#edc184');
+          if(actor.fuse>0 || actor.fuseTimer>0){ctx.globalAlpha=.35;dot(0,.45,.4,.35,'#d29060');}else path([[-.2,.35],[.2,.35]],'#c3ad82',1);}break;
+      case 'fly':case 'proboscis':
+        if(behind)for(const s of [-1,1]){dot(s*.43,.65+beat*.08,.33,frame%2 ? .04:.18,'#c6c5ad99');path([[s*.2,.4],[s*.5,.1],[s*.65,.16]],'#91876e',1);}
+        else{eye(-.17,.65,.09);eye(.17,.65,.09);if(profile.motion==='proboscis')path([[0,.5],[attack ? .38:.08,.25],[attack ? .55:.12,.16]],'#d2b78f',2);}break;
+      case 'legs':
+        if(behind)for(const s of [-1,1])for(let i=0;i<4;i++)path([[s*.25,.3+i*.1],[s*(.55+i*.06),.3+i*.11+beat*.05],[s*(.7+i*.05),.08+i*.08-beat*.05]],c,2);
+        else{for(const x of [-.2,-.07,.07,.2])eye(x,.65,.04);if(preparing)path([[-.25,.15],[0,.05],[.25,.15]],'#d1b38c',2);}break;
+      case 'gel':
+        if(!behind){path([[-.35,.2],[-.12,.12],[.15,.2+beat*.05],[.34,.1]],'#c5afc8',2);dot(-.2,.5,.07,.1,'#74607f');dot(.2,.5,.07,.1,'#74607f');dot(0,.25,.22,.07,'#a18bab88');}break;
+      case 'barrel':
+        if(!behind){const angle=actor.rotation || 0;path([[0,.55],[Math.cos(angle)*.6,.55-Math.sin(angle)*.25]],'#d2b58a',preparing ? 5:4);block(-.35,.8,.15,.09,preparing ? '#f0b078':'#6b7660');path([[-.3,.1],[.3,.1]],'#c5b38c',2);if(attack)dot(Math.cos(angle)*.65,.55-Math.sin(angle)*.25,.1,.08,'#f5d5a2');}break;
+      case 'runner':
+        if(behind){path([[-.2,.6],[-.7-beat*.1,.65],[-.9,.4]],'#9b8663',3);for(const s of [-1,1])path([[s*.15,.25],[s*(.3+beat*.08),.08],[s*.4,-.06]],c,3);}
+        else{path([[-.28,.7],[.28,.62]],'#d0ba8e',2);eye(.15,.67);}break;
+      case 'soil':
+        if(behind){for(let i=0;i<5;i++)block((i-2)*.2,.02+(i%2)*.04,.16,.05,'#8d7959');}
+        else{dot(-.2,.55,.09,.06,'#ded0aa');dot(.2,.55,.09,.06,'#ded0aa');path([[-.34,.22],[0,.14],[.3,.25]],'#b7a27a',2);}break;
+      case 'prism':case 'rings':
+        if(behind){for(let i=0;i<(profile.motion==='rings' ? 3:2);i++){ctx.strokeStyle=i%2 ? '#7f7492':c;ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(p.x,p.y-h*.55,w*(.55+i*.1),h*(.1+Math.abs(beat)*.03),clock*.5+i,0,Math.PI*2);ctx.stroke();}}
+        else{eye(0,.57,.13);for(let i=0;i<3;i++){const a=clock+i*Math.PI*2/3;dot(Math.cos(a)*.48,.55+Math.sin(a)*.38,.045,.04,'#dbd0e3');}}break;
+      case 'eggs':
+        if(behind)for(let i=0;i<4;i++)dot((i-1.5)*.25,.23,preparing ? .17:.13,.18,'#b4ab83');
+        else{for(const s of [-1,1]){eye(s*.17,.7);path([[s*.24,.47],[s*.42,.29],[s*.5,.15]],'#c8b78b',2);}block(-.09,.4,.18,.08,'#5b453b');}break;
+      case 'mirror':
+        if(behind){ctx.globalAlpha=.18;drawGlyph(ctx,actorArtKey(actor),p.x-w*.5+beat*7,p.y-h+3,w,h,'#b0bdc0');}
+        else{path([[-.35,.8],[.3,.18]],'#d6d8c5',1);path([[-.24,.2],[.25,.83]],'#6d7d83',1);eye(0,.58,.08);}break;
+      case 'purse':
+        if(behind)path([[.3,.5],[.62,.4],[.57,.05]],'#9b8663',3);
+        else{dot(.55,.27,.19,.19,'#a48c61');path([[.4,.43],[.65,.43]],'#d0b77d',2);if(actor.state==='escape'){dot(.54,.23,.07,.07,'#d9c17e');}eye(-.08,.66);}break;
+      case 'rift':case 'shroud':case 'echo':
+        if(behind)for(let i=0;i<3;i++)path([[(i-1)*.2,.4],[(i-1)*.25+beat*.08,.1],[(i-1)*.2-beat*.08,-.12]],'#8e7e9b',2);
+        else{eye(-.1,.63,.055);eye(.14,.63,.055);for(let i=0;i<3;i++)block(-.3+i*.22,.2+(frame+i)%3*.1,.08,.04,'#bcb0ca');}break;
+      case 'pincers':
+        if(behind)for(const s of [-1,1]){path([[s*.25,.3],[s*.7,.48+beat*.08],[s*.78,.7]],'#a38c69',3);for(let i=0;i<3;i++)path([[s*.25,.2+i*.05],[s*.48,.08+i*.04],[s*.62,beat*.03+i*.02]],'#a38c69',1);}
+        else for(const s of [-1,1]){path([[s*.76,.7],[s*(attack ? 1:.84),.9],[s*.57,.87]],'#c5af82',3);eye(s*.18,.65);}break;
+      case 'tail':
+        if(behind){for(const sign of [-1,1])path([[sign*.2,.2],[sign*.35,.04],[sign*.45+beat*.06,.02]],'#8c795e',2);path([[-.3,.25],[-.65,.12],[-.9,.22+beat*.08],[-1.0,.4]],'#a68a75',2);for(const s of [-1,1])dot(s*.25,.86,.13,.13,'#b09b7e');}
+        else{eye(.18,.65,.05);path([[.28,.43],[.6,.42],[.46,.55]],'#d1bc94',1);path([[.28,.4],[.62,.32]],'#d1bc94',1);}break;
+      case 'shield':
+        if(behind){path([[-.35,.7],[-.55,.35],[-.6,.1]],'#7c8976',4);}
+        else{path([[-.22,.82],[.19,.82]],'#d4cfad',2);eye(-.08,.72,.03);eye(.1,.72,.03);for(let i=0;i<3;i++)block(-.25+i*.2,.28,.05,.12,'#b8b99a');}break;
+      case 'lantern':
+        if(behind)path([[.2,.8],[.65,.65],[.68,.36+beat*.05]],'#b8a478',2);
+        else{const q=at(.68,.23+beat*.05);drawGlyph(ctx,'torch',q.x-w*.12,q.y-h*.2,w*.25,h*.33,'#e4bf7c');drawLocalLight(q.x,q.y,30,.1+(frame%2)*.035);eye(0,.67,.06);}break;
+      case 'elytra':
+        if(behind)for(const s of [-1,1])for(let i=0;i<3;i++)path([[s*.25,.25+i*.13],[s*.6,.18+i*.15+beat*.06],[s*.67,.08+i*.15]],'#8e7b91',2);
+        else{path([[0,.85],[0,.15]],'#dac3d0',2);for(const s of [-1,1]){path([[s*.1,.85],[s*.2,1.05],[s*.36,1.1]],c,1);dot(s*.22,.5,.07,.16,'#71607e');}}break;
+      case 'idol':
+        if(behind){for(const s of [-1,1])path([[s*.2,.7],[s*.52,.85],[s*.66,.72],[s*.52,.56]],'#aa987c',4);}
+        else{for(let i=0;i<3;i++)block(-.2+i*.16,.38,.09,.13,'#d7c5a5');eye(-.15,.7,.08);eye(.15,.7,.08);path([[-.35,.9],[0,1.04],[.35,.9]],'#d0b66f',2);}break;
+      case 'masonry':
+        if(behind)for(const s of [-1,1]){block(s*.4-.15,.7+beat*.03,.3,.3,'#7d7765');block(s*.4-.1,.34-beat*.03,.22,.2,'#a2997b');}
+        else{for(let i=0;i<3;i++)path([[-.32,.25+i*.24],[.28,.25+i*.24]],'#625e4c',2);path([[0,.9],[-.08,.7],[.12,.55],[-.04,.3]],'#d3c08d',2);eye(-.2,.72,.06);eye(.15,.72,.06);}break;
+      case 'tentacles':
+        if(behind)for(let i=0;i<7;i++){const x=(i-3)*.16,flip=i%2 ? 1:-1;path([[x,.45],[x*1.8,.25+beat*.05*flip],[x*2.1+beat*.07,.04],[x*1.8,-.1]],i%2 ? '#b38d92':'#84626e',Math.max(2,w*.045));}
+        else{for(const x of [-.26,0,.26])eye(x,.65,.09);dot(0,.34,.2,attack ? .12:.06,'#62434e');}break;
+      case 'orbitals':
+        if(behind)for(let i=0;i<4;i++){const a=clock*.8+i*Math.PI/2;eye(Math.cos(a)*.62,.55+Math.sin(a)*.32,.08);}
+        else{path([[0,.95],[0,.13]],'#d0ba99',2);eye(0,.7,.12);for(let i=0;i<3;i++)dot((i-1)*.18,.28,.035,.035,'#decae4');}break;
+      case 'chains':
+        if(behind)for(const s of [-1,1]){for(let i=0;i<5;i++)dot(s*(.4+beat*.02*i),.7-i*.12,.05,.055,'#aaa084');}
+        else{path([[-.4,.7],[.35,.22]],'#745541',3);eye(-.18,.72,.07);eye(.18,.72,.07);path([[-.2,.4],[0,.23],[.2,.4]],'#d2ba96',3);}break;
+      case 'shard':
+        if(behind)path([[-.4,.1],[0,1.2],[.4,.15]],'#c4b3cf',2);
+        else{path([[-.2,.25],[.14,.85]],'#ede0dc',1);dot(0,.52,.07,.08,'#cbbbe5');}break;
+      case 'copy':case 'ribbon-left':case 'ribbon-right':case 'scope':case 'sprout':case 'chalice':case 'collector':
+        if(behind){const sign=profile.motion==='ribbon-left' ? -1:1;path([[0,.55],[sign*(.4+beat*.1),.15],[sign*.6,.22]],c,2);}
+        else{
+          eye(-.14,.65,.065);eye(.14,.65,.065);
+          const key={copy:'hood','ribbon-left':'twirly-flower','ribbon-right':'twirly-flower',scope:'bullets',sprout:'imp',chalice:'coffee-cup',collector:'knapsack'}[profile.motion];
+          const q=at(profile.motion==='collector' ? .3:0,profile.motion==='sprout' ? 1.0:.4);drawGlyph(ctx,key,q.x-w*.2,q.y-h*.14,w*.4,h*.28,c);
+          if(profile.motion==='scope')path([[.2,.55],[.6,.55]],'#d6c8a5',2);
+          if(profile.motion==='chalice' && (actor.charging || actor.brimstoneBeam))dot(0,.3,.2,.12,'#df907c');
+        }break;
+    }
+    if(!behind){
+      if(band==='half' || band==='critical'){
+        const wound=['blood','ichor'].includes(profile.material) ? '#81443f':profile.material==='wisp' ? '#dfd2e4':'#504d43';
+        path([[-.28,.61],[-.08,.52],[-.17,.38]],wound,1);
+        if(band==='critical'){path([[.24,.8],[.08,.66],[.18,.45],[.04,.25]],wound,2);block(-.25,.28,.09,.05,pose.frame%2 ? profile.color:wound);}
+      }
+      if(pose.preparing || pose.charge>0){
+        const count=3+Math.floor(pose.charge*3);for(let i=0;i<count;i++){const a=clock*2.8+i*Math.PI*2/count;dot(Math.cos(a)*.48,.5+Math.sin(a)*.4,.025,.025,'#e0c59b');}
+      }
+      if(pose.frozen){ctx.strokeStyle='#b6c1c3';ctx.lineWidth=1;for(let i=0;i<3;i++){const q=at((i-1)*.22,.9);ctx.beginPath();ctx.moveTo(q.x,q.y);ctx.lineTo(q.x+2,q.y+h*.6);ctx.stroke();}}
+      if(actor.cinder){for(let i=0;i<3;i++)block((i-1)*.22,.12+(frame+i)%3*.14,.04,.08,'#dfaa6a');}
+      if(actor.mossSlow>0){path([[-.3,.22],[-.4,.5],[-.27,.42]],'#99ac7e',2);}
+    }
+    ctx.restore();
+  }
+  function drawFollowerDetail(f){
+    const pose=creaturePose(f),p=viewPoint(f.x,f.y,16+Math.round(Math.sin(pose.clock*2)*2));actorShadow(f);
+    ctx.save();ctx.globalAlpha=.7+.3*pose.born;
+    drawCreatureParts(f,p,22,26,pose,true);
+    drawGlyph(ctx,{brother:'hood','sister-left':'warlock-hood','sister-right':'warlock-hood',cousin:'rogue','younger-cousin':'imp','aunt-brimstone':'dragon-breath','black-buddy':'ghost'}[f.slug] || 'ghost',p.x-11,p.y-26,22,26,pose.profile.color);
+    drawCreatureParts(f,p,22,26,pose);ctx.restore();
+  }
+  function drawCorpseDetail(c){
+    const t=1-c.life/c.ttl,frame=Math.min(5,Math.floor(t*6)),p=viewPoint(c.x,c.y),profile=CREATURE_ANIMATIONS[c.profile] || CREATURE_ANIMATIONS.chaser;
+    const brittle=['metal','stone','bone','shell','crystal','glass'].includes(profile.material),spectral=profile.material==='wisp';
+    ctx.save();ctx.globalAlpha=Math.max(0,1-t)*(spectral ? .65:1);
+    if(spectral){
+      for(let i=0;i<3;i++){const rise=frame*(i+1)*4;drawGlyph(ctx,c.key,p.x-c.r+Math.sin(i+frame)*4,p.y-c.r*2-rise,c.r*2,c.r*(1.4-frame*.12),c.color || profile.color);ctx.globalAlpha*=.45;}
+    }else if(brittle){
+      ctx.save();ctx.beginPath();ctx.rect(p.x-c.r*1.5,p.y-c.r*2,c.r*3,c.r*2*(1-frame/6));ctx.clip();drawGlyph(ctx,c.key,p.x-c.r,p.y-c.r*2,c.r*2,c.r*2,c.color || profile.color);ctx.restore();
+      for(let i=0;i<8;i++){const a=i*2.4;ctx.fillStyle=i%2 ? profile.color:'#786b56';ctx.fillRect(Math.round(p.x+Math.cos(a)*frame*3),Math.round(p.y+Math.sin(a)*frame-c.r*.3),2+i%3,2);}
+    }else{
+      const squash=profile.motion==='gel' || profile.motion==='sacs';
+      ctx.translate(p.x,p.y);if(!squash)ctx.rotate(frame*.15);
+      drawGlyph(ctx,c.key,-c.r-frame,-c.r*(2-frame*.24),c.r*2+frame*2,Math.max(4,c.r*(2-frame*.28)),frame<2 ? '#e0c3a0':profile.color);
+      ctx.fillStyle=profile.material==='ichor' ? '#7f8960':'#8b4f42';for(let i=0;i<5;i++)ctx.fillRect((i-2)*frame*2,-1+(i%2),3,2);
+    }
+    ctx.restore();
+  }
+
   function drawCryptActor(actor){
     const hero=actor===player,boss=actor.isBossEntity,r=actor.r || 12;
-    const clock=Math.floor((runtime.visualTime || 0)*8)/8;
+    const pose=creaturePose(actor),clock=Math.floor(pose.clock*8)/8;
     const moving=(actor.groundSpeed || Math.hypot(actor.bodyVx || 0,actor.bodyVy || 0))>12;
     const frame=moving ? Math.floor((actor.gaitPhase || clock*6)*1.2)%4 : 0;
-    const lift=actor.flying ? 18+Math.round(Math.sin(clock*3)*2) : actor.altitude>0 ? actor.altitude*38 : frame%2;
+    const airborne=Math.max(0,Number(actor.getAltitude?.()) || Number(actor.altitude) || 0);
+    const lift=airborne>0 ? airborne*(boss ? 55:38) : actor.flying ? 18+Math.round(Math.sin(clock*3)*2):frame%2;
     const foot=viewPoint(actor.x,actor.y),p=viewPoint(actor.x,actor.y,lift);
+    const idle=pose.band==='critical' ? 2:1;
+    p.y-=moving ? 0:Math.round(Math.sin(clock*(pose.band==='critical' ? 4:2))*idle);
     actorShadow(actor);
+    if(!hero && actor.state==='burrow'){ctx.save();ctx.fillStyle='#655a40';ctx.strokeStyle='#9d8f69';ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(foot.x,foot.y,r*1.2,r*.35,0,0,Math.PI*2);ctx.fill();ctx.stroke();for(let i=0;i<4;i++){ctx.fillStyle=i%2 ? '#847756':'#b09c70';ctx.fillRect(foot.x-r+i*r*.6,foot.y-2-(i%2),3,2);}ctx.restore();return;}
     if(hero && actor.hp<=0){
-      const frame=Math.min(3,Math.floor((runtime.playerDeathTime || 0)*6));
-      ctx.fillStyle='#703e32';ctx.fillRect(p.x-15-frame*2,p.y-3,30+frame*4,5);
-      drawGlyph(ctx,'hood',p.x-18,p.y-32+frame*6,36,Math.max(10,36-frame*8),'#8c7960');return;
+      const t=clamp((runtime.playerDeathTime || 0)/1.1,0,1),frame=Math.floor(t*5);
+      ctx.save();ctx.translate(p.x,p.y);ctx.rotate(-frame*.25);ctx.scale(1,1-t*.45);ctx.globalAlpha=1-t*.25;
+      drawPlayerCostume(actor,{x:0,y:0},0,frame<2);ctx.restore();
+      return;
     }
     ctx.save();
     ctx.translate(p.x,p.y);ctx.scale(hero ? 1.16:1.08,hero ? 1.16:1.08);ctx.translate(-p.x,-p.y);
-    ctx.globalAlpha*=getEntitySpawnFade(actor);
+    ctx.globalAlpha*=getEntitySpawnFade(actor)*(.7+.3*pose.born);
     const hit=actor.damageFlashTimer>0 || actor.hurtPose>0;
     if(hero && actor.ifr>0 && Math.floor(clock*10)%2)ctx.globalAlpha=.45;
-    if(isPhasedActor(actor))ctx.globalAlpha*=.35;
+    if(isPhasedActor(actor) && actor.state!=='leap')ctx.globalAlpha*=.35;
     const width=hero ? 30 : Math.max(22,r*(boss ? 2.5 : 2.25)),height=hero ? 40 : width*(boss ? 1.2 : 1.08);
     const color=hit ? '#e6cda5' : hero ? '#b4b49a' : actor.enraged ? '#be755d' : actor.windup>0 ? '#c0a66e' : boss ? '#af7b77' : actor.cryptType==='warden' ? '#919d82' : ['sentry','crab'].includes(actor.archetype) ? '#b8a17e' : actor.flying ? '#ad9cb9' : actor.archetype==='volatile' ? '#bd8d70' : '#ad9275';
-    if(!hero && !actor.flying){
+    if(!hero && !actor.flying && ['claws','fuse','wick','barrel','runner','purse','shield','idol','masonry','chains'].includes(pose.profile.motion)){
       ctx.fillStyle='#504637';const step=frame===1 ? -2 : frame===3 ? 2 : 0;
       ctx.fillRect(p.x-width*.23,p.y-4+step,Math.max(3,width*.17),5);ctx.fillRect(p.x+width*.08,p.y-4-step,Math.max(3,width*.17),5);
     }
     if(hero){
+      const recoil=pose.hurt ? .92:pose.preparing ? .97:1;
+      ctx.translate(p.x,p.y);ctx.scale(2-recoil,recoil);ctx.translate(-p.x,-p.y);
       drawPlayerCostume(actor,p,frame,hit);
+      drawCreatureParts(actor,p,30,45,pose);
       const aimX=actor.facingX || (keys.has('ArrowLeft') ? -1 : 1),attack=actor.shotPose>0;
       const weapon={lightsaber:'rune-sword',shortsword:'broadsword',brimstone:'wizard-staff','bomb-elder':'unlit-bomb','bomb-progenitor':'skull-ring'}[actor.attackMode];
       if(weapon)drawGlyph(ctx,weapon,p.x+(aimX<0 ? -25 : 10)+(attack ? aimX*3 : 0),p.y-27-(attack ? 2 : 0),18,24,'#a89673');
@@ -23192,14 +23408,13 @@
       if(recipes.length){ctx.strokeStyle=recipes.some(r=>r.key==='cinder') ? '#b5774b' : '#9987ac';ctx.globalAlpha*=.5;ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(foot.x,foot.y,20,7,0,0,Math.PI*2);ctx.stroke();}
     }else{
       const preparing=actor.windup>0 || actor.telegraphTimer>0 || /windup|telegraph/.test(actor.state || '');
-      const compression=hit ? .88 : preparing ? .9 : actor.attackPose>0 ? 1.08 : 1;
+      const breath=pose.frame%2 ? 1.025:1;
+      const compression=hit ? .88 : preparing ? .9 : actor.attackPose>0 ? 1.08 : moving ? 1:breath;
       const poseWidth=width*(2-compression),poseHeight=height*compression;
       const lean=actor.attackPose>0 ? Math.sign(player.x-actor.x)*3 : moving ? Math.round(clamp(actor.motionVx || 0,-120,120)/60) : 0;
-      if(actor.flying && !boss){
-        const wing=frame%2 || Math.floor(clock*8)%2;
-        for(const sign of [-1,1])polygon([{x:p.x+sign*width*.3,y:p.y-height*.6},{x:p.x+sign*width*.7,y:p.y-height*(wing ? .85:.35)},{x:p.x+sign*width*.4,y:p.y-height*.4}],'#aaa28a88');
-      }
-      drawGlyph(ctx,actorArtKey(actor),p.x-poseWidth/2+lean,p.y-poseHeight,poseWidth,poseHeight,color);
+      drawCreatureParts(actor,p,width,height,pose,true);
+      drawGlyph(ctx,actorArtKey(actor),p.x-poseWidth/2+lean,p.y-poseHeight,poseWidth,poseHeight,hit ? '#e6cda5':pose.profile.color);
+      drawCreatureParts(actor,p,width,height,pose);
       if(actor.cryptType==='warden'){
         const direction=actor.lockedAngle ?? Math.atan2(player.y-actor.y,player.x-actor.x),dx=Math.cos(direction)*13,dy=Math.sin(direction)*7;
         drawGlyph(ctx,'skull-shield',p.x+dx-11,p.y-height*.6+dy-8,22,25,actor.windup>0 ? '#d6c18f':'#7c8c79');
@@ -23321,12 +23536,12 @@
       const fade=clamp(b.explosionTimer/.4,0,1),radius=b.explosionRadius*(1+(1-fade)*.2);
       groundLayer(()=>{ctx.save();ctx.globalAlpha=fade*.5;ctx.fillStyle='#aa7143';ctx.strokeStyle='#d8b47c';ctx.lineWidth=3;ctx.beginPath();ctx.arc(b.x,b.y,radius,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.restore();});drawLocalLight(p.x,p.y,Math.min(180,radius),fade*.35);return;
     }
-    const flash=b.timer<.8 && Math.floor((runtime.visualTime || 0)*8)%2;
+    const flash=b.timer<.8 && Math.floor(getRoomAtmosphere().time*8)%2;
     drawGlyph(ctx,'unlit-bomb',p.x-11,p.y-24,22,24,flash ? '#d3a765' : '#9c8967');
     ctx.fillStyle='#dfbe7e';ctx.fillRect(p.x+6,p.y-23,2,2);
   }
   function drawCryptShot(b,hostile=false){
-    const altitude=shotAltitude(b,hostile),p=viewPoint(b.x,b.y,altitude),ground=viewPoint(b.x,b.y),r=clamp(b.r || 5,2,15);
+    const altitude=shotAltitude(b,hostile),wobble=hostile ? {x:0,y:0}:shotWobble(b),p=viewPoint(b.x+wobble.x,b.y+wobble.y,altitude),ground=viewPoint(b.x,b.y),r=clamp(b.r || 5,2,15);
     const color=b.color || (hostile ? '#ed8c77':'#9bc9d2');
     ctx.save();
     ctx.fillStyle=`rgba(7,8,6,${.42+clamp(1-altitude/38,0,1)*.26})`;
@@ -23334,6 +23549,9 @@
     if(hostile && (b instanceof LobbedRock || b instanceof FallingShard)){
       drawGlyph(ctx,b instanceof LobbedRock ? 'rock-golem' : 'crystal-shine',p.x-r,p.y-r,r*2,r*2,'#c1a07d');ctx.restore();return;
     }
+    const trail=b.visualTrail || [];
+    if(trail.length>1){ctx.strokeStyle=colorWithAlpha(color,.16);ctx.lineWidth=Math.max(1,r*.35);ctx.beginPath();trail.forEach((q,i)=>{const point=viewPoint(q.x,q.y,q.z);i ? ctx.lineTo(point.x,point.y):ctx.moveTo(point.x,point.y);});ctx.stroke();}
+    if(b.homingActive){ctx.strokeStyle='#c4a8d688';ctx.lineWidth=1;ctx.beginPath();ctx.arc(p.x,p.y,r+2,(b.visualAge || 0)*4,(b.visualAge || 0)*4+Math.PI);ctx.stroke();}
     const previous=viewPoint(b.prevX ?? b.x,b.prevY ?? b.y,b.previousAltitude ?? altitude);
     const dx=p.x-previous.x,dy=p.y-previous.y,length=Math.hypot(dx,dy);
     if(length>1 && (b.homing || hostile || Math.hypot(b.vx || 0,b.vy || 0)>300)){
@@ -23383,12 +23601,13 @@
         const a=viewPoint(e.a.x+(e.b.x-e.a.x)*lo,e.a.y+(e.b.y-e.a.y)*lo),b=viewPoint(e.a.x+(e.b.x-e.a.x)*hi,e.a.y+(e.b.y-e.a.y)*hi);
         polygon([a,b,{x:b.x,y:b.y-height},{x:a.x,y:a.y-height}],i===0 ? '#494b3b':'#393e2e','#8a8568');
         ctx.strokeStyle='#2d3225';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(a.x,a.y-height+8);ctx.lineTo(b.x,b.y-height+8);ctx.stroke();
+        drawWallPatina(a,b,height,i);
       }
-      if(i===0){for(const t of [.18,.82]){const p=viewPoint(e.a.x+(e.b.x-e.a.x)*t,e.a.y+(e.b.y-e.a.y)*t,20);drawGlyph(ctx,'torch',p.x-7,p.y-14,14,22,'#d5aa60');drawLocalLight(p.x,p.y-8,85,.2);}}
+      if(i===0){for(const t of [.18,.82]){const p=viewPoint(e.a.x+(e.b.x-e.a.x)*t,e.a.y+(e.b.y-e.a.y)*t,20);drawGlyph(ctx,'torch',p.x-7,p.y-14,14,22,'#d5aa60');drawLocalLight(p.x,p.y-8,85,.17+.04*(Math.floor(getRoomAtmosphere().time*8)%3)/2);ctx.fillStyle='#e5bd7c';ctx.fillRect(p.x-1,p.y-18-(Math.floor(getRoomAtmosphere().time*8)%3),2,4);}}
     }
   }
   function drawCryptFX(){
-    drawTearSplashes();
+    drawTearSplashes();drawDetailParticles();
     for(const e of runtime.effects){
       if(e.type==='bomb-progenitor-reticle'){
         if(!e.state?.reticle)continue;
@@ -23406,11 +23625,7 @@
       }
     }
     ctx.globalAlpha=1;
-    for(const c of runtime.corpses || []){
-      const p=viewPoint(c.x,c.y),frame=Math.min(3,Math.floor((1-c.life/c.ttl)*4));ctx.save();ctx.globalAlpha=c.life/c.ttl;
-      drawGlyph(ctx,c.key,p.x-c.r,p.y-c.r*(1-frame*.15),c.r*2,Math.max(3,c.r*(1.5-frame*.35)),'#7e5949');
-      ctx.fillStyle='#753f35';for(let i=0;i<5;i++){const a=i*2.3;ctx.fillRect(p.x+Math.cos(a)*frame*5,p.y+Math.sin(a)*frame*2,2,2);}ctx.restore();
-    }
+    for(const c of runtime.corpses || [])drawCorpseDetail(c);
     for(const c of runtime.relicFlights || []){
       const t=Math.floor((1-c.life/c.ttl)*8)/8,point=viewPoint(c.x+(player.x-c.x)*t,c.y+(player.y-c.y)*t,12+t*45);
       ctx.save();ctx.globalAlpha=1-t*.6;drawGlyph(ctx,c.key,point.x-12,point.y-24,24,24,'#ddc58e');ctx.restore();
@@ -23421,6 +23636,12 @@
     }
   }
   function drawCryptTelegraphs(){
+    for(const shot of runtime.enemyProjectiles){
+      if(!shot.alive || !(shot instanceof LobbedRock || shot instanceof FallingShard))continue;
+      const x=shot.targetX ?? shot.x,y=shot.targetY ?? shot.y,progress=shot instanceof LobbedRock ? shot.elapsed/shot.flight:1-shot.z/shot.initialZ;
+      ctx.save();ctx.strokeStyle=shot instanceof FallingShard ? '#c5a4ce':'#d6b17a';ctx.lineWidth=1.5;ctx.globalAlpha=.45+progress*.35;
+      ctx.beginPath();ctx.arc(x,y,shot.r+9,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.arc(x,y,shot.r+9,-Math.PI/2,-Math.PI/2+Math.max(.05,progress)*Math.PI*2);ctx.lineWidth=3;ctx.stroke();ctx.restore();
+    }
     for(const e of dungeon.current.enemies){
       drawEnemyIntent(e);
       if(e.windup>0 && e.cryptType==='warden'){
@@ -23457,6 +23678,7 @@
       const a=viewPoint(geometry.startX,geometry.startY,20),b=viewPoint(geometry.endX,geometry.endY,20);
       ctx.strokeStyle='#6d493f88';ctx.lineWidth=beam.getWidth?.() || 10;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
       ctx.strokeStyle=beam.type==='brimstone' || beam.owner?.attackMode==='brimstone' ? '#d17a65':'#c2a16a';ctx.lineWidth=4;ctx.stroke();ctx.strokeStyle='#f2cfad';ctx.lineWidth=1;ctx.stroke();drawLocalLight(a.x,a.y,42,.14);
+      const pulse=Math.floor((player.animation?.clock || 0)*10);for(let i=1;i<8;i++){const t=(i+(pulse%3)/3)/8;ctx.fillStyle=i%2 ? '#d2b88b':'#b16c59';ctx.fillRect(Math.round(a.x+(b.x-a.x)*t),Math.round(a.y+(b.y-a.y)*t+(i%2 ? 2:-2)),2,2);}
     }
     const held=player.shortSword;
     if(player.attackMode==='shortsword' && held && !held.projectile && held.attached!==false){
@@ -23473,7 +23695,8 @@
       if(!swing.owner || swing.alpha<=0)continue;
       const pivot=swing.getPivot(),a=viewPoint(pivot.x,pivot.y,20),angle=Math.round(swing.currentAngle*12)/12;
       const b=viewPoint(pivot.x+Math.cos(angle)*swing.length,pivot.y+Math.sin(angle)*swing.length,20);
-      ctx.save();ctx.globalAlpha=swing.alpha;ctx.strokeStyle='#837867';ctx.lineWidth=Math.min(12,swing.width || 6);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.lineWidth=2;ctx.strokeStyle='#d8c996';ctx.stroke();ctx.restore();
+      ctx.save();ctx.globalAlpha=swing.alpha;ctx.strokeStyle='#837867';ctx.lineWidth=Math.min(12,swing.width || 6);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.lineWidth=2;ctx.strokeStyle='#d8c996';ctx.stroke();
+      for(let i=1;i<3;i++){const q=viewPoint(pivot.x+Math.cos(angle-i*.16)*swing.length,pivot.y+Math.sin(angle-i*.16)*swing.length,20);ctx.globalAlpha=swing.alpha*(.22/i);ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(q.x,q.y);ctx.stroke();}ctx.restore();
     }
   }
   function drawCryptScene(){
@@ -23491,7 +23714,7 @@
     for(const portal of roomPortals(dungeon.current))actors.push({depth:portal.y,draw:()=>drawCryptPortal(portal)});
     for(const b of dungeon.current.bombs)actors.push({depth:b.y,draw:()=>drawCryptBomb(b)});
     for(const e of dungeon.current.enemies)if(!e.dead)actors.push({depth:e.y,draw:()=>drawCryptActor(e)});
-    for(const f of player.followers || [])actors.push({depth:f.y,draw:()=>{actorShadow(f);const p=viewPoint(f.x,f.y,16);drawGlyph(ctx,'ghost-ally',p.x-9,p.y-18,18,22,'#a49e8a');}});
+    for(const f of player.followers || [])actors.push({depth:f.y,draw:()=>drawFollowerDetail(f)});
     actors.push({depth:player.y,draw:()=>drawCryptActor(player)});
     actors.sort((a,b)=>a.depth-b.depth);for(const actor of actors)actor.draw();
     drawCryptWeapons();
@@ -23512,7 +23735,7 @@
     ctx.restore();
     const vignette=ctx.createRadialGradient(400,325,140,400,310,490);vignette.addColorStop(0,'#00000000');vignette.addColorStop(1,'#00000066');ctx.fillStyle=vignette;ctx.fillRect(0,0,800,600);
     if(runtime.timeStopTimer>0){ctx.fillStyle='#b2a08b12';ctx.fillRect(0,0,800,600);}
-    drawPlayerVitals();drawChargeFeedback();updateNearbyInfo();drawRoomTransitionOverlay();drawBossHealth();drawMiniMap();drawItemPickupBanner();if(runtime.bossIntroTimer>0)drawBossIntro();
+    drawPlayerVitals();drawChargeFeedback();updateNearbyInfo();drawRoomTransitionOverlay();drawBossHealth();drawMiniMap();drawItemPickupBanner();if(runtime.bossIntroTimer>0)drawBossIntro();runtime.lastRenderedRoom=dungeon.current;
   }
   function drawCryptMenu(){
     beginCryptFrame();
@@ -23584,7 +23807,7 @@
     return '#9bc9d2';
   }
   function shotAltitude(shot,hostile=false){
-    if(hostile)return 18;
+    if(hostile)return Number.isFinite(shot.z) ? shot.z:18;
     // Orbiting peach seeds are floating familiars, not range-limited tears.
     if(!(shot instanceof Bullet))return 22+Math.round(Math.sin((runtime.visualTime || 0)*4+(shot.angle || 0))*2);
     const u=clamp(1-shot.life/Math.max(.001,shot.totalLife),0,1);
@@ -23753,7 +23976,8 @@
     polygon([a,b,{x:b.x,y:b.y-height+8},{x:p.x,y:p.y-height-2},{x:a.x,y:a.y-height+8}],ready ? '#101710':'#3c342a','#b59b6c');
     const side=q=>{ctx.strokeStyle='#83755a';ctx.lineWidth=7;ctx.beginPath();ctx.moveTo(q.x,q.y);ctx.lineTo(q.x,q.y-height+8);ctx.stroke();};side(a);side(b);
     ctx.strokeStyle=style.color;ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(a.x,a.y-height+8);ctx.lineTo(p.x,p.y-height-2);ctx.lineTo(b.x,b.y-height+8);ctx.stroke();
-    if(!ready){for(let t=.2;t<1;t+=.2){const x=a.x+(b.x-a.x)*t,y=a.y+(b.y-a.y)*t;ctx.strokeStyle='#a29472';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x,y-height+10);ctx.stroke();}}
+    const opening=getRoomAtmosphere().doorMotion[d.dir] ?? (ready ? 1:0);
+    if(opening<.99){for(let t=.2;t<1;t+=.2){const x=a.x+(b.x-a.x)*t,y=a.y+(b.y-a.y)*t;ctx.strokeStyle='#a29472';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y-(height-10)*opening);ctx.lineTo(x,y-height+10);ctx.stroke();}}
     const iconY=p.y-height-19;ctx.fillStyle='#211e16';ctx.fillRect(p.x-13,iconY-2,26,24);drawGlyph(ctx,nr?.locked ? 'locked-door':role.key,p.x-10,iconY,20,20,style.color);
     if(nr?.locked){drawGlyph(ctx,role.key,p.x+15,iconY+5,14,14,style.color);}
     if(dist(player,{x:d.cx,y:d.cy})<95){ctx.font='11px serif';ctx.fillStyle='#e6cda0';ctx.textAlign='center';ctx.fillText(`${role.label}${nr?.locked ? ' · 需钥匙':''}`,p.x,iconY-5);}
